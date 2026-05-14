@@ -1,0 +1,92 @@
+import { GoogleGenerativeAI } from '@google/generative-ai';
+
+const genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY!);
+
+export interface GradingResult {
+  score: number;
+  feedback: string;
+  plagiarismSuspicion: number;
+  details: {
+    quality: number;
+    relevance: number;
+    copyPasteRisk: number;
+  };
+}
+
+export async function gradeSubmission(
+  assignmentTitle: string,
+  assignmentDescription: string,
+  studentContent: string,
+  otherSubmissions: string[] = [],
+  rubric?: string
+): Promise<GradingResult> {
+  const model = genAI.getGenerativeModel({ model: 'gemini-2.0-flash' });
+
+  const comparisonBlock =
+    otherSubmissions.length > 0
+      ? `\n\nCompare with these other submissions in the same class for plagiarism detection:\n${otherSubmissions
+          .slice(0, 10)
+          .map((s, i) => `[Student ${i + 1}]: "${s.slice(0, 300)}"`)
+          .join('\n')}`
+      : '';
+
+  const rubricBlock = rubric
+    ? `\n\nCustom grading rubric from teacher (follow these criteria carefully):\n${rubric}`
+    : '';
+
+  const prompt = `You are a teacher assistant for a Thai secondary school Computing Science class (ม.3 / Grade 9).
+Grade the following student submission.
+
+Assignment: ${assignmentTitle}
+Instructions: ${assignmentDescription}${rubricBlock}
+
+Student's answer:
+"""
+${studentContent}
+"""${comparisonBlock}
+
+Respond ONLY with a JSON object in this exact shape — no markdown, no extra text:
+{"score":0,"feedback":"","plagiarismSuspicion":0,"details":{"quality":0,"relevance":0,"copyPasteRisk":0}}
+
+Rules:
+- score: 0-100 overall score
+- feedback: 2-3 sentences in Thai, constructive and kind
+- plagiarismSuspicion: 0-100 (0=clearly original, 100=definitely copied from internet or peers)
+- details.quality: depth and accuracy of content (0-100)
+- details.relevance: how well the answer addresses the question (0-100)
+- details.copyPasteRisk: likelihood of copy-paste from external sources (0-100)
+
+Scoring guide: 90-100 excellent, 70-89 good, 50-69 adequate, 30-49 incomplete, 0-29 very poor or copied.
+Short answers (<30 words) should score at most 40 unless the question is trivial.`;
+
+  const result = await model.generateContent(prompt);
+  const text = result.response.text().trim();
+
+  try {
+    return JSON.parse(text) as GradingResult;
+  } catch {
+    const match = text.match(/\{[\s\S]*\}/);
+    if (match) return JSON.parse(match[0]) as GradingResult;
+    return {
+      score: 50,
+      feedback: 'ระบบตรวจงานอัตโนมัติพบข้อผิดพลาด กรุณารอครูตรวจสอบด้วยตนเอง',
+      plagiarismSuspicion: 0,
+      details: { quality: 50, relevance: 50, copyPasteRisk: 0 },
+    };
+  }
+}
+
+/** Convert block-based answers to readable text for AI grading */
+export function answersToText(
+  blocks: Array<{ id: string; type: string; question?: string }>,
+  answers: Record<string, string | string[]>
+): string {
+  return blocks
+    .filter((b) => ['short-answer', 'long-answer', 'multiple-choice', 'checkbox'].includes(b.type))
+    .map((b) => {
+      const ans = answers[b.id];
+      const ansText = Array.isArray(ans) ? ans.join(', ') : (ans ?? '(ไม่ได้ตอบ)');
+      return `Q: ${b.question ?? b.id}\nA: ${ansText}`;
+    })
+    .join('\n\n');
+}

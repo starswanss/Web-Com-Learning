@@ -1,0 +1,25 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(npx create-next-app@latest . --typescript --tailwind --eslint --app --src-dir --import-alias \"@/*\" --turbopack --no-git)",
+      "Bash(npx create-next-app@latest ./lms-temp --typescript --tailwind --eslint --app --src-dir --import-alias \"@/*\" --turbopack --no-git)",
+      "Bash(cp -r lms-temp/. .)",
+      "Bash(rm -rf lms-temp)",
+      "Bash(cp \"c:/Users/WebMasterRS/Desktop/Web-Com-Learning/lms-temp/package.json\" \"c:/Users/WebMasterRS/Desktop/Web-Com-Learning/package.json\")",
+      "Bash(cp -r \"c:/Users/WebMasterRS/Desktop/Web-Com-Learning/lms-temp/src\" \"c:/Users/WebMasterRS/Desktop/Web-Com-Learning/src\")",
+      "Bash(cp \"c:/Users/WebMasterRS/Desktop/Web-Com-Learning/lms-temp/README.md\" \"c:/Users/WebMasterRS/Desktop/Web-Com-Learning/README.md\")",
+      "Bash(rm -rf \"c:/Users/WebMasterRS/Desktop/Web-Com-Learning/lms-temp\")",
+      "Bash(npm install *)",
+      "Bash(npx tsc *)",
+      "Bash(npm run *)",
+      "Bash(taskkill /PID 7016 /F)",
+      "PowerShell(Stop-Process -Id 7016 -Force)",
+      "PowerShell(Get-Process -Name \"node\" -ErrorAction SilentlyContinue)",
+      "PowerShell(Stop-Process -Force -ErrorAction SilentlyContinue)",
+      "Bash(sed -i 's/verifySessionCookie\\(session, true\\)/verifySessionCookie\\(session, false\\)/g' \\\\ *)"
+    ],
+    "additionalDirectories": [
+      "c:\\Users\\WebMasterRS\\Desktop\\Web-Com-Learning\\src\\app\\api\\assignments\\student\\[id]"
+    ]
+  }
+}
