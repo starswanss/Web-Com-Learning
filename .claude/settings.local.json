@@ -16,10 +16,13 @@
       "PowerShell(Stop-Process -Id 7016 -Force)",
       "PowerShell(Get-Process -Name \"node\" -ErrorAction SilentlyContinue)",
       "PowerShell(Stop-Process -Force -ErrorAction SilentlyContinue)",
-      "Bash(sed -i 's/verifySessionCookie\\(session, true\\)/verifySessionCookie\\(session, false\\)/g' \\\\ *)"
+      "Bash(sed -i 's/verifySessionCookie\\(session, true\\)/verifySessionCookie\\(session, false\\)/g' \\\\ *)",
+      "Bash(mkdir -p \"/c/Users/WebMasterRS/Desktop/Web-Com-Learning/src/app/parent/[token]\" 2>&1 || true)",
+      "Bash(git add *)"
     ],
     "additionalDirectories": [
-      "c:\\Users\\WebMasterRS\\Desktop\\Web-Com-Learning\\src\\app\\api\\assignments\\student\\[id]"
+      "c:\\Users\\WebMasterRS\\Desktop\\Web-Com-Learning\\src\\app\\api\\assignments\\student\\[id]",
+      "C:\\Users\\WebMasterRS\\Desktop\\Web-Com-Learning\\src\\app\\parent"
     ]
   }
 }

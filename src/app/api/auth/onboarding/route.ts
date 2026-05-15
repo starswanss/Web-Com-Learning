@@ -10,11 +10,16 @@ export async function POST(req: NextRequest) {
     if (!session) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
 
     const decoded = await adminAuth.verifySessionCookie(session, false);
-    const { classId } = await req.json();
+    const { classId, subjectId } = await req.json();
     if (!classId) return NextResponse.json({ error: 'Missing classId' }, { status: 400 });
 
     const userRef = adminDb.collection('users').doc(decoded.uid);
-    await userRef.update({ classId, onboardingComplete: true, updatedAt: FieldValue.serverTimestamp() });
+    await userRef.update({
+      classId,
+      subjectId: subjectId ?? null,
+      onboardingComplete: true,
+      updatedAt: FieldValue.serverTimestamp(),
+    });
 
     const snap = await userRef.get();
     const data = snap.data()!;

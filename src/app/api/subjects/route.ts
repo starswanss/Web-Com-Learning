@@ -22,10 +22,13 @@ export async function GET() {
   const snap = await adminDb
     .collection('subjects')
     .where('teacherId', '==', uid)
-    .orderBy('createdAt', 'desc')
     .get();
 
-  return NextResponse.json(snap.docs.map((d) => ({ id: d.id, ...d.data() })));
+  const subjects = snap.docs
+    .map((d) => ({ id: d.id, ...d.data() }))
+    .sort((a: any, b: any) => (b.createdAt?._seconds ?? 0) - (a.createdAt?._seconds ?? 0));
+
+  return NextResponse.json(subjects);
 }
 
 export async function POST(req: NextRequest) {

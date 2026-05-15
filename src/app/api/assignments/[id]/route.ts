@@ -54,19 +54,23 @@ export async function PATCH(
   const rubric = (formData.get('rubric') as string | null) ?? '';
   const unit = (formData.get('unit') as string | null) ?? '';
   const contentType = (formData.get('contentType') as string | null) ?? snap.data()?.contentType ?? 'worksheet';
+  const timeLimitRaw = formData.get('timeLimit') as string | null;
+  const timeLimit = timeLimitRaw !== null ? (timeLimitRaw ? parseInt(timeLimitRaw, 10) : null) : (snap.data()?.timeLimit ?? null);
 
-  if (!title || !dueDate || !classIds.length) {
+  const dueDateRequired = contentType === 'worksheet';
+  if (!title || (dueDateRequired && !dueDate) || !classIds.length) {
     return NextResponse.json({ error: 'Missing required fields' }, { status: 400 });
   }
 
   await adminDb.collection('assignments').doc(id).update({
     title,
-    dueDate: new Date(dueDate),
+    dueDate: dueDate ? new Date(dueDate) : null,
     classIds,
     blocks,
     rubric: rubric || null,
     unit: unit || null,
     contentType,
+    timeLimit: timeLimit ?? null,
     updatedAt: FieldValue.serverTimestamp(),
   });
 

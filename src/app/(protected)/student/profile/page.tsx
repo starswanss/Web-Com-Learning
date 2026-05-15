@@ -8,6 +8,7 @@ import Link from 'next/link';
 interface AssignmentEntry {
   id: string;
   title: string;
+  unit?: string | null;
   dueDate?: { _seconds: number };
   submission: null | {
     status: string;
@@ -16,6 +17,8 @@ interface AssignmentEntry {
     submittedAt?: { _seconds: number };
   };
 }
+
+interface Badge { id: string; icon: string; label: string; desc: string }
 
 interface Stats {
   total: number;
@@ -51,7 +54,9 @@ export default function StudentProfilePage() {
 
   const [stats, setStats] = useState<Stats | null>(null);
   const [assignments, setAssignments] = useState<AssignmentEntry[]>([]);
+  const [badges, setBadges] = useState<Badge[]>([]);
   const [fetching, setFetching] = useState(true);
+  const [subject, setSubject] = useState<{ id: string; name: string } | null>(null);
 
   useEffect(() => {
     if (!loading && profile?.role !== 'student') router.push('/dashboard');
@@ -59,11 +64,16 @@ export default function StudentProfilePage() {
 
   useEffect(() => {
     if (profile?.role !== 'student') return;
-    fetch('/api/student/stats')
+    const saved = localStorage.getItem('lms_subject');
+    const sub = saved ? JSON.parse(saved) : null;
+    setSubject(sub);
+    const url = sub ? `/api/student/stats?subject=${sub.id}` : '/api/student/stats';
+    fetch(url)
       .then((r) => r.json())
       .then((data) => {
         setStats(data.stats ?? null);
         setAssignments(Array.isArray(data.assignments) ? data.assignments : []);
+        setBadges(Array.isArray(data.badges) ? data.badges : []);
       })
       .finally(() => setFetching(false));
   }, [profile]);
@@ -83,16 +93,18 @@ export default function StudentProfilePage() {
         {/* Student card */}
         <div className="mb-6 rounded-2xl border border-slate-800 bg-slate-900 p-6">
           <p className="text-lg font-semibold text-slate-100">{profile.displayName}</p>
-          <p className="mt-0.5 text-sm text-slate-400">ห้อง {profile.classId} — Computing Science & IT ม.3</p>
+          <p className="mt-0.5 text-sm text-slate-400">
+            ห้อง {profile.classId} —{subject ? ` ${subject.name}` : ' Computing Science & IT ม.3'}
+          </p>
         </div>
 
-        {/* Stats */}
         {fetching ? (
           <div className="flex items-center justify-center py-16">
             <div className="h-6 w-6 animate-spin rounded-full border-2 border-slate-700 border-t-slate-300" />
           </div>
         ) : (
           <>
+            {/* Stats */}
             <div className="mb-6 grid grid-cols-2 gap-3 sm:grid-cols-4">
               <StatCard label="ใบงานทั้งหมด" value={stats?.total ?? 0} unit="ใบ" />
               <StatCard label="ส่งแล้ว" value={stats?.submitted ?? 0} unit={`ใบ (${submissionRate}%)`} />
@@ -125,6 +137,82 @@ export default function StudentProfilePage() {
                 </div>
               </div>
             )}
+
+            {/* Badges */}
+            {badges.length > 0 && (
+              <div className="mb-6">
+                <h2 className="mb-3 text-sm font-semibold uppercase tracking-wider text-slate-400">ความสำเร็จ</h2>
+                <div className="flex flex-wrap gap-2">
+                  {badges.map((b) => (
+                    <div
+                      key={b.id}
+                      title={b.desc}
+                      className="flex items-center gap-2 rounded-xl border border-amber-800/60 bg-amber-950/30 px-3 py-2"
+                    >
+                      <span className="text-xl">{b.icon}</span>
+                      <div>
+                        <p className="text-xs font-semibold text-amber-300">{b.label}</p>
+                        <p className="text-[10px] text-amber-600">{b.desc}</p>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
+
+            {/* Learning Path — grouped by unit */}
+            {(() => {
+              const unitMap = new Map<string, { total: number; submitted: number; graded: number; scores: number[] }>();
+              assignments.forEach((a) => {
+                const unit = a.unit ?? 'ไม่ระบุหน่วย';
+                if (!unitMap.has(unit)) unitMap.set(unit, { total: 0, submitted: 0, graded: 0, scores: [] });
+                const u = unitMap.get(unit)!;
+                u.total++;
+                if (a.submission) {
+                  u.submitted++;
+                  if (a.submission.status === 'graded' || a.submission.status === 'reviewed') {
+                    u.graded++;
+                    if (typeof a.submission.score === 'number') u.scores.push(a.submission.score);
+                  }
+                }
+              });
+              const units = Array.from(unitMap.entries());
+              if (!units.length) return null;
+              return (
+                <div className="mb-6 space-y-3">
+                  <h2 className="text-sm font-semibold text-slate-400 uppercase tracking-wider">เส้นทางการเรียนรู้</h2>
+                  {units.map(([unit, u]) => {
+                    const pct = Math.round((u.submitted / (u.total || 1)) * 100);
+                    const avg = u.scores.length ? Math.round(u.scores.reduce((a, b) => a + b, 0) / u.scores.length) : null;
+                    const isDone = pct === 100;
+                    return (
+                      <div key={unit} className="rounded-2xl border border-slate-800 bg-slate-900 p-4">
+                        <div className="mb-2 flex items-center justify-between gap-3">
+                          <div className="flex items-center gap-2 min-w-0">
+                            <span className="text-base">{isDone ? '✅' : pct > 0 ? '📖' : '🔒'}</span>
+                            <p className="text-sm font-medium text-slate-200 truncate">{unit}</p>
+                          </div>
+                          <div className="flex items-center gap-2 shrink-0">
+                            {avg !== null && (
+                              <span className={`rounded-lg border px-2 py-0.5 text-xs font-semibold ${avg >= 80 ? 'border-emerald-700 text-emerald-400' : avg >= 60 ? 'border-amber-700 text-amber-400' : 'border-red-800 text-red-400'}`}>
+                                avg {avg}
+                              </span>
+                            )}
+                            <span className="text-xs text-slate-500">{u.submitted}/{u.total}</span>
+                          </div>
+                        </div>
+                        <div className="h-1.5 overflow-hidden rounded-full bg-slate-800">
+                          <div
+                            className={`h-full rounded-full transition-all ${isDone ? 'bg-emerald-500' : 'bg-blue-500'}`}
+                            style={{ width: `${pct}%` }}
+                          />
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+              );
+            })()}
 
             {/* Assignment history */}
             <div className="space-y-3">

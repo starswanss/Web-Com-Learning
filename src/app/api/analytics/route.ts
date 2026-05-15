@@ -81,5 +81,29 @@ export async function GET() {
     avgScore: Math.round(data.avgScore),
   }));
 
-  return NextResponse.json({ classStats, assignmentStats, totalSubmissions: allSubmissions.length });
+  // Score distribution histogram: buckets 0-9, 10-19, …, 90-100
+  const scoreDistribution = Array.from({ length: 10 }, (_, i) => ({
+    label: i < 9 ? `${i * 10}–${i * 10 + 9}` : '90–100',
+    count: 0,
+  }));
+  for (const sub of allSubmissions) {
+    const score = (sub.score as number) ?? 0;
+    const bucket = Math.min(Math.floor(score / 10), 9);
+    scoreDistribution[bucket].count++;
+  }
+
+  // Weekly submission trend (last 8 weeks)
+  const now = Date.now();
+  const weekMs = 7 * 24 * 3600 * 1000;
+  const weeklyTrend = Array.from({ length: 8 }, (_, i) => ({
+    week: `W-${7 - i}`,
+    count: 0,
+  }));
+  for (const sub of allSubmissions) {
+    const ts = ((sub as any).submittedAt?._seconds ?? 0) * 1000;
+    const weeksAgo = Math.floor((now - ts) / weekMs);
+    if (weeksAgo >= 0 && weeksAgo < 8) weeklyTrend[7 - weeksAgo].count++;
+  }
+
+  return NextResponse.json({ classStats, assignmentStats, totalSubmissions: allSubmissions.length, scoreDistribution, weeklyTrend });
 }

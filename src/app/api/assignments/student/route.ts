@@ -2,34 +2,44 @@ import { NextRequest, NextResponse } from 'next/server';
 import { adminAuth, adminDb } from '@/lib/firebase/admin';
 import { cookies } from 'next/headers';
 
-async function getStudentSession() {
+async function getStudentUid(): Promise<string | null> {
   try {
     const cookieStore = await cookies();
     const session = cookieStore.get('__session')?.value;
     if (!session) return null;
     const decoded = await adminAuth.verifySessionCookie(session, false);
-    const snap = await adminDb.collection('users').doc(decoded.uid).get();
-    if (!snap.exists) return null;
-    const data = snap.data()!;
-    if (data.role !== 'student' || !data.classId) return null;
-    return { uid: decoded.uid, classId: data.classId as string };
+    return decoded.uid;
   } catch {
     return null;
   }
 }
 
 export async function GET(req: NextRequest) {
-  const student = await getStudentSession();
-  if (!student) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+  const uid = await getStudentUid();
+  if (!uid) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
 
-  const subjectId = new URL(req.url).searchParams.get('subject');
+  const params = new URL(req.url).searchParams;
+  const subjectId = params.get('subject');
+  // classId passed from the client profile to avoid a redundant Firestore user doc read
+  const classIdParam = params.get('classId');
 
-  const base = adminDb.collection('assignments').where('classIds', 'array-contains', student.classId);
+  // Resolve classId: trust client param if provided (session already verified above),
+  // otherwise fall back to reading the user doc
+  let classId = classIdParam;
+  if (!classId) {
+    const snap = await adminDb.collection('users').doc(uid).get();
+    if (!snap.exists || snap.data()?.role !== 'student' || !snap.data()?.classId) {
+      return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+    }
+    classId = snap.data()!.classId as string;
+  }
+
+  const base = adminDb.collection('assignments').where('classIds', 'array-contains', classId);
   const filtered = subjectId ? base.where('subjectId', '==', subjectId) : base;
 
   const [assignmentsSnap, submissionsSnap] = await Promise.all([
     filtered.get(),
-    adminDb.collection('submissions').where('studentId', '==', student.uid).get(),
+    adminDb.collection('submissions').where('studentId', '==', uid).get(),
   ]);
 
   const submissionMap = new Map(

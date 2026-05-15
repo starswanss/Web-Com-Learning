@@ -16,6 +16,7 @@ interface Submission {
   score?: number;
   feedback?: string;
   plagiarismSuspicion?: number;
+  tabSwitchCount?: number;
   status: string;
   submittedAt?: { _seconds: number };
   reviewedAt?: { _seconds: number };
@@ -87,6 +88,7 @@ export default function SubmissionsPage({ params }: { params: Promise<{ id: stri
   const [batchGrading, setBatchGrading] = useState(false);
   const [approving, setApproving] = useState(false);
   const [batchResult, setBatchResult] = useState<string | null>(null);
+  const [deleting, setDeleting] = useState<string | null>(null);
 
   useEffect(() => {
     if (!loading && profile?.role !== 'teacher') router.push('/dashboard');
@@ -156,6 +158,18 @@ export default function SubmissionsPage({ params }: { params: Promise<{ id: stri
       if (selected?.status === 'graded') setSelected((prev) => prev ? { ...prev, status: 'reviewed' } : prev);
     } catch { setBatchResult('ไม่สำเร็จ กรุณาลองใหม่'); }
     finally { setApproving(false); }
+  }
+
+  async function handleDeleteSubmission(subId: string) {
+    if (!confirm('ลบงานของนักเรียนคนนี้? นักเรียนจะสามารถส่งงานใหม่ได้')) return;
+    setDeleting(subId);
+    try {
+      await fetch(`/api/teacher/submission/${subId}`, { method: 'DELETE' });
+      setSubmissions((prev) => prev.filter((s) => s.id !== subId));
+      if (selected?.id === subId) setSelected(null);
+    } finally {
+      setDeleting(null);
+    }
   }
 
   async function handleBatchGrade() {
@@ -235,29 +249,45 @@ export default function SubmissionsPage({ params }: { params: Promise<{ id: stri
                 </div>
               ) : (
                 submissions.map((sub) => (
-                  <button
+                  <div
                     key={sub.id}
-                    onClick={() => openSubmission(sub)}
-                    className={`w-full rounded-xl border p-3 text-left transition-all hover:border-slate-600 ${
+                    className={`rounded-xl border transition-all ${
                       selected?.id === sub.id ? 'border-blue-700 bg-blue-950/30' : 'border-slate-800 bg-slate-900'
                     }`}
                   >
-                    <div className="flex items-start justify-between gap-2">
-                      <p className="text-sm font-medium text-slate-200 truncate">{sub.studentName}</p>
-                      <span className={`shrink-0 rounded-full border px-2 py-0.5 text-xs ${statusBadge(sub.status)}`}>
-                        {statusLabel(sub.status)}
-                      </span>
+                    <button
+                      onClick={() => openSubmission(sub)}
+                      className="w-full p-3 text-left hover:bg-white/5 rounded-t-xl transition-colors"
+                    >
+                      <div className="flex items-start justify-between gap-2">
+                        <p className="text-sm font-medium text-slate-200 truncate">{sub.studentName}</p>
+                        <span className={`shrink-0 rounded-full border px-2 py-0.5 text-xs ${statusBadge(sub.status)}`}>
+                          {statusLabel(sub.status)}
+                        </span>
+                      </div>
+                      <p className="mt-0.5 text-xs text-slate-500">{sub.classId}</p>
+                      {typeof sub.score === 'number' && (
+                        <p className={`mt-1 text-xs font-semibold ${sub.score >= 60 ? 'text-emerald-400' : 'text-red-400'}`}>
+                          {sub.score}/100
+                        </p>
+                      )}
+                      {(sub.plagiarismSuspicion ?? 0) > 60 && (
+                        <p className="mt-1 text-xs text-amber-500">⚠ เสี่ยงคัดลอก {sub.plagiarismSuspicion}%</p>
+                      )}
+                      {(sub.tabSwitchCount ?? 0) > 0 && (
+                        <p className="mt-1 text-xs text-orange-400">🔍 เปลี่ยนแท็บ {sub.tabSwitchCount} ครั้ง</p>
+                      )}
+                    </button>
+                    <div className="border-t border-slate-800 px-3 py-1.5">
+                      <button
+                        onClick={() => handleDeleteSubmission(sub.id)}
+                        disabled={deleting === sub.id}
+                        className="text-xs text-red-500 hover:text-red-400 disabled:opacity-50 transition-colors"
+                      >
+                        {deleting === sub.id ? '…' : 'ลบงาน (ให้ส่งใหม่)'}
+                      </button>
                     </div>
-                    <p className="mt-0.5 text-xs text-slate-500">{sub.classId}</p>
-                    {typeof sub.score === 'number' && (
-                      <p className={`mt-1 text-xs font-semibold ${sub.score >= 60 ? 'text-emerald-400' : 'text-red-400'}`}>
-                        {sub.score}/100
-                      </p>
-                    )}
-                    {(sub.plagiarismSuspicion ?? 0) > 60 && (
-                      <p className="mt-1 text-xs text-amber-500">⚠ เสี่ยงคัดลอก {sub.plagiarismSuspicion}%</p>
-                    )}
-                  </button>
+                  </div>
                 ))
               )}
             </div>
@@ -278,6 +308,9 @@ export default function SubmissionsPage({ params }: { params: Promise<{ id: stri
                               day: 'numeric', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit',
                             })}
                           </p>
+                        )}
+                        {(selected.tabSwitchCount ?? 0) > 0 && (
+                          <p className="mt-1 text-xs text-orange-400">🔍 ออกจากหน้านี้ระหว่างทำ {selected.tabSwitchCount} ครั้ง</p>
                         )}
                       </div>
                       <div className="flex items-center gap-2">

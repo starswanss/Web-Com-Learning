@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useState, FormEvent, use } from 'react';
+import { useEffect, useState, useRef, FormEvent, use } from 'react';
 import { useRouter } from 'next/navigation';
 import { useAuth } from '@/context/AuthContext';
 import Link from 'next/link';
@@ -10,9 +10,12 @@ interface Assignment {
   id: string;
   title: string;
   description: string;
-  dueDate?: { _seconds: number };
+  dueDate?: { _seconds: number } | null;
   driveWebViewLink?: string;
   blocks?: FormBlock[];
+  timeLimit?: number;
+  contentType?: string;
+  isOpen?: boolean;
 }
 
 interface Submission {
@@ -64,6 +67,13 @@ export default function SubmissionPage({ params }: { params: Promise<{ id: strin
   const [error, setError] = useState<string | null>(null);
   const [result, setResult] = useState<{ score: number; feedback: string } | null>(null);
   const [pasteBlocked, setPasteBlocked] = useState(false);
+  const [tabSwitchCount, setTabSwitchCount] = useState(0);
+  const [tabWarning, setTabWarning] = useState(false);
+  const [timeLeft, setTimeLeft] = useState<number | null>(null);
+  const [selfScore, setSelfScore] = useState(70);
+  const hasLeftRef = useRef(false);
+  const tabSwitchRef = useRef(0);
+  const autoSubmitRef = useRef(false);
 
   function blockPaste(e: React.ClipboardEvent) {
     e.preventDefault();
@@ -75,6 +85,25 @@ export default function SubmissionPage({ params }: { params: Promise<{ id: strin
     if (!loading && profile?.role !== 'student') router.push('/dashboard');
   }, [loading, profile, router]);
 
+  // Track tab switches to detect copy-from-elsewhere behavior
+  useEffect(() => {
+    if (submission !== null && submission !== undefined) return;
+
+    function handleVisibility() {
+      if (document.hidden) {
+        hasLeftRef.current = true;
+        tabSwitchRef.current += 1;
+        setTabSwitchCount(tabSwitchRef.current);
+      } else if (hasLeftRef.current) {
+        setTabWarning(true);
+        setTimeout(() => setTabWarning(false), 3000);
+      }
+    }
+
+    document.addEventListener('visibilitychange', handleVisibility);
+    return () => document.removeEventListener('visibilitychange', handleVisibility);
+  }, [submission]);
+
   useEffect(() => {
     if (!id) return;
     fetch(`/api/submissions/${id}`)
@@ -82,8 +111,27 @@ export default function SubmissionPage({ params }: { params: Promise<{ id: strin
       .then((data: Submission | null) => setSubmission(data));
     fetch(`/api/assignments/student/${id}`)
       .then((r) => r.json())
-      .then((data: Assignment) => setAssignment(data ?? null));
+      .then((data: Assignment) => {
+        setAssignment(data ?? null);
+        if (data?.timeLimit && data.timeLimit > 0) {
+          setTimeLeft(data.timeLimit * 60);
+        }
+      });
   }, [id]);
+
+  // Countdown timer + auto-submit
+  useEffect(() => {
+    if (timeLeft === null || submission !== null && submission !== undefined) return;
+    if (timeLeft <= 0) {
+      if (!autoSubmitRef.current) {
+        autoSubmitRef.current = true;
+        document.getElementById('submit-btn')?.click();
+      }
+      return;
+    }
+    const t = setTimeout(() => setTimeLeft((prev) => (prev !== null ? prev - 1 : null)), 1000);
+    return () => clearTimeout(t);
+  }, [timeLeft, submission]);
 
   function setAnswer(blockId: string, value: string | string[]) {
     setAnswers((prev) => ({ ...prev, [blockId]: value }));
@@ -123,6 +171,8 @@ export default function SubmissionPage({ params }: { params: Promise<{ id: strin
     try {
       const fd = new FormData();
       fd.append('assignmentId', id);
+      fd.append('tabSwitchCount', String(tabSwitchCount));
+      fd.append('selfScore', String(selfScore));
       if (hasBlocks) {
         fd.append('answers', JSON.stringify(answers));
       } else {
@@ -154,6 +204,7 @@ export default function SubmissionPage({ params }: { params: Promise<{ id: strin
   if (loading || !profile || submission === undefined) return <Spinner />;
 
   const hasBlocks = (assignment?.blocks?.length ?? 0) > 0;
+  const isQuizLocked = assignment?.contentType === 'quiz' && !assignment?.isOpen && !submission;
 
   return (
     <div className="min-h-screen bg-slate-950 px-4 py-10">
@@ -207,14 +258,40 @@ export default function SubmissionPage({ params }: { params: Promise<{ id: strin
           </div>
         )}
 
-        {submission ? (
+        {isQuizLocked ? (
+          <div className="rounded-2xl border border-purple-800 bg-purple-950/20 p-8 text-center">
+            <p className="text-4xl mb-3">🔒</p>
+            <p className="text-base font-semibold text-purple-300">แบบทดสอบยังไม่เปิด</p>
+            <p className="mt-1 text-sm text-slate-500">รอครูเปิดการสอบก่อนนะ</p>
+          </div>
+        ) : submission ? (
           <SubmissionView submission={submission} assignment={assignment} />
         ) : (
           <form onSubmit={handleSubmit} className="space-y-5">
+            {/* Countdown timer */}
+            {timeLeft !== null && (
+              <div className={`rounded-xl border px-4 py-2.5 text-center text-sm font-semibold ${
+                timeLeft <= 60
+                  ? 'border-red-800 bg-red-950/50 text-red-400 animate-pulse'
+                  : timeLeft <= 300
+                  ? 'border-orange-800 bg-orange-950/50 text-orange-400'
+                  : 'border-slate-700 bg-slate-800 text-slate-300'
+              }`}>
+                ⏱ เวลาคงเหลือ{' '}
+                {String(Math.floor(timeLeft / 60)).padStart(2, '0')}:{String(timeLeft % 60).padStart(2, '0')}
+                {timeLeft <= 60 && ' — ใกล้หมดเวลาแล้ว!'}
+              </div>
+            )}
             {/* Anti-paste toast */}
             {pasteBlocked && (
               <div className="rounded-xl border border-amber-800 bg-amber-950/50 px-4 py-2.5 text-sm text-amber-400">
                 ⚠ ไม่อนุญาตให้วางข้อความ — กรุณาพิมพ์คำตอบด้วยตัวเอง
+              </div>
+            )}
+            {/* Tab-switch warning */}
+            {tabWarning && (
+              <div className="rounded-xl border border-orange-800 bg-orange-950/50 px-4 py-2.5 text-sm text-orange-400">
+                ⚠ ตรวจพบการออกจากหน้านี้ ({tabSwitchCount} ครั้ง) — ระบบบันทึกไว้แล้ว
               </div>
             )}
 
@@ -264,7 +341,35 @@ export default function SubmissionPage({ params }: { params: Promise<{ id: strin
               </div>
             )}
 
+            {/* Self-assessment */}
+            <div className="rounded-2xl border border-slate-800 bg-slate-900 p-5">
+              <div className="mb-3 flex items-center justify-between">
+                <p className="text-sm font-medium text-slate-300">🪞 ประเมินตัวเอง</p>
+                <span className={`text-xl font-bold ${selfScore >= 80 ? 'text-emerald-400' : selfScore >= 60 ? 'text-amber-400' : selfScore >= 40 ? 'text-orange-400' : 'text-red-400'}`}>
+                  {selfScore}
+                </span>
+              </div>
+              <p className="mb-3 text-xs text-slate-500">คิดว่าคำตอบของคุณควรได้คะแนนเท่าไหร่? (ไม่กระทบคะแนนจริง)</p>
+              <input
+                type="range"
+                min="0"
+                max="100"
+                step="5"
+                value={selfScore}
+                onChange={(e) => setSelfScore(parseInt(e.target.value))}
+                className="w-full accent-blue-500"
+              />
+              <div className="mt-1 flex justify-between text-[10px] text-slate-600">
+                <span>0</span>
+                <span className="text-slate-400 font-medium">
+                  {selfScore >= 80 ? '😊 ทำได้ดีมาก!' : selfScore >= 60 ? '🙂 ทำได้พอใช้' : selfScore >= 40 ? '😐 ยังพอไปได้' : '😟 ต้องปรับปรุง'}
+                </span>
+                <span>100</span>
+              </div>
+            </div>
+
             <button
+              id="submit-btn"
               type="submit"
               disabled={submitting}
               className="w-full rounded-xl bg-blue-600 py-3 text-sm font-medium text-white transition-all hover:bg-blue-500 disabled:opacity-50 active:scale-95"

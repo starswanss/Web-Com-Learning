@@ -3,6 +3,7 @@ import { adminAuth, adminDb } from '@/lib/firebase/admin';
 import { uploadAssignmentFile } from '@/lib/google-drive';
 import { cookies } from 'next/headers';
 import { FieldValue } from 'firebase-admin/firestore';
+import { sendLineNotify, getLineNotifyToken } from '@/lib/line-notify';
 
 async function getTeacherUid(): Promise<string | null> {
   try {
@@ -25,8 +26,10 @@ export async function GET(req: NextRequest) {
   const subjectId = new URL(req.url).searchParams.get('subject');
   const base = adminDb.collection('assignments').where('teacherId', '==', uid);
   const filtered = subjectId ? base.where('subjectId', '==', subjectId) : base;
-  const snap = await filtered.orderBy('createdAt', 'desc').get();
-  const assignments = snap.docs.map((d) => ({ id: d.id, ...d.data() }));
+  const snap = await filtered.get();
+  const assignments = snap.docs
+    .map((d) => ({ id: d.id, ...d.data() }))
+    .sort((a: any, b: any) => (b.createdAt?._seconds ?? 0) - (a.createdAt?._seconds ?? 0));
   return NextResponse.json(assignments);
 }
 
@@ -46,8 +49,12 @@ export async function POST(req: NextRequest) {
   const subjectId = (formData.get('subjectId') as string | null) ?? '';
   const unit = (formData.get('unit') as string | null) ?? '';
   const contentType = (formData.get('contentType') as string | null) ?? 'worksheet';
+  const timeLimitRaw = formData.get('timeLimit') as string | null;
+  const timeLimit = timeLimitRaw ? parseInt(timeLimitRaw, 10) : null;
+  // dueDate is required only for worksheet; quiz/knowledge can omit it
+  const dueDateRequired = contentType === 'worksheet';
 
-  if (!title || !dueDate || !classIds.length) {
+  if (!title || (dueDateRequired && !dueDate) || !classIds.length) {
     return NextResponse.json({ error: 'Missing required fields' }, { status: 400 });
   }
 
@@ -65,7 +72,7 @@ export async function POST(req: NextRequest) {
   const docRef = await adminDb.collection('assignments').add({
     title,
     description,
-    dueDate: new Date(dueDate),
+    dueDate: dueDate ? new Date(dueDate) : null,
     classIds,
     teacherId: uid,
     driveFileId: driveFileId ?? null,
@@ -75,9 +82,20 @@ export async function POST(req: NextRequest) {
     subjectId: subjectId || null,
     unit: unit || null,
     contentType: contentType || 'worksheet',
+    timeLimit: timeLimit ?? null,
+    isOpen: contentType === 'quiz' ? false : null,
     createdAt: FieldValue.serverTimestamp(),
     updatedAt: FieldValue.serverTimestamp(),
   });
+
+  // Best-effort LINE Notify
+  const lineToken = await getLineNotifyToken(adminDb);
+  if (lineToken) {
+    const typeLabel = contentType === 'quiz' ? 'แบบทดสอบ' : contentType === 'knowledge' ? 'ใบความรู้' : 'ใบงาน';
+    const classList = classIds.join(', ');
+    const due = dueDate ? ` (กำหนดส่ง: ${new Date(dueDate).toLocaleDateString('th-TH')})` : '';
+    sendLineNotify(lineToken, `\n📚 มอบหมาย${typeLabel}ใหม่\nชื่อ: ${title}\nห้อง: ${classList}${due}`);
+  }
 
   return NextResponse.json({ id: docRef.id }, { status: 201 });
 }

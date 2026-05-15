@@ -35,12 +35,24 @@ async function getOrCreateFolder(name: string, parentId?: string): Promise<strin
   return created.data.id!;
 }
 
-export async function ensureClassFolders(classId: string): Promise<{
+/** Returns current Thai academic year (พ.ศ.) e.g. 2568 */
+function currentThaiYear(): number {
+  return new Date().getFullYear() + 543;
+}
+
+/** Get or create the year folder under root: "ปีการศึกษา 2568" */
+export async function ensureYearFolder(year?: number): Promise<string> {
+  const root = process.env.GOOGLE_DRIVE_ROOT_FOLDER_ID;
+  const y = year ?? currentThaiYear();
+  return getOrCreateFolder(`ปีการศึกษา ${y}`, root);
+}
+
+export async function ensureClassFolders(classId: string, yearFolderId?: string): Promise<{
   assignmentsId: string;
   submissionsId: string;
 }> {
-  const root = process.env.GOOGLE_DRIVE_ROOT_FOLDER_ID;
-  const classFolder = await getOrCreateFolder(classId, root);
+  const parent = yearFolderId ?? await ensureYearFolder();
+  const classFolder = await getOrCreateFolder(classId, parent);
   const assignmentsId = await getOrCreateFolder('Assignments', classFolder);
   const submissionsId = await getOrCreateFolder('Submissions', classFolder);
   return { assignmentsId, submissionsId };

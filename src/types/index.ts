@@ -61,7 +61,7 @@ export interface Assignment {
   id: string;
   title: string;
   description: string;
-  dueDate: Date;
+  dueDate?: Date;
   teacherId: string;
   classIds: string[];
   subjectId?: string;
@@ -71,6 +71,8 @@ export interface Assignment {
   driveWebViewLink?: string;
   blocks?: FormBlock[];
   rubric?: string;
+  timeLimit?: number;
+  isOpen?: boolean;
   createdAt: Date;
   updatedAt: Date;
 }

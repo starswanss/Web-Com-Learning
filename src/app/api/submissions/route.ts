@@ -31,6 +31,10 @@ export async function POST(req: NextRequest) {
   const answersRaw = formData.get('answers') as string | null;
   const answers = answersRaw ? (JSON.parse(answersRaw) as Record<string, string | string[]>) : null;
   const file = formData.get('file') as File | null;
+  const tabSwitchRaw = formData.get('tabSwitchCount') as string | null;
+  const tabSwitchCount = tabSwitchRaw ? parseInt(tabSwitchRaw, 10) : 0;
+  const selfScoreRaw = formData.get('selfScore') as string | null;
+  const selfScore = selfScoreRaw ? parseInt(selfScoreRaw, 10) : null;
 
   if (!assignmentId) return NextResponse.json({ error: 'Missing assignmentId' }, { status: 400 });
   if (!content.trim() && !answers && !file) {
@@ -43,6 +47,11 @@ export async function POST(req: NextRequest) {
   const assignment = assignmentDoc.data()!;
   if (!(assignment.classIds as string[]).includes(student.classId)) {
     return NextResponse.json({ error: 'Forbidden' }, { status: 403 });
+  }
+
+  // Quiz must be open for students to submit
+  if (assignment.contentType === 'quiz' && !assignment.isOpen) {
+    return NextResponse.json({ error: 'Quiz is closed' }, { status: 423 });
   }
 
   const existing = await adminDb
@@ -109,6 +118,8 @@ export async function POST(req: NextRequest) {
     score,
     feedback,
     plagiarismSuspicion,
+    tabSwitchCount,
+    selfScore: selfScore ?? null,
     status: gradableContent ? 'graded' : 'submitted',
     submittedAt: FieldValue.serverTimestamp(),
     gradedAt: gradableContent ? FieldValue.serverTimestamp() : null,

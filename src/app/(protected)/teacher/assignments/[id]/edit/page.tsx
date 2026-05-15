@@ -30,6 +30,7 @@ export default function EditAssignmentPage({ params }: { params: Promise<{ id: s
   const [rubric, setRubric] = useState('');
   const [unit, setUnit] = useState('');
   const [contentType, setContentType] = useState<ContentType>('worksheet');
+  const [timeLimit, setTimeLimit] = useState('');
   const [blocks, setBlocks] = useState<FormBlock[]>([]);
   const [fetching, setFetching] = useState(true);
   const [submitting, setSubmitting] = useState(false);
@@ -51,6 +52,7 @@ export default function EditAssignmentPage({ params }: { params: Promise<{ id: s
         setUnit(data.unit ?? '');
         setContentType(data.contentType ?? 'worksheet');
         setBlocks(data.blocks ?? []);
+        setTimeLimit(data.timeLimit ? String(data.timeLimit) : '');
       })
       .finally(() => setFetching(false));
   }, [profile, id]);
@@ -79,7 +81,7 @@ export default function EditAssignmentPage({ params }: { params: Promise<{ id: s
     e.preventDefault();
     setError(null);
     if (!title.trim()) return setError('กรุณากรอกชื่อใบงาน');
-    if (!dueDate) return setError('กรุณาเลือกวันกำหนดส่ง');
+    if (contentType === 'worksheet' && !dueDate) return setError('กรุณาเลือกวันกำหนดส่ง');
     if (selectedClasses.length === 0) return setError('กรุณาเลือกห้องอย่างน้อย 1 ห้อง');
 
     setSubmitting(true);
@@ -92,6 +94,7 @@ export default function EditAssignmentPage({ params }: { params: Promise<{ id: s
       fd.append('rubric', rubric.trim());
       fd.append('unit', unit.trim());
       fd.append('contentType', contentType);
+      fd.append('timeLimit', timeLimit);
 
       const res = await fetch(`/api/assignments/${id}`, { method: 'PATCH', body: fd });
       if (!res.ok) throw new Error('failed');
@@ -127,17 +130,29 @@ export default function EditAssignmentPage({ params }: { params: Promise<{ id: s
 
             <section className="rounded-2xl border border-slate-800 bg-slate-900 p-6 space-y-5">
               <h2 className="text-sm font-semibold text-slate-400 uppercase tracking-wider">ข้อมูลพื้นฐาน</h2>
-              <div className="grid gap-4 sm:grid-cols-2">
-                <div>
-                  <label className="mb-1.5 block text-sm font-medium text-slate-300">ชื่อใบงาน *</label>
-                  <input value={title} onChange={(e) => setTitle(e.target.value)}
-                    placeholder="เช่น ใบงานที่ 1 — อัลกอริทึม" className="input" />
-                </div>
+              <div>
+                <label className="mb-1.5 block text-sm font-medium text-slate-300">ชื่อ *</label>
+                <input value={title} onChange={(e) => setTitle(e.target.value)}
+                  placeholder="เช่น ใบงานที่ 1 — อัลกอริทึม" className="input" />
+              </div>
+
+              {contentType === 'worksheet' && (
                 <div>
                   <label className="mb-1.5 block text-sm font-medium text-slate-300">วันกำหนดส่ง *</label>
                   <input type="datetime-local" value={dueDate} onChange={(e) => setDueDate(e.target.value)} className="input" />
                 </div>
-              </div>
+              )}
+              {contentType === 'quiz' && (
+                <div className="rounded-xl border border-purple-800 bg-purple-950/20 px-4 py-3 text-sm text-purple-300">
+                  ⏸ แบบทดสอบเปิด/ปิดจากหน้าหลัก — ไม่มีวันกำหนดส่ง
+                </div>
+              )}
+              {contentType === 'knowledge' && (
+                <div>
+                  <label className="mb-1.5 block text-sm font-medium text-slate-300">วันกำหนดส่ง (ไม่บังคับ)</label>
+                  <input type="datetime-local" value={dueDate} onChange={(e) => setDueDate(e.target.value)} className="input" />
+                </div>
+              )}
 
               <div>
                 <div className="mb-2 flex items-center justify-between">
@@ -178,6 +193,22 @@ export default function EditAssignmentPage({ params }: { params: Promise<{ id: s
                   </div>
                 </div>
               </div>
+
+              {contentType === 'quiz' && (
+                <div>
+                  <label className="mb-1.5 block text-sm font-medium text-slate-300">เวลาทำข้อสอบ (นาที)</label>
+                  <input
+                    type="number"
+                    min="1"
+                    max="180"
+                    value={timeLimit}
+                    onChange={(e) => setTimeLimit(e.target.value)}
+                    placeholder="เช่น 30 (เว้นว่างหากไม่จำกัดเวลา)"
+                    className="input text-sm"
+                  />
+                  <p className="mt-1 text-xs text-slate-500">เมื่อหมดเวลาระบบจะส่งงานให้อัตโนมัติ</p>
+                </div>
+              )}
 
               <div>
                 <label className="mb-1.5 block text-sm font-medium text-slate-300">

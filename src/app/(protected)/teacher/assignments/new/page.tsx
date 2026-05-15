@@ -1,7 +1,7 @@
 'use client';
 
-import { useState, FormEvent } from 'react';
-import { useRouter } from 'next/navigation';
+import { useState, FormEvent, useEffect } from 'react';
+import { useRouter, useSearchParams } from 'next/navigation';
 import { useAuth } from '@/context/AuthContext';
 import Link from 'next/link';
 import {
@@ -10,9 +10,28 @@ import {
 } from '../_builder';
 import { CONTENT_TYPE_LABELS, type ContentType } from '@/types';
 
+interface Template {
+  id: string;
+  name: string;
+  contentType: ContentType;
+  unit: string | null;
+  blocks: FormBlock[];
+  rubric: string | null;
+}
+
+interface QBankQuestion {
+  id: string;
+  type: 'short-answer' | 'long-answer' | 'multiple-choice' | 'checkbox';
+  question: string;
+  options: string[];
+  tags: string[];
+}
+
 export default function NewAssignmentPage() {
   const { profile, loading } = useAuth();
   const router = useRouter();
+  const searchParams = useSearchParams();
+  const typeParam = searchParams.get('type') as ContentType | null;
 
   const [title, setTitle] = useState('');
   const [dueDate, setDueDate] = useState('');
@@ -20,15 +39,79 @@ export default function NewAssignmentPage() {
   const [file, setFile] = useState<File | null>(null);
   const [rubric, setRubric] = useState('');
   const [unit, setUnit] = useState('');
-  const [contentType, setContentType] = useState<ContentType>('worksheet');
+  const [contentType, setContentType] = useState<ContentType>(
+    (typeParam && ['worksheet', 'knowledge', 'quiz'].includes(typeParam)) ? typeParam : 'worksheet'
+  );
+  const [timeLimit, setTimeLimit] = useState('');
   const [blocks, setBlocks] = useState<FormBlock[]>([]);
   const subjectId = typeof window !== 'undefined'
     ? JSON.parse(localStorage.getItem('lms_subject') ?? 'null')?.id ?? ''
     : '';
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [templates, setTemplates] = useState<Template[]>([]);
+  const [showTemplates, setShowTemplates] = useState(false);
+  const [savingTemplate, setSavingTemplate] = useState(false);
+  const [templateName, setTemplateName] = useState('');
+
+  const [showQBank, setShowQBank] = useState(false);
+  const [qbankQuestions, setQBankQuestions] = useState<QBankQuestion[]>([]);
+  const [qbankSelected, setQBankSelected] = useState<Set<string>>(new Set());
+  const [qbankTypeFilter, setQBankTypeFilter] = useState('');
+  const [qbankTagFilter, setQBankTagFilter] = useState('');
+  const [qbankRandom, setQBankRandom] = useState('');
+  const [loadingQBank, setLoadingQBank] = useState(false);
+
+  useEffect(() => {
+    if (profile?.role !== 'teacher') return;
+    fetch('/api/teacher/templates')
+      .then((r) => r.json())
+      .then((data) => setTemplates(Array.isArray(data) ? data : []));
+    fetch('/api/teacher/question-bank')
+      .then((r) => r.json())
+      .then((data) => setQBankQuestions(Array.isArray(data) ? data : []));
+
+    // Load imported data from import page
+    if (searchParams.get('from') === 'import') {
+      const raw = sessionStorage.getItem('lms_import');
+      if (raw) {
+        try {
+          const imported = JSON.parse(raw);
+          if (imported.title) setTitle(imported.title);
+          if (imported.unit) setUnit(imported.unit);
+          if (imported.contentType) setContentType(imported.contentType);
+          if (imported.rubric) setRubric(imported.rubric);
+          if (Array.isArray(imported.blocks)) setBlocks(imported.blocks);
+          sessionStorage.removeItem('lms_import');
+        } catch { /* ignore */ }
+      }
+    }
+  }, [profile, searchParams]);
 
   if (!loading && profile?.role !== 'teacher') { router.push('/dashboard'); return null; }
+
+  function loadTemplate(t: Template) {
+    setContentType(t.contentType);
+    setUnit(t.unit ?? '');
+    setBlocks(t.blocks.map((b) => ({ ...b, id: Math.random().toString(36).slice(2, 9) })));
+    setRubric(t.rubric ?? '');
+    setShowTemplates(false);
+  }
+
+  async function saveAsTemplate() {
+    if (!templateName.trim()) return;
+    setSavingTemplate(true);
+    try {
+      await fetch('/api/teacher/templates', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ name: templateName.trim(), contentType, unit, blocks, rubric }),
+      });
+      setTemplateName('');
+    } finally {
+      setSavingTemplate(false);
+    }
+  }
 
   function toggleClass(cls: string) {
     setSelectedClasses((p) => p.includes(cls) ? p.filter((c) => c !== cls) : [...p, cls]);
@@ -50,11 +133,48 @@ export default function NewAssignmentPage() {
   function toggleHalf(id: string) { setBlocks((p) => p.map((b) => b.id === id ? { ...b, half: !b.half } : b)); }
   function deleteBlock(id: string) { setBlocks((p) => p.filter((b) => b.id !== id)); }
 
+  function openQBank() {
+    setShowQBank(true);
+    setQBankSelected(new Set());
+    setQBankTypeFilter('');
+    setQBankTagFilter('');
+    setQBankRandom('');
+  }
+
+  function qbankToggle(id: string) {
+    setQBankSelected((prev) => {
+      const next = new Set(prev);
+      next.has(id) ? next.delete(id) : next.add(id);
+      return next;
+    });
+  }
+
+  function importFromQBank() {
+    let pool = qbankQuestions.filter((q) => qbankSelected.has(q.id));
+    const n = parseInt(qbankRandom);
+    if (n > 0 && pool.length > n) {
+      // Fisher-Yates shuffle then slice
+      for (let i = pool.length - 1; i > 0; i--) {
+        const j = Math.floor(Math.random() * (i + 1));
+        [pool[i], pool[j]] = [pool[j], pool[i]];
+      }
+      pool = pool.slice(0, n);
+    }
+    const newBlocks: FormBlock[] = pool.map((q) => {
+      const id = Math.random().toString(36).slice(2, 9);
+      if (q.type === 'short-answer') return { id, type: 'short-answer', question: q.question, required: true };
+      if (q.type === 'long-answer')  return { id, type: 'long-answer',  question: q.question, required: true };
+      return { id, type: q.type, question: q.question, options: q.options.length ? q.options : [''], required: true };
+    });
+    setBlocks((prev) => [...prev, ...newBlocks]);
+    setShowQBank(false);
+  }
+
   async function handleSubmit(e: FormEvent) {
     e.preventDefault();
     setError(null);
     if (!title.trim()) return setError('กรุณากรอกชื่อใบงาน');
-    if (!dueDate) return setError('กรุณาเลือกวันกำหนดส่ง');
+    if (contentType === 'worksheet' && !dueDate) return setError('กรุณาเลือกวันกำหนดส่ง');
     if (selectedClasses.length === 0) return setError('กรุณาเลือกห้องอย่างน้อย 1 ห้อง');
 
     setSubmitting(true);
@@ -68,6 +188,7 @@ export default function NewAssignmentPage() {
       fd.append('rubric', rubric.trim());
       fd.append('unit', unit.trim());
       fd.append('contentType', contentType);
+      if (timeLimit) fd.append('timeLimit', timeLimit);
       fd.append('subjectId', subjectId);
       if (file) fd.append('file', file);
 
@@ -99,17 +220,29 @@ export default function NewAssignmentPage() {
           {/* Basic info */}
           <section className="rounded-2xl border border-slate-800 bg-slate-900 p-6 space-y-5">
             <h2 className="text-sm font-semibold text-slate-400 uppercase tracking-wider">ข้อมูลพื้นฐาน</h2>
-            <div className="grid gap-4 sm:grid-cols-2">
-              <div>
-                <label className="mb-1.5 block text-sm font-medium text-slate-300">ชื่อใบงาน *</label>
-                <input value={title} onChange={(e) => setTitle(e.target.value)}
-                  placeholder="เช่น ใบงานที่ 1 — อัลกอริทึม" className="input" />
-              </div>
+            <div>
+              <label className="mb-1.5 block text-sm font-medium text-slate-300">ชื่อ *</label>
+              <input value={title} onChange={(e) => setTitle(e.target.value)}
+                placeholder="เช่น ใบงานที่ 1 — อัลกอริทึม" className="input" />
+            </div>
+
+            {contentType === 'worksheet' && (
               <div>
                 <label className="mb-1.5 block text-sm font-medium text-slate-300">วันกำหนดส่ง *</label>
                 <input type="datetime-local" value={dueDate} onChange={(e) => setDueDate(e.target.value)} className="input" />
               </div>
-            </div>
+            )}
+            {contentType === 'quiz' && (
+              <div className="rounded-xl border border-purple-800 bg-purple-950/20 px-4 py-3 text-sm text-purple-300">
+                ⏸ แบบทดสอบจะเปิด/ปิดจากหน้าหลักได้ — ไม่มีวันกำหนดส่ง
+              </div>
+            )}
+            {contentType === 'knowledge' && (
+              <div>
+                <label className="mb-1.5 block text-sm font-medium text-slate-300">วันกำหนดส่ง (ไม่บังคับ)</label>
+                <input type="datetime-local" value={dueDate} onChange={(e) => setDueDate(e.target.value)} className="input" />
+              </div>
+            )}
 
             <div className="grid gap-4 sm:grid-cols-2">
               <div>
@@ -131,6 +264,22 @@ export default function NewAssignmentPage() {
                 </div>
               </div>
             </div>
+
+            {contentType === 'quiz' && (
+              <div>
+                <label className="mb-1.5 block text-sm font-medium text-slate-300">เวลาทำข้อสอบ (นาที)</label>
+                <input
+                  type="number"
+                  min="1"
+                  max="180"
+                  value={timeLimit}
+                  onChange={(e) => setTimeLimit(e.target.value)}
+                  placeholder="เช่น 30 (เว้นว่างหากไม่จำกัดเวลา)"
+                  className="input text-sm"
+                />
+                <p className="mt-1 text-xs text-slate-500">เมื่อหมดเวลาระบบจะส่งงานให้อัตโนมัติ</p>
+              </div>
+            )}
 
             <div>
               <label className="mb-1.5 block text-sm font-medium text-slate-300">ไฟล์แนบ (ถ้ามี)</label>
@@ -177,9 +326,77 @@ export default function NewAssignmentPage() {
             </div>
           </section>
 
+          {/* Template loader */}
+          <section className="rounded-2xl border border-slate-800 bg-slate-900 p-5 space-y-4">
+            <div className="flex items-center justify-between">
+              <h2 className="text-sm font-semibold text-slate-400 uppercase tracking-wider">Template</h2>
+              <button
+                type="button"
+                onClick={() => setShowTemplates((v) => !v)}
+                className="rounded-xl border border-slate-700 px-3 py-1.5 text-xs text-slate-400 hover:border-slate-600 hover:text-slate-200 transition-all"
+              >
+                📂 โหลดจาก Template ({templates.length})
+              </button>
+            </div>
+
+            {showTemplates && (
+              <div className="space-y-2">
+                {templates.length === 0 ? (
+                  <p className="text-xs text-slate-500">ยังไม่มี Template — บันทึกใบงานเป็น Template ก่อน</p>
+                ) : (
+                  templates.map((t) => (
+                    <div key={t.id} className="flex items-center justify-between rounded-xl border border-slate-700 bg-slate-800 px-4 py-2.5">
+                      <div className="min-w-0">
+                        <p className="text-sm font-medium text-slate-200 truncate">{t.name}</p>
+                        <p className="text-xs text-slate-500">{t.blocks.length} บล็อก</p>
+                      </div>
+                      <button
+                        type="button"
+                        onClick={() => loadTemplate(t)}
+                        className="ml-3 rounded-lg border border-blue-700 px-3 py-1 text-xs text-blue-400 hover:bg-blue-900/30 transition-all"
+                      >
+                        โหลด
+                      </button>
+                    </div>
+                  ))
+                )}
+              </div>
+            )}
+
+            {/* Save as template */}
+            <div className="flex items-center gap-2">
+              <input
+                type="text"
+                value={templateName}
+                onChange={(e) => setTemplateName(e.target.value)}
+                placeholder="ชื่อ Template ใหม่..."
+                className="input flex-1 text-sm"
+              />
+              <button
+                type="button"
+                onClick={saveAsTemplate}
+                disabled={savingTemplate || !templateName.trim()}
+                className="rounded-xl border border-slate-700 px-3 py-2 text-xs text-slate-400 hover:border-slate-600 hover:text-slate-200 disabled:opacity-40 transition-all whitespace-nowrap"
+              >
+                {savingTemplate ? '…' : '💾 บันทึก Template'}
+              </button>
+            </div>
+          </section>
+
           {/* Block builder */}
           <section className="space-y-4">
-            <h2 className="text-sm font-semibold text-slate-400 uppercase tracking-wider">เนื้อหาใบงาน</h2>
+            <div className="flex items-center justify-between">
+              <h2 className="text-sm font-semibold text-slate-400 uppercase tracking-wider">เนื้อหาใบงาน</h2>
+              {qbankQuestions.length > 0 && (
+                <button
+                  type="button"
+                  onClick={openQBank}
+                  className="rounded-xl border border-purple-700 px-3 py-1.5 text-xs text-purple-400 hover:border-purple-600 hover:text-purple-300 transition-all"
+                >
+                  📦 นำเข้าจาก Q-Bank ({qbankQuestions.length})
+                </button>
+              )}
+            </div>
             {grouped.length === 0 && (
               <div className="flex items-center justify-center rounded-2xl border border-dashed border-slate-800 py-12 text-sm text-slate-600">
                 ยังไม่มีบล็อก — เพิ่มได้จากปุ่มด้านล่าง
@@ -224,6 +441,122 @@ export default function NewAssignmentPage() {
           </button>
         </form>
       </div>
+
+      {/* Q-Bank import modal */}
+      {showQBank && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 px-4">
+          <div className="w-full max-w-2xl rounded-2xl border border-slate-700 bg-slate-900 shadow-2xl flex flex-col max-h-[80vh]">
+            <div className="flex items-center justify-between border-b border-slate-800 px-6 py-4">
+              <h3 className="font-semibold text-slate-100">📦 นำเข้าจาก Q-Bank</h3>
+              <button onClick={() => setShowQBank(false)} className="text-slate-500 hover:text-slate-200">✕</button>
+            </div>
+
+            {/* Filters */}
+            <div className="flex flex-wrap gap-2 border-b border-slate-800 px-6 py-3">
+              <select
+                value={qbankTypeFilter}
+                onChange={(e) => setQBankTypeFilter(e.target.value)}
+                className="rounded-lg border border-slate-700 bg-slate-800 px-3 py-1.5 text-xs text-slate-300"
+              >
+                <option value="">ทุกประเภท</option>
+                <option value="short-answer">ตอบสั้น</option>
+                <option value="long-answer">ตอบยาว</option>
+                <option value="multiple-choice">ตัวเลือก</option>
+                <option value="checkbox">เลือกหลายข้อ</option>
+              </select>
+              <input
+                value={qbankTagFilter}
+                onChange={(e) => setQBankTagFilter(e.target.value)}
+                placeholder="กรองตามแท็ก..."
+                className="rounded-lg border border-slate-700 bg-slate-800 px-3 py-1.5 text-xs text-slate-300 flex-1 min-w-[120px]"
+              />
+              <button
+                type="button"
+                onClick={() => {
+                  const filtered = qbankQuestions.filter((q) => {
+                    if (qbankTypeFilter && q.type !== qbankTypeFilter) return false;
+                    if (qbankTagFilter && !q.tags.some((t) => t.toLowerCase().includes(qbankTagFilter.toLowerCase()))) return false;
+                    return true;
+                  });
+                  setQBankSelected(new Set(filtered.map((q) => q.id)));
+                }}
+                className="rounded-lg border border-slate-700 px-3 py-1.5 text-xs text-slate-400 hover:text-slate-200"
+              >
+                เลือกทั้งหมดที่กรอง
+              </button>
+            </div>
+
+            {/* Question list */}
+            <div className="flex-1 overflow-y-auto px-6 py-4 space-y-2">
+              {qbankQuestions
+                .filter((q) => {
+                  if (qbankTypeFilter && q.type !== qbankTypeFilter) return false;
+                  if (qbankTagFilter && !q.tags.some((t) => t.toLowerCase().includes(qbankTagFilter.toLowerCase()))) return false;
+                  return true;
+                })
+                .map((q) => {
+                  const TYPE_LABELS: Record<string, string> = {
+                    'short-answer': 'ตอบสั้น',
+                    'long-answer': 'ตอบยาว',
+                    'multiple-choice': 'ตัวเลือก',
+                    'checkbox': 'เลือกหลายข้อ',
+                  };
+                  return (
+                    <label key={q.id} className={`flex cursor-pointer items-start gap-3 rounded-xl border p-3 transition-all ${
+                      qbankSelected.has(q.id) ? 'border-purple-700 bg-purple-950/20' : 'border-slate-800 hover:border-slate-700'
+                    }`}>
+                      <input
+                        type="checkbox"
+                        checked={qbankSelected.has(q.id)}
+                        onChange={() => qbankToggle(q.id)}
+                        className="mt-0.5 accent-purple-500"
+                      />
+                      <div className="min-w-0 flex-1">
+                        <p className="text-sm text-slate-200">{q.question}</p>
+                        <div className="mt-1 flex flex-wrap gap-1">
+                          <span className="rounded-full border border-slate-700 px-1.5 py-0.5 text-[10px] text-slate-500">{TYPE_LABELS[q.type]}</span>
+                          {q.tags.map((t) => (
+                            <span key={t} className="rounded-full border border-purple-900 px-1.5 py-0.5 text-[10px] text-purple-500">{t}</span>
+                          ))}
+                        </div>
+                      </div>
+                    </label>
+                  );
+                })}
+            </div>
+
+            {/* Footer */}
+            <div className="flex items-center justify-between border-t border-slate-800 px-6 py-4 gap-3">
+              <div className="flex items-center gap-2">
+                <span className="text-xs text-slate-400">เลือกแล้ว {qbankSelected.size} ข้อ · สุ่ม</span>
+                <input
+                  type="number"
+                  min="1"
+                  max={qbankSelected.size}
+                  value={qbankRandom}
+                  onChange={(e) => setQBankRandom(e.target.value)}
+                  placeholder="ทั้งหมด"
+                  className="w-20 rounded-lg border border-slate-700 bg-slate-800 px-2 py-1 text-xs text-slate-300"
+                />
+                <span className="text-xs text-slate-400">ข้อ</span>
+              </div>
+              <div className="flex gap-2">
+                <button onClick={() => setShowQBank(false)}
+                  className="rounded-xl border border-slate-700 px-4 py-2 text-xs text-slate-400 hover:text-slate-200 transition-all">
+                  ยกเลิก
+                </button>
+                <button
+                  onClick={importFromQBank}
+                  disabled={qbankSelected.size === 0}
+                  className="rounded-xl bg-purple-600 px-4 py-2 text-xs font-medium text-white hover:bg-purple-500 disabled:opacity-40 transition-all"
+                >
+                  นำเข้า {qbankSelected.size} ข้อ
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

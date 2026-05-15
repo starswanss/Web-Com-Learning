@@ -13,6 +13,20 @@ import type { UserProfile } from '@/types';
 
 const ALLOWED_DOMAIN = process.env.NEXT_PUBLIC_ALLOWED_DOMAIN ?? '';
 const TEACHER_EMAILS = (process.env.NEXT_PUBLIC_TEACHER_EMAILS ?? '').split(',').map((e) => e.trim());
+const PROFILE_CACHE_KEY = 'lms_profile';
+
+function loadCachedProfile(): UserProfile | null {
+  if (typeof window === 'undefined') return null;
+  try {
+    const raw = localStorage.getItem(PROFILE_CACHE_KEY);
+    return raw ? JSON.parse(raw) : null;
+  } catch { return null; }
+}
+
+function saveProfileCache(p: UserProfile | null) {
+  if (p) localStorage.setItem(PROFILE_CACHE_KEY, JSON.stringify(p));
+  else localStorage.removeItem(PROFILE_CACHE_KEY);
+}
 
 interface AuthContextValue {
   user: User | null;
@@ -28,7 +42,7 @@ const AuthContext = createContext<AuthContextValue | null>(null);
 
 export function AuthProvider({ children }: { children: React.ReactNode }) {
   const [user, setUser] = useState<User | null>(null);
-  const [profile, setProfile] = useState<UserProfile | null>(null);
+  const [profile, setProfile] = useState<UserProfile | null>(loadCachedProfile);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const router = useRouter();
@@ -36,15 +50,33 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   useEffect(() => {
     const unsubscribe = auth.onAuthStateChanged(async (firebaseUser) => {
       setUser(firebaseUser);
+
       if (!firebaseUser) {
         setProfile(null);
+        saveProfileCache(null);
         setLoading(false);
         return;
       }
+
+      // If the cached profile belongs to this user, show content instantly
+      const cached = loadCachedProfile();
+      if (cached?.uid === firebaseUser.uid) {
+        setProfile(cached);
+        setLoading(false);
+        // Silently refresh in background
+        fetch('/api/auth/session')
+          .then((r) => (r.ok ? r.json() : null))
+          .then((p) => { if (p) { setProfile(p); saveProfileCache(p); } })
+          .catch(() => {});
+        return;
+      }
+
+      // No matching cache — fetch and wait
       try {
         const res = await fetch('/api/auth/session');
         const p = res.ok ? await res.json() : null;
         setProfile((prev) => (prev?.uid === firebaseUser.uid && p === null ? prev : p));
+        saveProfileCache(p);
       } catch {
         setProfile((prev) => (prev?.uid === firebaseUser.uid ? prev : null));
       } finally {
@@ -59,6 +91,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     const res = await fetch('/api/auth/session');
     const p = res.ok ? await res.json() : null;
     setProfile(p);
+    saveProfileCache(p);
   }
 
   async function signInWithGoogle() {
@@ -79,7 +112,6 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         return;
       }
 
-      // Session cookie + user doc created server-side in one call
       const idToken = await result.user.getIdToken();
       const res = await fetch('/api/auth/session', {
         method: 'POST',
@@ -94,10 +126,11 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       }
 
       const body = await res.json();
-      if (body.profile) setProfile(body.profile);
+      if (body.profile) {
+        setProfile(body.profile);
+        saveProfileCache(body.profile);
+      }
 
-      // Hard navigation so the browser sends the fresh session cookie and
-      // onAuthStateChanged loads the profile from a clean state.
       window.location.href = '/dashboard';
     } catch (err: unknown) {
       const code = (err as { code?: string }).code ?? '';
@@ -109,6 +142,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   async function signOut() {
     await firebaseSignOut(auth);
     await fetch('/api/auth/session', { method: 'DELETE' });
+    saveProfileCache(null);
     setUser(null);
     setProfile(null);
     router.push('/login');

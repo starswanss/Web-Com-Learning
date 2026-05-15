@@ -7,32 +7,29 @@ import Link from 'next/link';
 import {
   Chart,
   BarController,
+  LineController,
   BarElement,
+  LineElement,
+  PointElement,
   CategoryScale,
   LinearScale,
   Tooltip,
   Legend,
+  Filler,
 } from 'chart.js';
 
-Chart.register(BarController, BarElement, CategoryScale, LinearScale, Tooltip, Legend);
+Chart.register(BarController, LineController, BarElement, LineElement, PointElement, CategoryScale, LinearScale, Tooltip, Legend, Filler);
 
-interface ClassStat {
-  classId: string;
-  submitted: number;
-  avgScore: number;
-}
-
-interface AssignmentStat {
-  id: string;
-  title: string;
-  submitted: number;
-  avgScore: number;
-}
+interface ClassStat { classId: string; submitted: number; avgScore: number }
+interface AssignmentStat { id: string; title: string; submitted: number; avgScore: number }
+interface BucketStat { label: string; count: number }
 
 interface AnalyticsData {
   classStats: ClassStat[];
   assignmentStats: AssignmentStat[];
   totalSubmissions: number;
+  scoreDistribution: BucketStat[];
+  weeklyTrend: BucketStat[];
 }
 
 export default function AnalyticsPage() {
@@ -42,6 +39,8 @@ export default function AnalyticsPage() {
   const [fetching, setFetching] = useState(true);
   const submissionsChartRef = useRef<HTMLCanvasElement>(null);
   const scoresChartRef = useRef<HTMLCanvasElement>(null);
+  const distributionChartRef = useRef<HTMLCanvasElement>(null);
+  const trendChartRef = useRef<HTMLCanvasElement>(null);
 
   useEffect(() => {
     if (!loading && profile?.role !== 'teacher') router.push('/dashboard');
@@ -88,7 +87,48 @@ export default function AnalyticsPage() {
       options: { ...chartDefaults, scales: { ...chartDefaults.scales, y: { ...chartDefaults.scales.y, max: 100 } }, plugins: { ...chartDefaults.plugins, legend: { display: true, labels: { color: palette.tick } } } },
     });
 
-    return () => { chart1.destroy(); chart2.destroy(); };
+    let chart3: Chart | undefined;
+    let chart4: Chart | undefined;
+
+    if (data.scoreDistribution && distributionChartRef.current) {
+      chart3 = new Chart(distributionChartRef.current, {
+        type: 'bar',
+        data: {
+          labels: data.scoreDistribution.map((b) => b.label),
+          datasets: [{
+            label: 'จำนวนนักเรียน',
+            data: data.scoreDistribution.map((b) => b.count),
+            backgroundColor: data.scoreDistribution.map((b) => {
+              const mid = parseInt(b.label.split('–')[0]);
+              return mid >= 80 ? '#10b981' : mid >= 60 ? '#f59e0b' : mid >= 40 ? '#f97316' : '#ef4444';
+            }),
+            borderRadius: 4,
+          }],
+        },
+        options: { ...chartDefaults, plugins: { ...chartDefaults.plugins, legend: { display: false } } },
+      });
+    }
+
+    if (data.weeklyTrend && trendChartRef.current) {
+      chart4 = new Chart(trendChartRef.current, {
+        type: 'line',
+        data: {
+          labels: data.weeklyTrend.map((w) => w.label),
+          datasets: [{
+            label: 'งานที่ส่ง',
+            data: data.weeklyTrend.map((w) => w.count),
+            borderColor: '#3b82f6',
+            backgroundColor: 'rgba(59,130,246,0.1)',
+            fill: true,
+            tension: 0.4,
+            pointBackgroundColor: '#3b82f6',
+          }],
+        },
+        options: { ...chartDefaults, plugins: { ...chartDefaults.plugins, legend: { display: false } } },
+      });
+    }
+
+    return () => { chart1.destroy(); chart2.destroy(); chart3?.destroy(); chart4?.destroy(); };
   }, [data]);
 
   if (loading || !profile) return <Spinner />;
@@ -134,6 +174,12 @@ export default function AnalyticsPage() {
               </ChartCard>
               <ChartCard title="คะแนนเฉลี่ย รายห้อง">
                 <canvas ref={scoresChartRef} />
+              </ChartCard>
+              <ChartCard title="การกระจายคะแนน (Score Distribution)">
+                <canvas ref={distributionChartRef} />
+              </ChartCard>
+              <ChartCard title="แนวโน้มการส่งงาน 8 สัปดาห์ล่าสุด">
+                <canvas ref={trendChartRef} />
               </ChartCard>
             </div>
 

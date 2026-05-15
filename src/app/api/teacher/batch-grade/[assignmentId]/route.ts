@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { adminAuth, adminDb } from '@/lib/firebase/admin';
 import { cookies } from 'next/headers';
 import { FieldValue } from 'firebase-admin/firestore';
-import { gradeSubmission, answersToText } from '@/lib/gemini';
+import { gradeSubmissionsBatch, answersToText } from '@/lib/gemini';
 
 async function getTeacherUid(): Promise<string | null> {
   try {
@@ -42,15 +42,8 @@ export async function POST(
   // Only grade submissions that haven't been teacher-reviewed yet
   const toGrade = allDocs.filter((d) => d.data().status !== 'reviewed');
 
-  // Collect all content for plagiarism comparison
-  const allContents = allDocs
-    .map((d) => (d.data().content as string) ?? '')
-    .filter(Boolean);
-
-  let graded = 0;
-  let errors = 0;
-
-  // Sequential to avoid Gemini rate limits
+  // Build gradable items — convert block answers to text where needed
+  const gradableItems: Array<{ id: string; content: string }> = [];
   for (const doc of toGrade) {
     const sub = doc.data();
     const content = (sub.content as string) ?? '';
@@ -63,29 +56,38 @@ export async function POST(
           answers
         )
       : '';
+    if (gradableContent) gradableItems.push({ id: doc.id, content: gradableContent });
+  }
 
-    if (!gradableContent) continue;
+  let graded = 0;
+  let errors = 0;
 
+  // Send up to 15 students per Gemini request instead of 1-per-student
+  const CHUNK_SIZE = 15;
+  for (let i = 0; i < gradableItems.length; i += CHUNK_SIZE) {
+    const chunk = gradableItems.slice(i, i + CHUNK_SIZE);
     try {
-      const otherContents = allContents.filter((c) => c !== content);
-      const result = await gradeSubmission(
+      const results = await gradeSubmissionsBatch(
         assignment.title as string,
         assignment.description as string,
-        gradableContent,
-        otherContents,
+        chunk,
         assignment.rubric as string | undefined
       );
 
-      await adminDb.collection('submissions').doc(doc.id).update({
-        score: result.score,
-        feedback: result.feedback,
-        plagiarismSuspicion: result.plagiarismSuspicion,
-        status: 'graded',
-        gradedAt: FieldValue.serverTimestamp(),
-      });
-      graded++;
+      await Promise.all(
+        results.map((r) =>
+          adminDb.collection('submissions').doc(r.id).update({
+            score: r.score,
+            feedback: r.feedback,
+            plagiarismSuspicion: r.plagiarismSuspicion,
+            status: 'graded',
+            gradedAt: FieldValue.serverTimestamp(),
+          })
+        )
+      );
+      graded += results.length;
     } catch {
-      errors++;
+      errors += chunk.length;
     }
   }
 

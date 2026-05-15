@@ -13,6 +13,18 @@ export interface GradingResult {
   };
 }
 
+export interface BatchSubmission {
+  id: string;
+  content: string;
+}
+
+export interface BatchGradingResult {
+  id: string;
+  score: number;
+  feedback: string;
+  plagiarismSuspicion: number;
+}
+
 export async function gradeSubmission(
   assignmentTitle: string,
   assignmentDescription: string,
@@ -74,6 +86,66 @@ Short answers (<30 words) should score at most 40 unless the question is trivial
       details: { quality: 50, relevance: 50, copyPasteRisk: 0 },
     };
   }
+}
+
+/**
+ * Grade multiple student submissions in a single Gemini request.
+ * Chunks of up to 15 keep the prompt within safe token limits while
+ * dramatically reducing API calls vs. grading one-by-one.
+ */
+export async function gradeSubmissionsBatch(
+  assignmentTitle: string,
+  assignmentDescription: string,
+  submissions: BatchSubmission[],
+  rubric?: string
+): Promise<BatchGradingResult[]> {
+  if (submissions.length === 0) return [];
+
+  const model = genAI.getGenerativeModel({ model: 'gemini-2.0-flash' });
+
+  const rubricBlock = rubric ? `\n\nCriteria from teacher:\n${rubric}` : '';
+
+  const studentBlocks = submissions
+    .map((s, i) => `[Student ${i + 1}]\n${s.content}`)
+    .join('\n\n---\n\n');
+
+  const prompt = `You are a teacher assistant for a Thai secondary school Computing Science class (ม.3 / Grade 9).
+Grade ALL ${submissions.length} student submissions below for the SAME assignment.
+
+Assignment: ${assignmentTitle}
+Instructions: ${assignmentDescription}${rubricBlock}
+
+${studentBlocks}
+
+Respond ONLY with a JSON array — no markdown, no extra text. Exactly ${submissions.length} entries in the same order as [Student 1..N]:
+[{"score":0,"feedback":"","plagiarismSuspicion":0},...]
+
+Rules:
+- score: 0-100
+- feedback: 2-3 sentences in Thai, constructive and kind
+- plagiarismSuspicion: 0-100 (0=clearly original, 100=definitely copied; compare students against each other)
+- Scoring guide: 90-100 excellent · 70-89 good · 50-69 adequate · 30-49 incomplete · 0-29 very poor or copied
+- Short answers (<30 words) score at most 40 unless the question is trivial
+- Grade each student independently`;
+
+  const result = await model.generateContent(prompt);
+  const text = result.response.text().trim();
+
+  let parsed: Array<{ score: number; feedback: string; plagiarismSuspicion: number }>;
+  try {
+    parsed = JSON.parse(text);
+  } catch {
+    const match = text.match(/\[[\s\S]*\]/);
+    if (match) parsed = JSON.parse(match[0]);
+    else throw new Error('batch parse failed');
+  }
+
+  return submissions.map((s, i) => ({
+    id: s.id,
+    score: Number(parsed[i]?.score ?? 50),
+    feedback: parsed[i]?.feedback ?? 'ระบบตรวจงานอัตโนมัติพบข้อผิดพลาด กรุณารอครูตรวจสอบด้วยตนเอง',
+    plagiarismSuspicion: Number(parsed[i]?.plagiarismSuspicion ?? 0),
+  }));
 }
 
 /** Convert block-based answers to readable text for AI grading */
