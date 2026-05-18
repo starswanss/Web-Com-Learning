@@ -5,7 +5,9 @@ import { useRouter } from 'next/navigation';
 import { useAuth } from '@/context/AuthContext';
 import Image from 'next/image';
 import Link from 'next/link';
-import { CONTENT_TYPE_LABELS, type ContentType } from '@/types';
+import { CONTENT_TYPE_LABELS, type ContentType, type QuizPhase } from '@/types';
+import { useTheme } from '@/context/ThemeContext';
+import { calcLevel, levelColor, levelBarColor } from '@/lib/xp';
 
 /* ───────── Types ───────── */
 interface AssignmentWithSubmission {
@@ -17,6 +19,8 @@ interface AssignmentWithSubmission {
   contentType?: ContentType;
   unit?: string;
   isOpen?: boolean;
+  quizPhase?: QuizPhase;
+  pairedQuizId?: string;
   submission: null | {
     status: 'submitted' | 'graded' | 'reviewed';
     score?: number;
@@ -56,9 +60,33 @@ function scoreColor(n: number) {
 const MONTH_NAMES_TH = ['มกราคม','กุมภาพันธ์','มีนาคม','เมษายน','พฤษภาคม','มิถุนายน','กรกฎาคม','สิงหาคม','กันยายน','ตุลาคม','พฤศจิกายน','ธันวาคม'];
 const DAY_NAMES_TH   = ['อา','จ','อ','พ','พฤ','ศ','ส'];
 
+/* ─── XP Bar Component ─── */
+function XpBar({ xp }: { xp: number }) {
+  const { level, title, currentXp, nextLevelXp, progress } = calcLevel(xp);
+  const barColor = levelBarColor(level);
+  const txtColor = levelColor(level);
+  return (
+    <div className="mt-1.5 flex items-center gap-2 max-w-[280px]">
+      <span className={`shrink-0 rounded-md border border-slate-700/80 bg-slate-800/80 px-1.5 py-0.5 text-[10px] font-black tabular-nums ${txtColor}`}>
+        Lv.{level}
+      </span>
+      <div className="flex-1 min-w-0">
+        <div className="h-2 overflow-hidden rounded-full bg-slate-800">
+          <div
+            className={`h-full rounded-full transition-all duration-700 ${barColor}`}
+            style={{ width: `${progress}%` }}
+          />
+        </div>
+        <p className="mt-0.5 text-[9px] text-slate-600 leading-none">{title} · {currentXp}/{nextLevelXp} XP</p>
+      </div>
+    </div>
+  );
+}
+
 /* ═══════════════════════════ MAIN PAGE ═══════════════════════════ */
 export default function StudentPage() {
   const { user, profile, loading, signOut } = useAuth();
+  const { toggle: toggleTheme, isLight } = useTheme();
   const router = useRouter();
 
   const [assignments, setAssignments] = useState<AssignmentWithSubmission[]>([]);
@@ -121,12 +149,36 @@ export default function StudentPage() {
     .sort((a,b) => a.dueDate!._seconds - b.dueDate!._seconds)
     .slice(0, 6);
 
-  /* ── Unit groups ── */
-  const unitGroups = new Map<string, AssignmentWithSubmission[]>();
-  pending.forEach(a => {
+  /* ── Content-type + unit groups for pending section ── */
+  const CT_ORDER: ContentType[] = ['knowledge', 'worksheet', 'quiz'];
+  type CtGroup = { ct: ContentType; unitGroups: Map<string, AssignmentWithSubmission[]> };
+  const ctGroups: CtGroup[] = CT_ORDER
+    .map(ct => ({
+      ct,
+      unitGroups: (() => {
+        const m = new Map<string, AssignmentWithSubmission[]>();
+        pending.filter(a => (a.contentType ?? 'worksheet') === ct).forEach(a => {
+          const key = a.unit ?? '';
+          if (!m.has(key)) m.set(key, []);
+          m.get(key)!.push(a);
+        });
+        return m;
+      })(),
+    }))
+    .filter(g => g.unitGroups.size > 0);
+
+  /* ── Unit groups for submitted/graded (flat, no ct split needed) ── */
+  const submittedByUnit = new Map<string, AssignmentWithSubmission[]>();
+  submitted.forEach(a => {
     const key = a.unit ?? '';
-    if (!unitGroups.has(key)) unitGroups.set(key, []);
-    unitGroups.get(key)!.push(a);
+    if (!submittedByUnit.has(key)) submittedByUnit.set(key, []);
+    submittedByUnit.get(key)!.push(a);
+  });
+  const gradedByUnit = new Map<string, AssignmentWithSubmission[]>();
+  graded.forEach(a => {
+    const key = a.unit ?? '';
+    if (!gradedByUnit.has(key)) gradedByUnit.set(key, []);
+    gradedByUnit.get(key)!.push(a);
   });
 
   /* ── Score bar color ── */
@@ -139,39 +191,58 @@ export default function StudentPage() {
     <div className="min-h-screen bg-slate-950">
 
       {/* ══ HEADER ══ */}
-      <header className="sticky top-0 z-40 border-b border-slate-800/70 bg-slate-950/90 backdrop-blur-md">
-        <div className="mx-auto flex max-w-[1200px] items-center gap-4 px-6 py-3">
+      <header className="sticky top-0 z-40 border-b border-slate-800/70 bg-slate-950/95 backdrop-blur-md">
+        <div className="mx-auto flex max-w-[1200px] items-center gap-4 px-6 py-4">
 
+          {/* ── LEFT: back + avatar + name + XP bar ── */}
           <div className="flex min-w-0 flex-1 items-center gap-3">
             <button
               onClick={() => { localStorage.removeItem('lms_subject'); router.push('/select-subject'); }}
-              className="shrink-0 rounded-lg border border-slate-800 p-1.5 text-slate-500 transition-all hover:border-slate-700 hover:text-slate-300"
+              className="shrink-0 rounded-lg border border-slate-800 p-2 text-slate-500 transition-all hover:border-slate-700 hover:text-slate-300"
             >
-              <svg className="h-3.5 w-3.5" fill="none" stroke="currentColor" strokeWidth={2.5} viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" d="M15 19l-7-7 7-7"/></svg>
+              <svg className="h-4 w-4" fill="none" stroke="currentColor" strokeWidth={2.5} viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" d="M15 19l-7-7 7-7"/></svg>
             </button>
-            <div className="min-w-0">
+
+            {user?.photoURL && (
+              <Image src={user.photoURL} alt="" width={40} height={40} className="shrink-0 rounded-full ring-2 ring-slate-700/60" />
+            )}
+
+            <div className="min-w-0 flex-1">
               <p className="text-[9px] font-bold uppercase tracking-[0.15em] text-slate-600">
                 {subject?.name ?? 'Computing Science & IT'} · ห้อง {profile.classId}
               </p>
-              <h1 className="truncate text-sm font-bold text-slate-100">{user?.displayName}</h1>
+              <h1 className="truncate text-base font-bold text-slate-100 leading-tight">{user?.displayName}</h1>
+              <XpBar xp={profile.xp ?? 0} />
             </div>
           </div>
 
-          <div className="flex shrink-0 items-center gap-1.5">
+          {/* ── RIGHT: nav links ── */}
+          <nav className="flex shrink-0 items-center gap-0.5">
+            <button onClick={toggleTheme} title={isLight ? 'ธีมมืด' : 'ธีมสว่าง'}
+              className="rounded-lg border border-slate-800 px-2.5 py-2 text-sm transition-all hover:border-slate-700">
+              {isLight ? '🌙' : '☀️'}
+            </button>
+            <Link href="/student/quests"
+              className="flex items-center gap-1.5 rounded-lg px-3.5 py-2 text-xs font-semibold text-slate-400 transition-all hover:bg-slate-800/70 hover:text-yellow-300">
+              ⚡ เควส
+            </Link>
+            <Link href="/student/milestones"
+              className="flex items-center gap-1.5 rounded-lg px-3.5 py-2 text-xs font-semibold text-slate-400 transition-all hover:bg-slate-800/70 hover:text-slate-200">
+              🏁 Milestone
+            </Link>
             <Link href="/student/leaderboard"
-              className="rounded-lg px-3 py-1.5 text-[11px] font-medium text-slate-400 transition-all hover:bg-slate-800/70 hover:text-slate-200">
+              className="flex items-center gap-1.5 rounded-lg px-3.5 py-2 text-xs font-semibold text-slate-400 transition-all hover:bg-slate-800/70 hover:text-slate-200">
               🏆 อันดับ
             </Link>
             <Link href="/student/profile"
-              className="rounded-lg px-3 py-1.5 text-[11px] font-medium text-slate-400 transition-all hover:bg-slate-800/70 hover:text-slate-200">
+              className="flex items-center gap-1.5 rounded-lg px-3.5 py-2 text-xs font-semibold text-slate-400 transition-all hover:bg-slate-800/70 hover:text-slate-200">
               Portfolio
             </Link>
-            {user?.photoURL && <Image src={user.photoURL} alt="" width={30} height={30} className="rounded-full ring-2 ring-slate-700/60" />}
             <button onClick={signOut}
-              className="rounded-lg border border-slate-800 px-3 py-1.5 text-[11px] text-slate-500 transition-all hover:border-slate-700 hover:text-slate-300">
-              ออกจากระบบ
+              className="rounded-lg border border-slate-800 px-3 py-2 text-xs text-slate-500 transition-all hover:border-slate-700 hover:text-slate-300">
+              ออก
             </button>
-          </div>
+          </nav>
         </div>
       </header>
 
@@ -231,16 +302,46 @@ export default function StudentPage() {
                     </div>
                   ) : (
                     <div className="divide-y divide-slate-800/50">
-                      {Array.from(unitGroups.entries()).map(([unit, items]) => (
-                        <div key={unit}>
-                          {unit && (
-                            <div className="bg-slate-950/40 px-5 py-2">
-                              <p className="text-[9px] font-bold uppercase tracking-widest text-slate-600">{unit}</p>
+                      {ctGroups.map(({ ct, unitGroups }) => {
+                        const meta = CONTENT_TYPE_LABELS[ct];
+                        const total = Array.from(unitGroups.values()).flat().length;
+                        return (
+                          <div key={ct}>
+                            {/* Content-type header inside the section */}
+                            <div className={`flex items-center gap-2 px-5 py-2 ${
+                              ct === 'knowledge' ? 'bg-emerald-500/5' :
+                              ct === 'worksheet'  ? 'bg-blue-500/5'    :
+                                                    'bg-purple-500/5'
+                            }`}>
+                              <span className="text-xs">{meta.icon}</span>
+                              <span className={`text-[10px] font-bold uppercase tracking-widest ${
+                                ct === 'knowledge' ? 'text-emerald-500' :
+                                ct === 'worksheet'  ? 'text-blue-500'    :
+                                                      'text-purple-500'
+                              }`}>{meta.label}</span>
+                              <span className="rounded-full bg-slate-800 px-1.5 py-0.5 text-[9px] text-slate-500">{total}</span>
                             </div>
-                          )}
-                          {items.map(a => <AssignmentRow key={a.id} assignment={a} />)}
-                        </div>
-                      ))}
+                            {Array.from(unitGroups.entries()).map(([unit, items]) => (
+                              <div key={unit}>
+                                {unit && (
+                                  <div className="flex items-center gap-3 border-b border-slate-800/40 bg-slate-950/40 px-5 py-2.5">
+                                    <div className={`h-5 w-1 shrink-0 rounded-full ${
+                                      ct === 'knowledge' ? 'bg-emerald-500' :
+                                      ct === 'worksheet'  ? 'bg-blue-500'    :
+                                                            'bg-purple-500'
+                                    }`} />
+                                    <span className="text-[11px] font-bold text-slate-300">{unit}</span>
+                                    <span className="rounded-full border border-slate-700/60 bg-slate-800/60 px-2 py-0.5 text-[10px] text-slate-400">
+                                      {items.length} รายการ
+                                    </span>
+                                  </div>
+                                )}
+                                {items.map(a => <AssignmentRow key={a.id} assignment={a} />)}
+                              </div>
+                            ))}
+                          </div>
+                        );
+                      })}
                     </div>
                   )}
                 </section>
@@ -254,7 +355,18 @@ export default function StudentPage() {
                       <span className="rounded-full bg-slate-800 px-2 py-0.5 text-[10px] font-semibold text-slate-400">{submitted.length}</span>
                     </div>
                     <div className="divide-y divide-slate-800/50">
-                      {submitted.map(a => <AssignmentRow key={a.id} assignment={a} />)}
+                      {Array.from(submittedByUnit.entries()).map(([unit, items]) => (
+                        <div key={unit}>
+                          {unit && (
+                            <div className="flex items-center gap-3 border-b border-slate-800/40 bg-slate-950/40 px-5 py-2.5">
+                              <div className="h-5 w-1 shrink-0 rounded-full bg-amber-400" />
+                              <span className="text-[11px] font-bold text-slate-300">{unit}</span>
+                              <span className="rounded-full border border-slate-700/60 bg-slate-800/60 px-2 py-0.5 text-[10px] text-slate-400">{items.length} รายการ</span>
+                            </div>
+                          )}
+                          {items.map(a => <AssignmentRow key={a.id} assignment={a} />)}
+                        </div>
+                      ))}
                     </div>
                   </section>
                 )}
@@ -268,7 +380,18 @@ export default function StudentPage() {
                       <span className="rounded-full bg-slate-800 px-2 py-0.5 text-[10px] font-semibold text-slate-400">{graded.length}</span>
                     </div>
                     <div className="divide-y divide-slate-800/50">
-                      {graded.map(a => <AssignmentRow key={a.id} assignment={a} />)}
+                      {Array.from(gradedByUnit.entries()).map(([unit, items]) => (
+                        <div key={unit}>
+                          {unit && (
+                            <div className="flex items-center gap-3 border-b border-slate-800/40 bg-slate-950/40 px-5 py-2.5">
+                              <div className="h-5 w-1 shrink-0 rounded-full bg-emerald-500" />
+                              <span className="text-[11px] font-bold text-slate-300">{unit}</span>
+                              <span className="rounded-full border border-slate-700/60 bg-slate-800/60 px-2 py-0.5 text-[10px] text-slate-400">{items.length} รายการ</span>
+                            </div>
+                          )}
+                          {items.map(a => <AssignmentRow key={a.id} assignment={a} />)}
+                        </div>
+                      ))}
                     </div>
                   </section>
                 )}
@@ -425,15 +548,23 @@ function AssignmentRow({ assignment: a }: { assignment: AssignmentWithSubmission
     <Link href={`/student/assignments/${a.id}`}
       className={`flex items-center gap-4 border-l-2 ${accentBorder} px-5 py-3.5 transition-colors hover:bg-slate-800/20`}>
       <div className="min-w-0 flex-1">
-        {m && (
-          <span className={`mb-1 inline-flex items-center gap-1 rounded-md border px-1.5 py-0.5 text-[9px] font-bold ${m.color}`}>
-            {m.icon} {m.label}
-          </span>
-        )}
+        <div className="mb-1 flex flex-wrap gap-1">
+          {m && (
+            <span className={`inline-flex items-center gap-1 rounded-md border px-1.5 py-0.5 text-[9px] font-bold ${m.color}`}>
+              {m.icon} {m.label}
+            </span>
+          )}
+          {isQuiz && a.quizPhase === 'pre' && (
+            <span className="inline-flex items-center rounded-full border border-sky-800/60 bg-sky-950/30 px-2 py-0.5 text-[9px] font-bold text-sky-400">ก่อนเรียน</span>
+          )}
+          {isQuiz && a.quizPhase === 'post' && (
+            <span className="inline-flex items-center rounded-full border border-violet-800/60 bg-violet-950/30 px-2 py-0.5 text-[9px] font-bold text-violet-400">หลังเรียน</span>
+          )}
+        </div>
         <p className="font-medium text-slate-100 truncate">{a.title}</p>
         <div className="mt-1 flex flex-wrap items-center gap-2">
-          {!a.submission && isQuiz && !a.isOpen && (
-            <span className="text-[9px] text-slate-600">🔒 ยังไม่เปิดสอบ</span>
+          {!a.submission && a.isOpen === false && (
+            <span className="text-[9px] text-slate-500">🔒 {isQuiz ? 'ยังไม่เปิดสอบ' : 'ยังไม่เปิด'}</span>
           )}
           {!a.submission && dueStatus && (
             <span className={`flex items-center gap-1 text-[9px] ${dueStatus.text}`}>
@@ -456,7 +587,12 @@ function AssignmentRow({ assignment: a }: { assignment: AssignmentWithSubmission
             {a.submission!.score}
           </span>
         )}
-        {!a.submission && (
+        {!a.submission && a.isOpen === false && (
+          <span className="rounded-xl border border-slate-700/60 bg-slate-800/40 px-3 py-1.5 text-[10px] font-semibold text-slate-500">
+            🔒
+          </span>
+        )}
+        {!a.submission && a.isOpen !== false && (
           <span className="rounded-xl border border-blue-800/60 bg-blue-950/30 px-3 py-1.5 text-[10px] font-semibold text-blue-400">
             ส่งงาน →
           </span>

@@ -18,7 +18,17 @@
       "PowerShell(Stop-Process -Force -ErrorAction SilentlyContinue)",
       "Bash(sed -i 's/verifySessionCookie\\(session, true\\)/verifySessionCookie\\(session, false\\)/g' \\\\ *)",
       "Bash(mkdir -p \"/c/Users/WebMasterRS/Desktop/Web-Com-Learning/src/app/parent/[token]\" 2>&1 || true)",
-      "Bash(git add *)"
+      "Bash(git add *)",
+      "Bash(git commit -m ' *)",
+      "Bash(git push *)",
+      "Bash(cat next.config.ts)",
+      "Bash(cat next.config.js)",
+      "Bash(node -e \"const pkg = require\\('./node_modules/@google/generative-ai/package.json'\\); console.log\\('version:', pkg.version\\)\")",
+      "Bash(findstr /i \"GEMINI\" .env.local)",
+      "Bash(Select-String -Path \".env.local\" -Pattern \"GEMINI\")",
+      "Bash(node -e \"const pkg = require\\('@google/generative-ai/package.json'\\); console.log\\(pkg.version\\);\")",
+      "Bash(node -e ' *)",
+      "Bash(echo \"EXIT:$?\")"
     ],
     "additionalDirectories": [
       "c:\\Users\\WebMasterRS\\Desktop\\Web-Com-Learning\\src\\app\\api\\assignments\\student\\[id]",

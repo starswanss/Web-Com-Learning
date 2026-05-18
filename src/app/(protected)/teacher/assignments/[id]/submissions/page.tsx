@@ -137,14 +137,19 @@ export default function SubmissionsPage({ params }: { params: Promise<{ id: stri
     setQuickGrading(true); setSaveError(null);
     try {
       const res = await fetch(`/api/teacher/quick-grade/${selected.id}`, { method: 'POST' });
-      if (!res.ok) throw new Error();
       const data = await res.json();
+      if (!res.ok) {
+        if (res.status === 400) { setSaveError('ไม่มีเนื้อหาที่จะตรวจ (งานนี้ไม่มีคำตอบ)'); return; }
+        if (res.status === 429) { setSaveError(`โควต้า AI เต็มชั่วคราว: ${data.detail ?? 'กรุณาลองใหม่ใน 1 นาที'}`); return; }
+        setSaveError(`ตรวจ AI ไม่สำเร็จ: ${data.detail ?? data.error ?? 'กรุณาลองใหม่'}`);
+        return;
+      }
       const updated: Submission = { ...selected, score: data.score, feedback: data.feedback, plagiarismSuspicion: data.plagiarismSuspicion, status: 'graded' };
       setSubmissions((prev) => prev.map((s) => (s.id === selected.id ? updated : s)));
       setSelected(updated);
       setScore(String(data.score));
       setFeedback(data.feedback);
-    } catch { setSaveError('ตรวจ AI ไม่สำเร็จ กรุณาลองใหม่'); }
+    } catch { setSaveError('ตรวจ AI ไม่สำเร็จ: ไม่สามารถเชื่อมต่อได้'); }
     finally { setQuickGrading(false); }
   }
 
@@ -186,7 +191,7 @@ export default function SubmissionsPage({ params }: { params: Promise<{ id: stri
         const refreshed = reload.submissions?.find((s: Submission) => s.id === selected.id);
         if (refreshed) { setSelected(refreshed); setScore(String(refreshed.score ?? '')); setFeedback(refreshed.feedback ?? ''); }
       }
-    } catch { setBatchResult('ตรวจ AI ไม่สำเร็จ กรุณาลองใหม่'); }
+    } catch { setBatchResult('ตรวจ AI ไม่สำเร็จ: ไม่สามารถเชื่อมต่อได้'); }
     finally { setBatchGrading(false); }
   }
 

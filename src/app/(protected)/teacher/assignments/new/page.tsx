@@ -43,6 +43,7 @@ export default function NewAssignmentPage() {
     (typeParam && ['worksheet', 'knowledge', 'quiz'].includes(typeParam)) ? typeParam : 'worksheet'
   );
   const [timeLimit, setTimeLimit] = useState('');
+  const [quizMode, setQuizMode] = useState<'standalone' | 'prepost'>('standalone');
   const [blocks, setBlocks] = useState<FormBlock[]>([]);
   const subjectId = typeof window !== 'undefined'
     ? JSON.parse(localStorage.getItem('lms_subject') ?? 'null')?.id ?? ''
@@ -170,6 +171,23 @@ export default function NewAssignmentPage() {
     setShowQBank(false);
   }
 
+  function buildFormData(extra?: Record<string, string>): FormData {
+    const fd = new FormData();
+    fd.append('title', title.trim());
+    fd.append('description', '');
+    fd.append('dueDate', dueDate);
+    fd.append('classIds', JSON.stringify(selectedClasses));
+    fd.append('blocks', JSON.stringify(blocks));
+    fd.append('rubric', rubric.trim());
+    fd.append('unit', unit.trim());
+    fd.append('contentType', contentType);
+    if (timeLimit) fd.append('timeLimit', timeLimit);
+    fd.append('subjectId', subjectId);
+    if (file) fd.append('file', file);
+    if (extra) Object.entries(extra).forEach(([k, v]) => fd.append(k, v));
+    return fd;
+  }
+
   async function handleSubmit(e: FormEvent) {
     e.preventDefault();
     setError(null);
@@ -179,21 +197,19 @@ export default function NewAssignmentPage() {
 
     setSubmitting(true);
     try {
-      const fd = new FormData();
-      fd.append('title', title.trim());
-      fd.append('description', '');
-      fd.append('dueDate', dueDate);
-      fd.append('classIds', JSON.stringify(selectedClasses));
-      fd.append('blocks', JSON.stringify(blocks));
-      fd.append('rubric', rubric.trim());
-      fd.append('unit', unit.trim());
-      fd.append('contentType', contentType);
-      if (timeLimit) fd.append('timeLimit', timeLimit);
-      fd.append('subjectId', subjectId);
-      if (file) fd.append('file', file);
-
-      const res = await fetch('/api/assignments', { method: 'POST', body: fd });
-      if (!res.ok) throw new Error('failed');
+      if (contentType === 'quiz' && quizMode === 'prepost') {
+        // Create a shared group ID so both can be looked up as a pair
+        const groupId = Math.random().toString(36).slice(2, 9);
+        const [preRes, postRes] = await Promise.all([
+          fetch('/api/assignments', { method: 'POST', body: buildFormData({ quizPhase: 'pre',  pairedQuizId: groupId, title: `${title.trim()} (ก่อนเรียน)` }) }),
+          fetch('/api/assignments', { method: 'POST', body: buildFormData({ quizPhase: 'post', pairedQuizId: groupId, title: `${title.trim()} (หลังเรียน)` }) }),
+        ]);
+        if (!preRes.ok || !postRes.ok) throw new Error('failed');
+      } else {
+        const fd = buildFormData(contentType === 'quiz' ? { quizPhase: 'standalone' } : {});
+        const res = await fetch('/api/assignments', { method: 'POST', body: fd });
+        if (!res.ok) throw new Error('failed');
+      }
       router.push('/teacher');
     } catch {
       setError('เกิดข้อผิดพลาด กรุณาลองใหม่');
@@ -266,19 +282,98 @@ export default function NewAssignmentPage() {
             </div>
 
             {contentType === 'quiz' && (
-              <div>
-                <label className="mb-1.5 block text-sm font-medium text-slate-300">เวลาทำข้อสอบ (นาที)</label>
-                <input
-                  type="number"
-                  min="1"
-                  max="180"
-                  value={timeLimit}
-                  onChange={(e) => setTimeLimit(e.target.value)}
-                  placeholder="เช่น 30 (เว้นว่างหากไม่จำกัดเวลา)"
-                  className="input text-sm"
-                />
-                <p className="mt-1 text-xs text-slate-500">เมื่อหมดเวลาระบบจะส่งงานให้อัตโนมัติ</p>
-              </div>
+              <>
+                {/* ── Quiz phase selector ── */}
+                <div className="rounded-xl border border-slate-700 bg-slate-800/40 p-4 space-y-3">
+                  <div className="flex items-center gap-2">
+                    <div className="h-4 w-1 rounded-full bg-purple-500" />
+                    <p className="text-sm font-semibold text-slate-200">รูปแบบการทดสอบ</p>
+                  </div>
+
+                  <div className="grid grid-cols-2 gap-3">
+                    {/* Option A — standalone */}
+                    <button type="button" onClick={() => setQuizMode('standalone')}
+                      className={`group relative flex flex-col gap-2 rounded-xl border-2 p-4 text-left transition-all ${
+                        quizMode === 'standalone'
+                          ? 'border-purple-500 bg-purple-950/40 shadow-lg shadow-purple-950/30'
+                          : 'border-slate-700 bg-slate-900/60 hover:border-slate-600'
+                      }`}>
+                      {quizMode === 'standalone' && (
+                        <span className="absolute right-3 top-3 flex h-5 w-5 items-center justify-center rounded-full bg-purple-500 text-[10px] text-white">✓</span>
+                      )}
+                      <span className="text-2xl">📝</span>
+                      <div>
+                        <p className={`text-sm font-bold ${quizMode === 'standalone' ? 'text-purple-200' : 'text-slate-300'}`}>แบบทดสอบปกติ</p>
+                        <p className="mt-0.5 text-[11px] text-slate-500">สร้างชุดเดียว · เปิด-ปิดได้เอง</p>
+                      </div>
+                    </button>
+
+                    {/* Option B — pre+post */}
+                    <button type="button" onClick={() => setQuizMode('prepost')}
+                      className={`group relative flex flex-col gap-2 rounded-xl border-2 p-4 text-left transition-all ${
+                        quizMode === 'prepost'
+                          ? 'border-sky-500 bg-sky-950/40 shadow-lg shadow-sky-950/30'
+                          : 'border-slate-700 bg-slate-900/60 hover:border-slate-600'
+                      }`}>
+                      {quizMode === 'prepost' && (
+                        <span className="absolute right-3 top-3 flex h-5 w-5 items-center justify-center rounded-full bg-sky-500 text-[10px] text-white">✓</span>
+                      )}
+                      <div className="flex gap-1.5">
+                        <span className="text-2xl">📋</span>
+                        <span className="text-2xl">📋</span>
+                      </div>
+                      <div>
+                        <p className={`text-sm font-bold ${quizMode === 'prepost' ? 'text-sky-200' : 'text-slate-300'}`}>ก่อนเรียน + หลังเรียน</p>
+                        <p className="mt-0.5 text-[11px] text-slate-500">สร้าง 2 ชุดพร้อมกัน · คำถามเดิม · เก็บผลแยก</p>
+                      </div>
+                    </button>
+                  </div>
+
+                  {/* Pre+post preview banner */}
+                  {quizMode === 'prepost' && (
+                    <div className="rounded-xl border border-sky-800/50 bg-sky-950/30 p-4 space-y-3">
+                      <p className="text-[11px] font-bold text-sky-400 uppercase tracking-widest">ตัวอย่างที่จะสร้าง</p>
+                      <div className="grid grid-cols-2 gap-2">
+                        <div className="rounded-lg border border-sky-800/60 bg-sky-900/20 px-3 py-2.5">
+                          <span className="inline-flex items-center gap-1 rounded-full border border-sky-700/60 bg-sky-950/60 px-2 py-0.5 text-[10px] font-bold text-sky-300">
+                            ก่อนเรียน
+                          </span>
+                          <p className="mt-1.5 text-[11px] font-medium text-slate-300 truncate">
+                            {title ? `${title} (ก่อนเรียน)` : 'ชื่อ (ก่อนเรียน)'}
+                          </p>
+                          <p className="mt-0.5 text-[10px] text-slate-500">ทำก่อนเริ่มบทเรียน</p>
+                        </div>
+                        <div className="rounded-lg border border-violet-800/60 bg-violet-900/20 px-3 py-2.5">
+                          <span className="inline-flex items-center gap-1 rounded-full border border-violet-700/60 bg-violet-950/60 px-2 py-0.5 text-[10px] font-bold text-violet-300">
+                            หลังเรียน
+                          </span>
+                          <p className="mt-1.5 text-[11px] font-medium text-slate-300 truncate">
+                            {title ? `${title} (หลังเรียน)` : 'ชื่อ (หลังเรียน)'}
+                          </p>
+                          <p className="mt-0.5 text-[10px] text-slate-500">ทบทวนหลังเรียนจบ</p>
+                        </div>
+                      </div>
+                      <p className="text-[10px] text-sky-500">
+                        ✦ ทั้งสองชุดใช้คำถามเดียวกัน แต่เปิด-ปิดและเก็บคะแนนแยกกัน
+                      </p>
+                    </div>
+                  )}
+                </div>
+
+                <div>
+                  <label className="mb-1.5 block text-sm font-medium text-slate-300">เวลาทำข้อสอบ (นาที)</label>
+                  <input
+                    type="number"
+                    min="1"
+                    max="180"
+                    value={timeLimit}
+                    onChange={(e) => setTimeLimit(e.target.value)}
+                    placeholder="เช่น 30 (เว้นว่างหากไม่จำกัดเวลา)"
+                    className="input text-sm"
+                  />
+                  <p className="mt-1 text-xs text-slate-500">เมื่อหมดเวลาระบบจะส่งงานให้อัตโนมัติ</p>
+                </div>
+              </>
             )}
 
             <div>
@@ -324,6 +419,7 @@ export default function NewAssignmentPage() {
               />
               <p className="mt-1 text-xs text-slate-500">ถ้าเว้นว่างไว้ AI จะใช้เกณฑ์มาตรฐาน</p>
             </div>
+
           </section>
 
           {/* Template loader */}
@@ -437,7 +533,11 @@ export default function NewAssignmentPage() {
 
           <button type="submit" disabled={submitting}
             className="w-full rounded-xl bg-blue-600 py-3 text-sm font-medium text-white transition-all hover:bg-blue-500 disabled:opacity-50 active:scale-95">
-            {submitting ? 'กำลังบันทึก…' : 'สร้างใบงาน'}
+            {submitting
+              ? 'กำลังบันทึก…'
+              : contentType === 'quiz' && quizMode === 'prepost'
+              ? '🔄 สร้างแบบทดสอบก่อน-หลังเรียน (2 ชุด)'
+              : 'สร้างใบงาน'}
           </button>
         </form>
       </div>

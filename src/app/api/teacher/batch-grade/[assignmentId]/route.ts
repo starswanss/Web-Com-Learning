@@ -86,7 +86,8 @@ export async function POST(
         )
       );
       graded += results.length;
-    } catch {
+    } catch (err) {
+      console.error('[batch-grade] Gemini chunk error:', err instanceof Error ? err.message : err);
       errors += chunk.length;
     }
   }

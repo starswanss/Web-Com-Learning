@@ -8,6 +8,7 @@ export interface UserProfile {
   role: UserRole;
   classId?: string;
   onboardingComplete: boolean;
+  xp?: number;
   createdAt: Date;
   updatedAt: Date;
 }
@@ -21,7 +22,8 @@ export type BlockType =
   | 'short-answer'
   | 'long-answer'
   | 'multiple-choice'
-  | 'checkbox';
+  | 'checkbox'
+  | 'ordering';
 
 interface BaseBlock { id: string; type: BlockType; half?: boolean }
 export interface HeadingBlock       extends BaseBlock { type: 'heading';         text: string }
@@ -29,17 +31,20 @@ export interface ParagraphBlock     extends BaseBlock { type: 'paragraph';      
 export interface ImageBlock         extends BaseBlock { type: 'image';           url: string; caption?: string }
 export interface ShortAnswerBlock   extends BaseBlock { type: 'short-answer';    question: string; required?: boolean }
 export interface LongAnswerBlock    extends BaseBlock { type: 'long-answer';     question: string; required?: boolean }
-export interface MultipleChoiceBlock extends BaseBlock { type: 'multiple-choice'; question: string; options: string[]; required?: boolean }
-export interface CheckboxBlock      extends BaseBlock { type: 'checkbox';        question: string; options: string[]; required?: boolean }
+export interface MultipleChoiceBlock extends BaseBlock { type: 'multiple-choice'; question: string; options: string[]; optionImages?: (string | null)[]; required?: boolean }
+export interface CheckboxBlock      extends BaseBlock { type: 'checkbox';        question: string; options: string[]; optionImages?: (string | null)[]; required?: boolean }
+export interface OrderingBlock      extends BaseBlock { type: 'ordering';        question: string; items: string[]; required?: boolean }
 
 export type FormBlock =
   | HeadingBlock | ParagraphBlock | ImageBlock
   | ShortAnswerBlock | LongAnswerBlock
-  | MultipleChoiceBlock | CheckboxBlock;
+  | MultipleChoiceBlock | CheckboxBlock | OrderingBlock;
 
 // ── Content type ──────────────────────────────────────────────────────────────
 
 export type ContentType = 'worksheet' | 'knowledge' | 'quiz';
+
+export type QuizPhase = 'standalone' | 'pre' | 'post';
 
 export const CONTENT_TYPE_LABELS: Record<ContentType, { label: string; icon: string; color: string }> = {
   worksheet: { label: 'ใบงาน',      icon: '📝', color: 'text-blue-400 border-blue-800 bg-blue-950/40' },
@@ -62,6 +67,7 @@ export interface Assignment {
   title: string;
   description: string;
   dueDate?: Date;
+  publishAt?: Date;
   teacherId: string;
   classIds: string[];
   subjectId?: string;
@@ -73,6 +79,23 @@ export interface Assignment {
   rubric?: string;
   timeLimit?: number;
   isOpen?: boolean;
+  quizPhase?: QuizPhase;
+  pairedQuizId?: string;
+  createdAt: Date;
+  updatedAt: Date;
+}
+
+// ── Milestone ─────────────────────────────────────────────────────────────────
+
+export interface Milestone {
+  id: string;
+  title: string;
+  description: string;
+  icon: string;
+  order: number;
+  subjectId?: string;
+  teacherId: string;
+  requiredAssignmentIds: string[];
   createdAt: Date;
   updatedAt: Date;
 }

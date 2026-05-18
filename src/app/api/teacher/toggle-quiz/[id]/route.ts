@@ -28,11 +28,7 @@ export async function PATCH(
   if (!snap.exists || snap.data()?.teacherId !== uid) {
     return NextResponse.json({ error: 'Not found' }, { status: 404 });
   }
-  if (snap.data()?.contentType !== 'quiz') {
-    return NextResponse.json({ error: 'Not a quiz' }, { status: 400 });
-  }
-
-  const current = snap.data()?.isOpen ?? false;
+  const current = snap.data()?.isOpen ?? true;
   await snap.ref.update({ isOpen: !current });
   return NextResponse.json({ isOpen: !current });
 }

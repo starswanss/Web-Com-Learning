@@ -4,6 +4,7 @@ import { cookies } from 'next/headers';
 import { FieldValue } from 'firebase-admin/firestore';
 import { ensureStudentFolder, uploadFileToDrive } from '@/lib/google-drive';
 import { gradeSubmission, answersToText } from '@/lib/gemini';
+import { calcXpGain } from '@/lib/xp';
 
 async function getStudent() {
   try {
@@ -49,9 +50,9 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: 'Forbidden' }, { status: 403 });
   }
 
-  // Quiz must be open for students to submit
-  if (assignment.contentType === 'quiz' && !assignment.isOpen) {
-    return NextResponse.json({ error: 'Quiz is closed' }, { status: 423 });
+  // Assignment must be open for students to submit
+  if (assignment.isOpen === false) {
+    return NextResponse.json({ error: 'Assignment is closed' }, { status: 423 });
   }
 
   const existing = await adminDb
@@ -78,9 +79,10 @@ export async function POST(req: NextRequest) {
   const driveWebViewLink = uploadResult?.webViewLink;
   const otherContents = othersSnap.docs.map((d) => d.data().content as string).filter(Boolean);
 
-  let score = 0;
-  let feedback = 'รอครูตรวจสอบ';
+  let score: number | null = null;
+  let feedback: string | null = null;
   let plagiarismSuspicion = 0;
+  let gradingSuccess = false;
 
   // For block-form answers, convert to text for AI grading
   const gradableContent = content.trim()
@@ -101,29 +103,38 @@ export async function POST(req: NextRequest) {
       score = grading.score;
       feedback = grading.feedback;
       plagiarismSuspicion = grading.plagiarismSuspicion;
-    } catch {
-      // AI grading failed — submission is saved, teacher grades manually
+      gradingSuccess = true;
+    } catch (err) {
+      // AI grading failed — keep score=null, status='submitted', teacher grades manually
+      console.error('[AI grading failed]', err instanceof Error ? err.message : err);
     }
   }
 
-  const docRef = await adminDb.collection('submissions').add({
-    assignmentId,
-    studentId: student.uid,
-    studentName: student.displayName,
-    classId: student.classId,
-    content: content || null,
-    answers: answers ?? null,
-    driveFileId: driveFileId ?? null,
-    driveWebViewLink: driveWebViewLink ?? null,
-    score,
-    feedback,
-    plagiarismSuspicion,
-    tabSwitchCount,
-    selfScore: selfScore ?? null,
-    status: gradableContent ? 'graded' : 'submitted',
-    submittedAt: FieldValue.serverTimestamp(),
-    gradedAt: gradableContent ? FieldValue.serverTimestamp() : null,
-  });
+  const xpGain = calcXpGain(gradingSuccess ? score : null);
 
-  return NextResponse.json({ id: docRef.id, score, feedback }, { status: 201 });
+  const [docRef] = await Promise.all([
+    adminDb.collection('submissions').add({
+      assignmentId,
+      studentId: student.uid,
+      studentName: student.displayName,
+      classId: student.classId,
+      content: content || null,
+      answers: answers ?? null,
+      driveFileId: driveFileId ?? null,
+      driveWebViewLink: driveWebViewLink ?? null,
+      score: score ?? null,
+      feedback: feedback ?? null,
+      plagiarismSuspicion,
+      tabSwitchCount,
+      selfScore: selfScore ?? null,
+      status: gradingSuccess ? 'graded' : 'submitted',
+      submittedAt: FieldValue.serverTimestamp(),
+      gradedAt: gradingSuccess ? FieldValue.serverTimestamp() : null,
+    }),
+    adminDb.collection('users').doc(student.uid).update({
+      xp: FieldValue.increment(xpGain),
+    }),
+  ]);
+
+  return NextResponse.json({ id: docRef.id, score, feedback, graded: gradingSuccess, xpGain }, { status: 201 });
 }

@@ -1,5 +1,5 @@
-# LMS v0.8 — Computing Science & IT (ม.3)
-> สร้าง: 2026-05-14 | v0.2: 2026-05-14 | v0.3: 2026-05-14 | v0.4: 2026-05-15 | v0.5: 2026-05-15 | v0.6: 2026-05-15 | v0.7: 2026-05-15 | v0.8: 2026-05-15
+# LMS v0.9 — Computing Science & IT (ม.3)
+> สร้าง: 2026-05-14 | v0.2: 2026-05-14 | v0.3: 2026-05-14 | v0.4: 2026-05-15 | v0.5: 2026-05-15 | v0.6: 2026-05-15 | v0.7: 2026-05-15 | v0.8: 2026-05-15 | v0.9: 2026-05-18
 
 ## ฟีเจอร์ทั้งหมดที่ Shipped
 
@@ -238,6 +238,9 @@
 | GET/POST/DELETE | `/api/teacher/bonus-points` | ครู | มอบ/ลิสต์/ยกเลิก bonus |
 | GET | `/api/teacher/bonus-points/search?email=` | ครู | ค้นหานักเรียนด้วยอีเมล/ชื่อ |
 | GET/POST | `/api/teacher/line-notify` | ครู | อ่าน/บันทึก LINE Notify token |
+| GET/POST/PATCH/DELETE | `/api/teacher/milestones` | ครู | จัดการ Milestone |
+| GET | `/api/student/milestones` | นักเรียน | Milestone + progress ของนักเรียน |
+| POST | `/api/ai-chat` | นักเรียน | AI chatbot ตอบคำถามเกี่ยวกับใบงาน |
 
 ---
 
@@ -247,7 +250,7 @@
 |---|---|
 | `users` | uid, email, role, classId, subjectId, onboardingComplete |
 | `subjects` | name, teacherId, classIds[], createdAt |
-| `assignments` | title, description, dueDate, classIds[], teacherId, blocks[], rubric, subjectId, unit, contentType, timeLimit, isOpen, driveFileId |
+| `assignments` | title, description, dueDate, publishAt, classIds[], teacherId, blocks[], rubric, subjectId, unit, contentType, timeLimit, isOpen, driveFileId, quizPhase, pairedQuizId |
 | `submissions` | assignmentId, studentId, classId, content, answers{}, score, feedback, plagiarismSuspicion, tabSwitchCount, selfScore, status, submittedAt |
 | `bonusPoints` | studentId, studentName, classId, points, medal, reason, teacherId, createdAt |
 | `templates` | name, contentType, unit, blocks[], rubric, teacherId, createdAt |
@@ -255,6 +258,7 @@
 | `parentTokens` | studentId, studentName, classId, createdBy, createdAt, expiresAt |
 | `system/config` | logoUrl, logoUpdatedBy, academicYear, lastResetAt, yearFolderDriveId, lineNotifyToken, lineNotifyUpdatedBy, lineNotifyUpdatedAt |
 | `system/timetable` | cells{`day_period`: {subject, room}}, updatedBy, updatedAt |
+| `milestones` | title, description, icon, order, subjectId, teacherId, requiredAssignmentIds[], createdAt, updatedAt |
 
 **status flow:** `submitted` → (AI) → `graded` → (approve/manual) → `reviewed`
 
@@ -278,9 +282,33 @@ LMS Root/
             └── ชื่อนักเรียน/
 ```
 
+### Milestone System — v0.9
+- [x] **Firestore collection `milestones`**: title, description, icon, order, subjectId, teacherId, requiredAssignmentIds[]
+- [x] **Teacher CRUD** (`/teacher/milestones`): สร้าง/แก้ไข/ลบ Milestone, เลือก icon จาก 12 ตัวเลือก, เลือกใบงานที่ต้องส่งเพื่อผ่าน
+- [x] **Student animated timeline** (`/student/milestones`): vertical timeline พร้อม CSS animations (pulse-glow, float, slide-up, bounce-in, fill-progress)
+- [x] **Circular progress** ในหน้า student: progress ring SVG + linear bar แสดง % ผ่าน Milestone
+- [x] **Auto-complete detection**: ผ่านเมื่อส่งครบทุกใบงานใน requiredAssignmentIds (ตรวจจาก submissions)
+- [x] **Lock visualization**: Milestone ที่ยังไม่ถึงจะแสดง 🔒 และ grayscale
+- [x] **API**: `GET/POST/PATCH/DELETE /api/teacher/milestones` + `GET /api/student/milestones` (with completedCount, totalRequired, isComplete)
+
+### Assignment Scheduler — v0.9
+- [x] **`publishAt` field** บน assignment: ครูตั้งเวลาเปิดให้นักเรียนเห็น
+- [x] **UI ใน new assignment form**: datetime-local input + preview ข้อความวันที่จะเปิด
+- [x] **Filter ใน student API**: ซ่อน assignment ที่ publishAt > now
+
+### AI Study Assistant — v0.9
+- [x] **`POST /api/ai-chat`**: Gemini 2.0 Flash พร้อม assignment content เป็น system context
+- [x] **Floating chat button** ในหน้า `/student/assignments/[id]`: ปุ่ม 🤖 มุมขวาล่าง, คลิกเปิด panel
+- [x] **Conversation history**: ส่ง 6 ข้อความล่าสุดเป็น context ให้ Gemini ตอบต่อเนื่อง
+- [x] **Guardrails**: ตอบเป็นภาษาไทย, ไม่บอกคำตอบตรงๆ, โฟกัสเนื้อหาใบงาน
+
+### Animations — v0.9
+- [x] CSS `@keyframes` ใน globals.css: `pulse-glow`, `sparkle`, `slide-up-fade`, `float`, `fill-progress`, `bounce-in`, `ripple`, `draw-line`
+- [x] Utility classes: `.animate-pulse-glow`, `.animate-sparkle`, `.animate-slide-up`, `.animate-float`, `.animate-bounce-in`, `.milestone-line-fill`
+
 ---
 
-## แผน v0.9 — ฟีเจอร์แนะนำ
+## แผน v1.0 — ฟีเจอร์แนะนำ
 
 ### 1. 🔄 Peer Review System
 หลังส่งงาน ระบบสุ่มให้นักเรียนตรวจงานเพื่อน 1–2 คนตาม rubric เดียวกัน — เพิ่มทักษะ critical thinking ลดภาระครู มี interface ให้คะแนน + comment โดยไม่เปิดเผยชื่อ
@@ -291,14 +319,20 @@ LMS Root/
 ### 3. 🗂 Multi-Teacher / Department Support
 รองรับครูหลายคนในระบบเดียว: แต่ละครูจัดการวิชาของตัวเอง, admin teacher มองเห็น overview ทุกวิชา, แชร์วิชาระหว่างครูได้ — เหมาะกับโรงเรียนที่มีหลายวิชาคอมฯ
 
-### 4. 🗓 Assignment Scheduler (Publish Later)
-ครูสร้างใบงานล่วงหน้าและตั้งเวลา "เปิดให้นักเรียนเห็น" — เช่น เปิดวันจันทร์ 08:00, ปิดรับวันศุกร์ 23:59; ระบบใช้ cron job (Vercel Cron) ตรวจสถานะทุก 5 นาที
-
-### 5. 📝 Rich Text Editor (Tiptap)
+### 4. 📝 Rich Text Editor (Tiptap)
 แทน plain textarea ด้วย rich text editor: bold/italic/underline, ลิสต์, code block, image upload inline — นักเรียนส่งงานที่มีการจัดรูปแบบสวยงาม ครูเห็น rendered HTML
 
-### 6. 🤖 AI Study Assistant (Chatbot)
-ปุ่ม "ถามอาจารย์ AI" ในหน้าดูใบงาน — chatbot ตอบคำถามเกี่ยวกับเนื้อหาในใบงานนั้นโดยเฉพาะ (RAG-lite: ส่ง content ของใบงานเป็น context ใน prompt) ช่วยนักเรียนที่ติดปัญหาโดยไม่ต้องรอครู
+### 5. 📊 Student Progress Report (PDF)
+สร้าง PDF รายงานนักเรียนรายคน: ภาพรวม, คะแนนแต่ละหน่วย, Milestone ที่ผ่าน, badge — ส่งให้ผู้ปกครองหรือพิมพ์แจก
+
+### 6. 🎮 Gamification: XP & Level System
+แปลงคะแนนสะสมเป็น XP → Level (ม.น้อย 1–5) — แสดง Level badge ในหน้า Profile, ใน Leaderboard, และ animation เมื่อ Level up
+
+### 7. 🔁 Assignment Retry Policy
+ครูกำหนด "จำนวนครั้งที่ส่งใหม่ได้" (0 = ครั้งเดียว, N = N ครั้ง) — นักเรียนส่งใหม่ได้โดยไม่ต้องให้ครู reset ทีละคน
+
+### 8. 💬 Teacher Feedback Comments (Inline)
+ครูแสดงความคิดเห็นแบบ inline บนบล็อกคำถาม แทนที่จะเป็น feedback ก้อนเดียว — นักเรียนเห็นคำแนะนำเฉพาะทีละข้อ
 
 ---
 

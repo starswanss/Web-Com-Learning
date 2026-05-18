@@ -5,7 +5,8 @@ import { useRouter } from 'next/navigation';
 import { useAuth } from '@/context/AuthContext';
 import Image from 'next/image';
 import Link from 'next/link';
-import { CONTENT_TYPE_LABELS, type ContentType } from '@/types';
+import { CONTENT_TYPE_LABELS, type ContentType, type QuizPhase } from '@/types';
+import { useTheme } from '@/context/ThemeContext';
 
 /* ───────── Types ───────── */
 interface Assignment {
@@ -18,6 +19,8 @@ interface Assignment {
   contentType?: ContentType;
   unit?: string;
   isOpen?: boolean;
+  quizPhase?: QuizPhase;
+  pairedQuizId?: string;
 }
 interface TimetableCell { subject: string; room: string }
 type TimetableCells = Record<string, TimetableCell>;
@@ -53,6 +56,9 @@ const WEEKDAY_LABELS = ['จันทร์', 'อังคาร', 'พุธ',
 const NAV_LINKS = [
   { href: '/teacher/overview',       label: 'ภาพรวม' },
   { href: '/teacher/students',       label: 'นักเรียน' },
+  { href: '/teacher/members',        label: 'สมาชิก' },
+  { href: '/teacher/milestones',     label: '🏁 Milestone' },
+  { href: '/teacher/quests',         label: '⚡ เควส' },
   { href: '/teacher/leaderboard',    label: 'Rank' },
   { href: '/teacher/analytics',      label: 'Analytics' },
   { href: '/teacher/timetable',      label: 'ตารางสอน' },
@@ -94,6 +100,7 @@ function currentPeriodIndex() {
 /* ═══════════════════════════ MAIN PAGE ═══════════════════════════ */
 export default function TeacherPage() {
   const { user, profile, loading, signOut } = useAuth();
+  const { toggle: toggleTheme, isLight } = useTheme();
   const router = useRouter();
 
   const [assignments, setAssignments] = useState<Assignment[]>([]);
@@ -216,8 +223,12 @@ export default function TeacherPage() {
             ))}
           </nav>
 
-          {/* Right: avatar + logout */}
+          {/* Right: theme toggle + avatar + logout */}
           <div className="flex shrink-0 items-center gap-2">
+            <button onClick={toggleTheme} title={isLight ? 'เปลี่ยนเป็นธีมมืด' : 'เปลี่ยนเป็นธีมสว่าง'}
+              className="rounded-lg border border-slate-800 px-2.5 py-1.5 text-sm transition-all hover:border-slate-700">
+              {isLight ? '🌙' : '☀️'}
+            </button>
             {user?.photoURL && (
               <Image src={user.photoURL} alt="" width={30} height={30} className="rounded-full ring-2 ring-slate-700/60" />
             )}
@@ -273,22 +284,18 @@ export default function TeacherPage() {
                         </Link>
                       </div>
 
-                      {/* Rows */}
+                      {/* Rows — grouped by unit */}
                       {items.length === 0 ? (
                         <div className="flex flex-col items-center justify-center gap-1 py-10">
                           <span className="text-2xl opacity-20">{meta.icon}</span>
                           <p className="text-xs text-slate-700">{smeta.emptyText}</p>
                         </div>
                       ) : (
-                        <div className="divide-y divide-slate-800/50">
-                          {items.map(a => (
-                            <AssignmentRow
-                              key={a.id} assignment={a} accentBorder={smeta.accentBorder}
-                              onDelete={handleDelete} onToggleQuiz={handleToggleQuiz}
-                              deleting={deleting === a.id} toggling={toggling === a.id}
-                            />
-                          ))}
-                        </div>
+                        <UnitGroupedRows
+                          items={items} accentBorder={smeta.accentBorder}
+                          onDelete={handleDelete} onToggleQuiz={handleToggleQuiz}
+                          deleting={deleting} toggling={toggling}
+                        />
                       )}
                     </section>
                   );
@@ -428,6 +435,62 @@ export default function TeacherPage() {
 
 /* ═══════════════════════════ SUB-COMPONENTS ═══════════════════════════ */
 
+/* Groups items by unit, shows a sticky unit-divider row */
+function UnitGroupedRows({
+  items, accentBorder, onDelete, onToggleQuiz, deleting, toggling,
+}: {
+  items: Assignment[]; accentBorder: string;
+  onDelete: (id: string) => void; onToggleQuiz: (id: string) => void;
+  deleting: string | null; toggling: string | null;
+}) {
+  // Stable sort: by unit then by createdAt desc
+  const sorted = [...items].sort((a, b) => {
+    const ua = a.unit ?? '';
+    const ub = b.unit ?? '';
+    if (ua !== ub) return ua.localeCompare(ub, 'th');
+    return 0;
+  });
+
+  const groups: Array<{ unit: string; rows: Assignment[] }> = [];
+  for (const item of sorted) {
+    const key = item.unit ?? '';
+    if (!groups.length || groups[groups.length - 1].unit !== key) {
+      groups.push({ unit: key, rows: [] });
+    }
+    groups[groups.length - 1].rows.push(item);
+  }
+
+  return (
+    <div className="divide-y divide-slate-800/50">
+      {groups.map(({ unit, rows }) => (
+        <div key={unit || '__no_unit__'}>
+          {unit && (
+            <div className="flex items-center gap-3 border-b border-slate-800/40 bg-slate-950/40 px-5 py-2.5">
+              <div className={`h-5 w-1 shrink-0 rounded-full ${accentBorder.replace('border-l-','bg-')}`} />
+              <span className="text-[11px] font-bold text-slate-300">{unit}</span>
+              <span className="rounded-full border border-slate-700/60 bg-slate-800/60 px-2 py-0.5 text-[10px] font-semibold text-slate-400">
+                {rows.length} รายการ
+              </span>
+            </div>
+          )}
+          {rows.map(a => (
+            <AssignmentRow
+              key={a.id} assignment={a} accentBorder={accentBorder}
+              onDelete={onDelete} onToggleQuiz={onToggleQuiz}
+              deleting={deleting === a.id} toggling={toggling === a.id}
+            />
+          ))}
+        </div>
+      ))}
+    </div>
+  );
+}
+
+const QUIZ_PHASE_LABELS: Record<string, { label: string; color: string }> = {
+  pre:  { label: 'ก่อนเรียน', color: 'border-sky-800/60 bg-sky-950/30 text-sky-400' },
+  post: { label: 'หลังเรียน', color: 'border-violet-800/60 bg-violet-950/30 text-violet-400' },
+};
+
 function AssignmentRow({
   assignment: a, accentBorder, onDelete, onToggleQuiz, deleting, toggling,
 }: {
@@ -448,10 +511,16 @@ function AssignmentRow({
         )}
         <p className="font-medium text-slate-100 truncate">{a.title}</p>
         <div className="mt-1.5 flex flex-wrap items-center gap-2">
-          {isQuiz && (
+          {isQuiz && a.quizPhase && a.quizPhase !== 'standalone' && (() => {
+            const ph = QUIZ_PHASE_LABELS[a.quizPhase];
+            return ph ? (
+              <span className={`rounded-full border px-2 py-0.5 text-[9px] font-bold ${ph.color}`}>{ph.label}</span>
+            ) : null;
+          })()}
+          {a.isOpen !== undefined && a.isOpen !== null && (
             <span className={`flex items-center gap-1 text-[10px] font-semibold ${a.isOpen ? 'text-emerald-400' : 'text-slate-600'}`}>
               <span className={`h-1.5 w-1.5 rounded-full ${a.isOpen ? 'bg-emerald-500 animate-pulse' : 'bg-slate-700'}`}/>
-              {a.isOpen ? 'เปิดสอบอยู่' : 'ปิดอยู่'}
+              {a.isOpen ? (isQuiz ? 'เปิดสอบอยู่' : 'เปิดอยู่') : 'ปิดอยู่'}
             </span>
           )}
           {status && dueStr && (
@@ -470,16 +539,16 @@ function AssignmentRow({
       </div>
 
       <div className="flex shrink-0 items-center gap-1.5">
-        {isQuiz && (
-          <button onClick={() => onToggleQuiz(a.id)} disabled={toggling}
-            className={`rounded-lg border px-2.5 py-1 text-[10px] font-bold transition-all disabled:opacity-50 ${
-              a.isOpen
-                ? 'border-red-900/60 bg-red-950/30 text-red-400 hover:border-red-800'
-                : 'border-emerald-900/60 bg-emerald-950/30 text-emerald-400 hover:border-emerald-800'
-            }`}>
-            {toggling ? '…' : a.isOpen ? '⏸ ปิด' : '▶ เปิด'}
-          </button>
-        )}
+        <button onClick={() => onToggleQuiz(a.id)} disabled={toggling}
+          className={`rounded-lg border px-2.5 py-1 text-[10px] font-bold transition-all disabled:opacity-50 ${
+            a.isOpen
+              ? 'border-red-900/60 bg-red-950/30 text-red-400 hover:border-red-800'
+              : 'border-emerald-900/60 bg-emerald-950/30 text-emerald-400 hover:border-emerald-800'
+          }`}>
+          {toggling ? '…' : a.isOpen
+            ? (isQuiz ? '⏸ ปิดสอบ' : '⏸ ปิด')
+            : (isQuiz ? '▶ เปิดสอบ' : '▶ เปิด')}
+        </button>
         {a.driveWebViewLink && (
           <a href={a.driveWebViewLink} target="_blank" rel="noopener noreferrer"
             className="rounded-lg border border-slate-800 px-2.5 py-1 text-[10px] text-slate-500 hover:border-slate-700 hover:text-slate-300 transition-all">

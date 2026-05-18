@@ -71,9 +71,21 @@ export default function SubmissionPage({ params }: { params: Promise<{ id: strin
   const [tabWarning, setTabWarning] = useState(false);
   const [timeLeft, setTimeLeft] = useState<number | null>(null);
   const [selfScore, setSelfScore] = useState(70);
+  const [quizStarted, setQuizStarted] = useState(false);
+  const [autoSaved, setAutoSaved] = useState(false);
+  const [draftRestored, setDraftRestored] = useState(false);
+  const [xpGain, setXpGain] = useState<number | null>(null);
+  const autoSaveTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const hasLeftRef = useRef(false);
   const tabSwitchRef = useRef(0);
   const autoSubmitRef = useRef(false);
+
+  // AI chat
+  const [chatOpen, setChatOpen] = useState(false);
+  const [chatInput, setChatInput] = useState('');
+  const [chatMessages, setChatMessages] = useState<Array<{ role: 'user' | 'model'; text: string }>>([]);
+  const [chatSending, setChatSending] = useState(false);
+  const chatBottomRef = useRef<HTMLDivElement>(null);
 
   function blockPaste(e: React.ClipboardEvent) {
     e.preventDefault();
@@ -85,9 +97,10 @@ export default function SubmissionPage({ params }: { params: Promise<{ id: strin
     if (!loading && profile?.role !== 'student') router.push('/dashboard');
   }, [loading, profile, router]);
 
-  // Track tab switches to detect copy-from-elsewhere behavior
+  // Track tab switches — only after the quiz has started (not during rules screen)
   useEffect(() => {
     if (submission !== null && submission !== undefined) return;
+    if (assignment?.contentType === 'quiz' && !quizStarted) return;
 
     function handleVisibility() {
       if (document.hidden) {
@@ -102,22 +115,45 @@ export default function SubmissionPage({ params }: { params: Promise<{ id: strin
 
     document.addEventListener('visibilitychange', handleVisibility);
     return () => document.removeEventListener('visibilitychange', handleVisibility);
-  }, [submission]);
+  }, [submission, assignment, quizStarted]);
 
   useEffect(() => {
     if (!id) return;
     fetch(`/api/submissions/${id}`)
       .then((r) => r.json())
-      .then((data: Submission | null) => setSubmission(data));
-    fetch(`/api/assignments/student/${id}`)
-      .then((r) => r.json())
-      .then((data: Assignment) => {
-        setAssignment(data ?? null);
-        if (data?.timeLimit && data.timeLimit > 0) {
-          setTimeLeft(data.timeLimit * 60);
+      .then((data: Submission | null) => {
+        setSubmission(data);
+        // Restore draft only when no submission exists
+        if (!data) {
+          const raw = localStorage.getItem(`lms_draft_${id}`);
+          if (raw) {
+            try {
+              const { answers: a, content: c } = JSON.parse(raw);
+              if (a && Object.keys(a).length > 0) { setAnswers(a); setDraftRestored(true); }
+              if (c) { setContent(c); setDraftRestored(true); }
+            } catch { /* ignore malformed */ }
+          }
         }
       });
+    fetch(`/api/assignments/student/${id}`)
+      .then((r) => r.json())
+      .then((data: Assignment) => { setAssignment(data ?? null); });
   }, [id]);
+
+  // Auto-save answers + content to localStorage (debounced 1.5 s)
+  useEffect(() => {
+    if (submission) return;
+    if (autoSaveTimerRef.current) clearTimeout(autoSaveTimerRef.current);
+    autoSaveTimerRef.current = setTimeout(() => {
+      const hasAnswers = Object.keys(answers).length > 0;
+      const hasContent = content.trim().length > 0;
+      if (!hasAnswers && !hasContent) return;
+      localStorage.setItem(`lms_draft_${id}`, JSON.stringify({ answers, content }));
+      setAutoSaved(true);
+      setTimeout(() => setAutoSaved(false), 2000);
+    }, 1500);
+    return () => { if (autoSaveTimerRef.current) clearTimeout(autoSaveTimerRef.current); };
+  }, [answers, content, id, submission]);
 
   // Countdown timer + auto-submit
   useEffect(() => {
@@ -185,14 +221,22 @@ export default function SubmissionPage({ params }: { params: Promise<{ id: strin
       if (!res.ok) throw new Error();
 
       const data = await res.json();
-      setResult({ score: data.score, feedback: data.feedback });
+      if (data.graded && typeof data.score === 'number') {
+        setResult({ score: data.score, feedback: data.feedback });
+      }
+      if (typeof data.xpGain === 'number' && data.xpGain > 0) {
+        setXpGain(data.xpGain);
+        setTimeout(() => setXpGain(null), 4000);
+      }
+      // Clear saved draft after successful submission
+      localStorage.removeItem(`lms_draft_${id}`);
       setSubmission({
         id: data.id,
         content,
         answers,
-        score: data.score,
-        feedback: data.feedback,
-        status: 'graded',
+        score: data.graded ? data.score : undefined,
+        feedback: data.graded ? data.feedback : undefined,
+        status: data.graded ? 'graded' : 'submitted',
       });
     } catch {
       setError('เกิดข้อผิดพลาด กรุณาลองใหม่');
@@ -201,10 +245,40 @@ export default function SubmissionPage({ params }: { params: Promise<{ id: strin
     }
   }
 
+  function startQuiz() {
+    setQuizStarted(true);
+    if (assignment?.timeLimit && assignment.timeLimit > 0) {
+      setTimeLeft(assignment.timeLimit * 60);
+    }
+  }
+
+  async function sendChat() {
+    if (!chatInput.trim() || chatSending || !id) return;
+    const question = chatInput.trim();
+    setChatInput('');
+    const userMsg = { role: 'user' as const, text: question };
+    setChatMessages(prev => [...prev, userMsg]);
+    setChatSending(true);
+    try {
+      const res = await fetch('/api/ai-chat', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ assignmentId: id, question, history: chatMessages.slice(-6) }),
+      });
+      const data = await res.json();
+      setChatMessages(prev => [...prev, { role: 'model', text: data.reply ?? 'ขออภัย ไม่สามารถตอบได้ในขณะนี้' }]);
+    } catch {
+      setChatMessages(prev => [...prev, { role: 'model', text: 'เกิดข้อผิดพลาด กรุณาลองใหม่' }]);
+    } finally {
+      setChatSending(false);
+      setTimeout(() => chatBottomRef.current?.scrollIntoView({ behavior: 'smooth' }), 100);
+    }
+  }
+
   if (loading || !profile || submission === undefined) return <Spinner />;
 
   const hasBlocks = (assignment?.blocks?.length ?? 0) > 0;
-  const isQuizLocked = assignment?.contentType === 'quiz' && !assignment?.isOpen && !submission;
+  const isLocked = assignment?.isOpen === false && !submission;
 
   return (
     <div className="min-h-screen bg-slate-950 px-4 py-10">
@@ -258,12 +332,31 @@ export default function SubmissionPage({ params }: { params: Promise<{ id: strin
           </div>
         )}
 
-        {isQuizLocked ? (
-          <div className="rounded-2xl border border-purple-800 bg-purple-950/20 p-8 text-center">
-            <p className="text-4xl mb-3">🔒</p>
-            <p className="text-base font-semibold text-purple-300">แบบทดสอบยังไม่เปิด</p>
-            <p className="mt-1 text-sm text-slate-500">รอครูเปิดการสอบก่อนนะ</p>
+        {/* XP gain toast */}
+        {xpGain !== null && (
+          <div className="mb-4 animate-bounce-in flex items-center gap-3 rounded-2xl border border-yellow-700/60 bg-gradient-to-r from-yellow-950/80 to-amber-950/60 px-5 py-3">
+            <span className="text-2xl">⭐</span>
+            <div>
+              <p className="text-sm font-bold text-yellow-300">+{xpGain} XP !</p>
+              <p className="text-[11px] text-yellow-600">คุณได้รับ XP จากการส่งงานนี้</p>
+            </div>
           </div>
+        )}
+
+        {isLocked ? (
+          <div className="rounded-2xl border border-slate-700 bg-slate-900 p-10 text-center">
+            <p className="text-5xl mb-4">🔒</p>
+            <p className="text-base font-semibold text-slate-200">
+              {assignment?.contentType === 'quiz' ? 'แบบทดสอบยังไม่เปิด' : 'ยังไม่เปิดให้เข้า'}
+            </p>
+            <p className="mt-2 text-sm text-slate-500">
+              {assignment?.contentType === 'quiz'
+                ? 'รอครูเปิดการสอบก่อนนะ'
+                : 'ครูจะเปิดให้เข้าในเร็วๆ นี้'}
+            </p>
+          </div>
+        ) : assignment?.contentType === 'quiz' && !quizStarted && !submission ? (
+          <QuizRulesScreen assignment={assignment} onStart={startQuiz} />
         ) : submission ? (
           <SubmissionView submission={submission} assignment={assignment} />
         ) : (
@@ -292,6 +385,21 @@ export default function SubmissionPage({ params }: { params: Promise<{ id: strin
             {tabWarning && (
               <div className="rounded-xl border border-orange-800 bg-orange-950/50 px-4 py-2.5 text-sm text-orange-400">
                 ⚠ ตรวจพบการออกจากหน้านี้ ({tabSwitchCount} ครั้ง) — ระบบบันทึกไว้แล้ว
+              </div>
+            )}
+
+            {/* Draft restored notice */}
+            {draftRestored && (
+              <div className="flex items-center gap-2 rounded-xl border border-emerald-800/60 bg-emerald-950/30 px-4 py-2.5 text-sm text-emerald-400">
+                <span>💾</span>
+                <span>โหลดคำตอบที่บันทึกไว้ก่อนหน้าแล้ว</span>
+                <button
+                  type="button"
+                  onClick={() => { setDraftRestored(false); setAnswers({}); setContent(''); localStorage.removeItem(`lms_draft_${id}`); }}
+                  className="ml-auto text-xs text-emerald-600 hover:text-emerald-400"
+                >
+                  ล้างทิ้ง
+                </button>
               </div>
             )}
 
@@ -368,6 +476,12 @@ export default function SubmissionPage({ params }: { params: Promise<{ id: strin
               </div>
             </div>
 
+            {/* Auto-save indicator */}
+            <div className={`flex items-center justify-end gap-1.5 text-[11px] transition-opacity duration-500 ${autoSaved ? 'opacity-100' : 'opacity-0'}`}>
+              <span className="h-1.5 w-1.5 rounded-full bg-emerald-500" />
+              <span className="text-emerald-500">บันทึกอัตโนมัติแล้ว</span>
+            </div>
+
             <button
               id="submit-btn"
               type="submit"
@@ -378,6 +492,79 @@ export default function SubmissionPage({ params }: { params: Promise<{ id: strin
             </button>
           </form>
         )}
+      </div>
+
+      {/* ── Floating AI Chat ── */}
+      <div className="fixed bottom-6 right-6 z-50 flex flex-col items-end gap-3">
+        {chatOpen && (
+          <div className="flex w-80 flex-col overflow-hidden rounded-2xl border border-slate-700 bg-slate-900 shadow-2xl" style={{ height: '420px' }}>
+            {/* Chat header */}
+            <div className="flex items-center justify-between border-b border-slate-800 bg-slate-950/80 px-4 py-2.5">
+              <div className="flex items-center gap-2">
+                <span className="text-base">🤖</span>
+                <span className="text-sm font-semibold text-slate-200">อาจารย์ AI</span>
+              </div>
+              <button onClick={() => setChatOpen(false)} className="text-slate-500 hover:text-slate-300">✕</button>
+            </div>
+            {/* Messages */}
+            <div className="flex-1 overflow-y-auto p-3 space-y-2">
+              {chatMessages.length === 0 && (
+                <div className="flex flex-col items-center gap-2 py-6 text-center text-slate-500">
+                  <span className="text-3xl">💬</span>
+                  <p className="text-xs">ถามเกี่ยวกับใบงานนี้ได้เลย!</p>
+                </div>
+              )}
+              {chatMessages.map((m, i) => (
+                <div key={i} className={`flex ${m.role === 'user' ? 'justify-end' : 'justify-start'}`}>
+                  <div className={`max-w-[85%] rounded-2xl px-3 py-2 text-sm ${
+                    m.role === 'user'
+                      ? 'bg-blue-600 text-white rounded-br-sm'
+                      : 'bg-slate-800 text-slate-200 rounded-bl-sm'
+                  }`}>
+                    {m.text}
+                  </div>
+                </div>
+              ))}
+              {chatSending && (
+                <div className="flex justify-start">
+                  <div className="bg-slate-800 rounded-2xl rounded-bl-sm px-3 py-2">
+                    <div className="flex gap-1">
+                      <div className="h-1.5 w-1.5 animate-bounce rounded-full bg-slate-500" style={{ animationDelay: '0ms' }} />
+                      <div className="h-1.5 w-1.5 animate-bounce rounded-full bg-slate-500" style={{ animationDelay: '150ms' }} />
+                      <div className="h-1.5 w-1.5 animate-bounce rounded-full bg-slate-500" style={{ animationDelay: '300ms' }} />
+                    </div>
+                  </div>
+                </div>
+              )}
+              <div ref={chatBottomRef} />
+            </div>
+            {/* Input */}
+            <div className="border-t border-slate-800 p-2 flex gap-2">
+              <input
+                className="flex-1 rounded-xl border border-slate-700 bg-slate-800 px-3 py-2 text-sm text-slate-200 placeholder-slate-500 outline-none focus:border-blue-600"
+                placeholder="ถามอาจารย์ AI..."
+                value={chatInput}
+                onChange={e => setChatInput(e.target.value)}
+                onKeyDown={e => e.key === 'Enter' && !e.shiftKey && sendChat()}
+                disabled={chatSending}
+              />
+              <button
+                onClick={sendChat}
+                disabled={chatSending || !chatInput.trim()}
+                className="rounded-xl bg-blue-600 px-3 py-2 text-sm text-white transition hover:bg-blue-500 disabled:opacity-40"
+              >
+                ส่ง
+              </button>
+            </div>
+          </div>
+        )}
+        <button
+          onClick={() => setChatOpen(o => !o)}
+          className="flex h-12 w-12 items-center justify-center rounded-full bg-blue-600 text-xl shadow-lg transition hover:bg-blue-500 hover:scale-110 active:scale-95"
+          title="ถามอาจารย์ AI"
+        >
+          {chatOpen ? '✕' : '🤖'}
+        </button>
       </div>
     </div>
   );
@@ -501,35 +688,42 @@ function BlockRenderer({
             {block.required && <span className="ml-1 text-red-400">*</span>}
           </p>
           <div className="space-y-2">
-            {block.options.map((opt) => (
-              <label
-                key={opt}
-                className={`flex cursor-pointer items-center gap-3 rounded-xl border px-4 py-3 text-sm transition-all ${
-                  selected === opt
-                    ? 'border-blue-600 bg-blue-950/40 text-blue-300'
-                    : 'border-slate-700 bg-slate-800 text-slate-300 hover:border-slate-600'
-                }`}
-              >
-                <input
-                  type="radio"
-                  name={block.id}
-                  value={opt}
-                  checked={selected === opt}
-                  onChange={() => setAnswer(block.id, opt)}
-                  className="sr-only"
-                />
-                <span
-                  className={`h-4 w-4 shrink-0 rounded-full border-2 flex items-center justify-center ${
-                    selected === opt ? 'border-blue-500' : 'border-slate-600'
+            {block.options.map((opt, i) => {
+              const imgSrc = block.optionImages?.[i];
+              return (
+                <label
+                  key={opt}
+                  className={`flex cursor-pointer items-center gap-3 rounded-xl border px-4 py-3 text-sm transition-all ${
+                    selected === opt
+                      ? 'border-blue-600 bg-blue-950/40 text-blue-300'
+                      : 'border-slate-700 bg-slate-800 text-slate-300 hover:border-slate-600'
                   }`}
                 >
-                  {selected === opt && (
-                    <span className="h-2 w-2 rounded-full bg-blue-500" />
+                  <input
+                    type="radio"
+                    name={block.id}
+                    value={opt}
+                    checked={selected === opt}
+                    onChange={() => setAnswer(block.id, opt)}
+                    className="sr-only"
+                  />
+                  <span
+                    className={`h-4 w-4 shrink-0 rounded-full border-2 flex items-center justify-center ${
+                      selected === opt ? 'border-blue-500' : 'border-slate-600'
+                    }`}
+                  >
+                    {selected === opt && (
+                      <span className="h-2 w-2 rounded-full bg-blue-500" />
+                    )}
+                  </span>
+                  {imgSrc && (
+                    // eslint-disable-next-line @next/next/no-img-element
+                    <img src={imgSrc} alt="" className="h-12 w-12 shrink-0 rounded-lg border border-slate-700 object-cover" />
                   )}
-                </span>
-                {opt}
-              </label>
-            ))}
+                  {opt}
+                </label>
+              );
+            })}
           </div>
         </div>
       );
@@ -544,8 +738,9 @@ function BlockRenderer({
             {block.required && <span className="ml-1 text-red-400">*</span>}
           </p>
           <div className="space-y-2">
-            {block.options.map((opt) => {
+            {block.options.map((opt, i) => {
               const isChecked = checked.includes(opt);
+              const imgSrc = block.optionImages?.[i];
               return (
                 <label
                   key={opt}
@@ -572,6 +767,10 @@ function BlockRenderer({
                       </svg>
                     )}
                   </span>
+                  {imgSrc && (
+                    // eslint-disable-next-line @next/next/no-img-element
+                    <img src={imgSrc} alt="" className="h-12 w-12 shrink-0 rounded-lg border border-slate-700 object-cover" />
+                  )}
                   {opt}
                 </label>
               );
@@ -581,9 +780,87 @@ function BlockRenderer({
       );
     }
 
+    case 'ordering':
+      return (
+        <OrderingBlockRenderer block={block} answers={answers} setAnswer={setAnswer} />
+      );
+
     default:
       return null;
   }
+}
+
+function OrderingBlockRenderer({
+  block,
+  answers,
+  setAnswer,
+}: {
+  block: Extract<import('@/types').FormBlock, { type: 'ordering' }>;
+  answers: Record<string, string | string[]>;
+  setAnswer: (id: string, v: string | string[]) => void;
+}) {
+  const [ready, setReady] = useState(false);
+
+  useEffect(() => {
+    const shuffled = [...block.items].sort(() => Math.random() - 0.5);
+    setAnswer(block.id, shuffled);
+    setReady(true);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [block.id]);
+
+  const order = (answers[block.id] as string[] | undefined) ?? [];
+
+  function move(from: number, to: number) {
+    const next = [...order];
+    const [item] = next.splice(from, 1);
+    next.splice(to, 0, item);
+    setAnswer(block.id, next);
+  }
+
+  return (
+    <div>
+      <p className="mb-3 text-sm font-medium text-slate-300">
+        {block.question}
+        {block.required && <span className="ml-1 text-red-400">*</span>}
+      </p>
+      <p className="mb-2 text-[10px] text-slate-500">ใช้ลูกศรเพื่อเรียงลำดับจากบนลงล่าง</p>
+      {!ready ? (
+        <div className="space-y-2">
+          {block.items.map((_, i) => (
+            <div key={i} className="h-11 animate-pulse rounded-xl bg-slate-800" />
+          ))}
+        </div>
+      ) : (
+        <div className="space-y-2">
+          {order.map((item, i) => (
+            <div
+              key={item}
+              className="flex items-center gap-3 rounded-xl border border-slate-700 bg-slate-800 px-4 py-2.5 text-sm text-slate-300"
+            >
+              <span className="flex h-6 w-6 shrink-0 items-center justify-center rounded-full bg-slate-700 text-[10px] font-bold text-slate-400">
+                {i + 1}
+              </span>
+              <span className="flex-1">{item}</span>
+              <div className="flex gap-1">
+                <button
+                  type="button"
+                  disabled={i === 0}
+                  onClick={() => move(i, i - 1)}
+                  className="flex h-6 w-6 items-center justify-center rounded border border-slate-600 bg-slate-700 text-[10px] text-slate-400 transition-colors hover:bg-slate-600 disabled:opacity-20"
+                >▲</button>
+                <button
+                  type="button"
+                  disabled={i === order.length - 1}
+                  onClick={() => move(i, i + 1)}
+                  className="flex h-6 w-6 items-center justify-center rounded border border-slate-600 bg-slate-700 text-[10px] text-slate-400 transition-colors hover:bg-slate-600 disabled:opacity-20"
+                >▼</button>
+              </div>
+            </div>
+          ))}
+        </div>
+      )}
+    </div>
+  );
 }
 
 // ── Submission view (after submit) ─────────────────────────────────────────────
@@ -649,7 +926,7 @@ function AnswerReview({
   answers: Record<string, string | string[]>;
 }) {
   const questionBlocks = blocks.filter((b) =>
-    ['short-answer', 'long-answer', 'multiple-choice', 'checkbox'].includes(b.type)
+    ['short-answer', 'long-answer', 'multiple-choice', 'checkbox', 'ordering'].includes(b.type)
   );
   if (questionBlocks.length === 0) return null;
 
@@ -665,6 +942,17 @@ function AnswerReview({
             </p>
             {answer === undefined ? (
               <p className="text-sm text-slate-600 italic">ไม่ได้ตอบ</p>
+            ) : block.type === 'ordering' && Array.isArray(answer) ? (
+              <div className="space-y-1">
+                {(answer as string[]).map((a, idx) => (
+                  <div key={idx} className="flex items-center gap-2 text-sm text-slate-300">
+                    <span className="flex h-5 w-5 shrink-0 items-center justify-center rounded-full bg-slate-700 text-[10px] font-bold text-slate-400">
+                      {idx + 1}
+                    </span>
+                    {a}
+                  </div>
+                ))}
+              </div>
             ) : Array.isArray(answer) ? (
               <div className="flex flex-wrap gap-2">
                 {answer.map((a) => (
@@ -682,6 +970,199 @@ function AnswerReview({
           </div>
         );
       })}
+    </div>
+  );
+}
+
+/* ── Quiz rules / confirmation screen ────────────────────────────────────────── */
+
+function QuizRulesScreen({
+  assignment,
+  onStart,
+}: {
+  assignment: Assignment;
+  onStart: () => void;
+}) {
+  const [checked, setChecked] = useState(false);
+  const [countdown, setCountdown] = useState<number | null>(null);
+
+  function handleStart() {
+    if (!checked) return;
+    // 3-second countdown before quiz begins
+    setCountdown(3);
+  }
+
+  useEffect(() => {
+    if (countdown === null) return;
+    if (countdown <= 0) { onStart(); return; }
+    const t = setTimeout(() => setCountdown(c => (c !== null ? c - 1 : null)), 1000);
+    return () => clearTimeout(t);
+  }, [countdown, onStart]);
+
+  const rules = [
+    {
+      icon: '⏱',
+      title: 'เวลาทำแบบทดสอบ',
+      desc: assignment.timeLimit
+        ? `${assignment.timeLimit} นาที — เมื่อหมดเวลาระบบจะส่งงานให้อัตโนมัติทันที`
+        : 'ไม่จำกัดเวลา — แต่ควรทำให้เสร็จในคาบเรียน',
+      accent: 'border-l-amber-500 bg-amber-500/5',
+      iconBg: 'bg-amber-950/60 text-amber-400 border-amber-800',
+      urgent: !!assignment.timeLimit,
+    },
+    {
+      icon: '🚫',
+      title: 'ห้ามออกจากหน้านี้',
+      desc: 'ระบบตรวจจับทุกครั้งที่สลับหน้าต่าง (Tab/App) และบันทึกส่งให้ครูโดยอัตโนมัติ',
+      accent: 'border-l-red-500 bg-red-500/5',
+      iconBg: 'bg-red-950/60 text-red-400 border-red-800',
+      urgent: true,
+    },
+    {
+      icon: '📋',
+      title: 'ห้าม Copy-Paste',
+      desc: 'ระบบบล็อกการวางข้อความจากภายนอก — กรุณาพิมพ์คำตอบด้วยตัวเอง',
+      accent: 'border-l-orange-500 bg-orange-500/5',
+      iconBg: 'bg-orange-950/60 text-orange-400 border-orange-800',
+      urgent: true,
+    },
+    {
+      icon: '✉️',
+      title: 'ส่งได้เพียงครั้งเดียว',
+      desc: 'เมื่อกด "ส่งงาน" แล้วไม่สามารถแก้ไขได้ — ตรวจทานคำตอบให้ครบก่อนส่ง',
+      accent: 'border-l-blue-500 bg-blue-500/5',
+      iconBg: 'bg-blue-950/60 text-blue-400 border-blue-800',
+      urgent: false,
+    },
+    {
+      icon: '🧘',
+      title: 'ซื่อสัตย์ต่อตนเอง',
+      desc: 'ทำด้วยความรู้ของตัวเอง — ผลที่ได้จะสะท้อนความเข้าใจจริงของคุณ',
+      accent: 'border-l-emerald-500 bg-emerald-500/5',
+      iconBg: 'bg-emerald-950/60 text-emerald-400 border-emerald-800',
+      urgent: false,
+    },
+  ];
+
+  if (countdown !== null && countdown > 0) {
+    return (
+      <div className="flex flex-col items-center justify-center rounded-2xl border border-slate-800 bg-slate-900 py-24 text-center">
+        <p className="mb-4 text-sm text-slate-400">แบบทดสอบจะเริ่มใน...</p>
+        <div className="relative flex h-28 w-28 items-center justify-center">
+          <svg className="absolute inset-0 -rotate-90" viewBox="0 0 112 112">
+            <circle cx="56" cy="56" r="50" fill="none" stroke="#1e293b" strokeWidth="6" />
+            <circle
+              cx="56" cy="56" r="50" fill="none"
+              stroke="#7c3aed" strokeWidth="6" strokeLinecap="round"
+              strokeDasharray={`${2 * Math.PI * 50}`}
+              strokeDashoffset={`${2 * Math.PI * 50 * (countdown / 3)}`}
+              style={{ transition: 'stroke-dashoffset 0.9s linear' }}
+            />
+          </svg>
+          <span className="text-6xl font-black text-violet-300">{countdown}</span>
+        </div>
+        <p className="mt-6 text-base font-semibold text-slate-200">เตรียมพร้อม!</p>
+      </div>
+    );
+  }
+
+  return (
+    <div className="space-y-5">
+      {/* Hero */}
+      <div className="overflow-hidden rounded-2xl border border-purple-800/60 bg-gradient-to-br from-purple-950/60 via-slate-900 to-slate-950 p-6">
+        <div className="flex items-start gap-4">
+          <div className="flex h-12 w-12 shrink-0 items-center justify-center rounded-2xl border border-purple-700 bg-purple-950 text-2xl">
+            ✏️
+          </div>
+          <div className="flex-1 min-w-0">
+            <p className="text-[10px] font-bold uppercase tracking-widest text-purple-500 mb-1">แบบทดสอบ</p>
+            <h2 className="text-lg font-bold text-slate-100 leading-tight">{assignment.title}</h2>
+            {assignment.description && (
+              <p className="mt-1 text-sm text-slate-400">{assignment.description}</p>
+            )}
+            <div className="mt-3 flex flex-wrap gap-2">
+              {assignment.timeLimit ? (
+                <span className="flex items-center gap-1.5 rounded-full border border-amber-800/60 bg-amber-950/40 px-3 py-1 text-xs font-semibold text-amber-400">
+                  ⏱ {assignment.timeLimit} นาที
+                </span>
+              ) : (
+                <span className="flex items-center gap-1.5 rounded-full border border-slate-700 bg-slate-800 px-3 py-1 text-xs text-slate-400">
+                  ⏱ ไม่จำกัดเวลา
+                </span>
+              )}
+              <span className="flex items-center gap-1.5 rounded-full border border-slate-700 bg-slate-800 px-3 py-1 text-xs text-slate-400">
+                📤 ส่งได้ 1 ครั้ง
+              </span>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      {/* Rules */}
+      <div className="rounded-2xl border border-slate-800 bg-slate-900 overflow-hidden">
+        <div className="border-b border-slate-800 px-5 py-3.5">
+          <h3 className="text-xs font-bold uppercase tracking-widest text-slate-400">📋 กฎระเบียบการสอบ</h3>
+        </div>
+        <div className="divide-y divide-slate-800/60">
+          {rules.map((r, i) => (
+            <div key={i} className={`flex gap-4 border-l-2 px-5 py-4 ${r.accent}`}>
+              <div className={`flex h-9 w-9 shrink-0 items-center justify-center rounded-xl border text-base ${r.iconBg}`}>
+                {r.icon}
+              </div>
+              <div className="min-w-0 flex-1">
+                <div className="flex items-center gap-2">
+                  <p className="text-sm font-semibold text-slate-200">{r.title}</p>
+                  {r.urgent && (
+                    <span className="rounded-full border border-red-900/60 bg-red-950/40 px-1.5 py-0.5 text-[9px] font-bold uppercase tracking-wider text-red-400">
+                      สำคัญ
+                    </span>
+                  )}
+                </div>
+                <p className="mt-0.5 text-xs text-slate-400">{r.desc}</p>
+              </div>
+            </div>
+          ))}
+        </div>
+      </div>
+
+      {/* Time warning banner */}
+      {assignment.timeLimit && (
+        <div className="flex items-center gap-3 rounded-2xl border border-amber-800/60 bg-amber-950/30 px-5 py-4">
+          <span className="text-2xl">⚠️</span>
+          <div>
+            <p className="text-sm font-bold text-amber-300">เหลือเวลาทำ {assignment.timeLimit} นาที</p>
+            <p className="text-xs text-amber-500/80">นาฬิกาจะเริ่มนับถอยหลังทันทีที่กดเริ่มทำ — ไม่สามารถหยุดได้</p>
+          </div>
+        </div>
+      )}
+
+      {/* Confirm checkbox */}
+      <label className="flex cursor-pointer items-start gap-3 rounded-2xl border border-slate-700 bg-slate-900 p-4 transition hover:border-slate-600">
+        <div className="mt-0.5 flex-shrink-0">
+          <input
+            type="checkbox"
+            checked={checked}
+            onChange={e => setChecked(e.target.checked)}
+            className="h-4 w-4 accent-violet-500"
+          />
+        </div>
+        <p className="text-sm text-slate-300">
+          ข้าพเจ้าอ่านกฎระเบียบครบแล้ว และยืนยันว่าจะทำแบบทดสอบด้วยความซื่อสัตย์โดยไม่ใช้วิธีทุจริตใดๆ
+        </p>
+      </label>
+
+      {/* Start button */}
+      <button
+        onClick={handleStart}
+        disabled={!checked}
+        className={`w-full rounded-2xl py-4 text-base font-bold transition-all active:scale-95 ${
+          checked
+            ? 'bg-gradient-to-r from-violet-600 to-violet-500 text-white shadow-lg shadow-violet-950/40 hover:from-violet-500 hover:to-violet-400'
+            : 'cursor-not-allowed bg-slate-800 text-slate-600'
+        }`}
+      >
+        {checked ? '▶ เริ่มทำแบบทดสอบ' : 'กรุณายืนยันว่าอ่านกฎแล้ว'}
+      </button>
     </div>
   );
 }

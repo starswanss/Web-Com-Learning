@@ -32,7 +32,7 @@ export async function gradeSubmission(
   otherSubmissions: string[] = [],
   rubric?: string
 ): Promise<GradingResult> {
-  const model = genAI.getGenerativeModel({ model: 'gemini-2.0-flash' });
+  const model = genAI.getGenerativeModel({ model: 'gemini-2.5-flash' });
 
   const comparisonBlock =
     otherSubmissions.length > 0
@@ -101,7 +101,7 @@ export async function gradeSubmissionsBatch(
 ): Promise<BatchGradingResult[]> {
   if (submissions.length === 0) return [];
 
-  const model = genAI.getGenerativeModel({ model: 'gemini-2.0-flash' });
+  const model = genAI.getGenerativeModel({ model: 'gemini-2.5-flash' });
 
   const rubricBlock = rubric ? `\n\nCriteria from teacher:\n${rubric}` : '';
 
@@ -154,10 +154,15 @@ export function answersToText(
   answers: Record<string, string | string[]>
 ): string {
   return blocks
-    .filter((b) => ['short-answer', 'long-answer', 'multiple-choice', 'checkbox'].includes(b.type))
+    .filter((b) => ['short-answer', 'long-answer', 'multiple-choice', 'checkbox', 'ordering'].includes(b.type))
     .map((b) => {
       const ans = answers[b.id];
-      const ansText = Array.isArray(ans) ? ans.join(', ') : (ans ?? '(ไม่ได้ตอบ)');
+      let ansText: string;
+      if (b.type === 'ordering' && Array.isArray(ans)) {
+        ansText = ans.map((item, i) => `${i + 1}. ${item}`).join(' → ');
+      } else {
+        ansText = Array.isArray(ans) ? ans.join(', ') : (ans ?? '(ไม่ได้ตอบ)');
+      }
       return `Q: ${b.question ?? b.id}\nA: ${ansText}`;
     })
     .join('\n\n');

@@ -64,13 +64,24 @@ export async function POST(
     .map((d) => (d.data().content as string) ?? '')
     .filter(Boolean);
 
-  const grading = await gradeSubmission(
-    assignment.title as string,
-    assignment.description as string,
-    gradableContent,
-    otherContents,
-    assignment.rubric as string | undefined
-  );
+  let grading;
+  try {
+    grading = await gradeSubmission(
+      assignment.title as string,
+      assignment.description as string,
+      gradableContent,
+      otherContents,
+      assignment.rubric as string | undefined
+    );
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : String(err);
+    console.error('[quick-grade] Gemini error:', msg);
+    const isQuota = msg.includes('429') || msg.includes('quota') || msg.includes('RESOURCE_EXHAUSTED');
+    return NextResponse.json(
+      { error: 'AI grading failed', detail: isQuota ? 'โควต้า API หมดชั่วคราว กรุณาลองใหม่ในอีก 1 นาที' : msg },
+      { status: isQuota ? 429 : 502 }
+    );
+  }
 
   await adminDb.collection('submissions').doc(id).update({
     score: grading.score,
