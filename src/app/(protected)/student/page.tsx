@@ -192,32 +192,35 @@ export default function StudentPage() {
 
       {/* ══ HEADER ══ */}
       <header className="sticky top-0 z-40 border-b border-slate-800/70 bg-slate-950/95 backdrop-blur-md">
-        <div className="mx-auto flex max-w-[1200px] items-center gap-4 px-6 py-4">
+        {/* ── Row 1: back + avatar + name + nav ── */}
+        <div className="mx-auto flex max-w-[1200px] items-center gap-3 px-4 pt-3 pb-0 sm:px-6 sm:py-4 sm:pb-4">
 
-          {/* ── LEFT: back + avatar + name + XP bar ── */}
-          <div className="flex min-w-0 flex-1 items-center gap-3">
+          {/* LEFT: back + avatar + name */}
+          <div className="flex min-w-0 flex-1 items-center gap-2.5">
             <button
               onClick={() => { localStorage.removeItem('lms_subject'); router.push('/select-subject'); }}
-              className="shrink-0 rounded-lg border border-slate-800 p-2 text-slate-500 transition-all hover:border-slate-700 hover:text-slate-300"
+              className="shrink-0 rounded-lg border border-slate-800 p-1.5 text-slate-500 transition-all hover:border-slate-700 hover:text-slate-300"
             >
-              <svg className="h-4 w-4" fill="none" stroke="currentColor" strokeWidth={2.5} viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" d="M15 19l-7-7 7-7"/></svg>
+              <svg className="h-3.5 w-3.5" fill="none" stroke="currentColor" strokeWidth={2.5} viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" d="M15 19l-7-7 7-7"/></svg>
             </button>
 
             {user?.photoURL && (
-              <Image src={user.photoURL} alt="" width={40} height={40} className="shrink-0 rounded-full ring-2 ring-slate-700/60" />
+              <Image src={user.photoURL} alt="" width={36} height={36} className="shrink-0 rounded-full ring-2 ring-slate-700/60" />
             )}
 
             <div className="min-w-0 flex-1">
-              <p className="text-[9px] font-bold uppercase tracking-[0.15em] text-slate-600">
-                {subject?.name ?? 'Computing Science & IT'} · ห้อง {profile.classId}
+              {/* Subject + class — hidden on mobile (shown in row 2) */}
+              <p className="hidden sm:block text-[9px] font-bold tracking-[0.12em] text-slate-600">
+                {subject?.name ?? 'Computing Science & IT'} · ห้อง {profile.classId ?? '—'}
               </p>
-              <h1 className="truncate text-base font-bold text-slate-100 leading-tight">{user?.displayName}</h1>
-              <XpBar xp={profile.xp ?? 0} />
+              <h1 className="truncate text-sm font-bold text-slate-100 leading-tight sm:text-base">{user?.displayName}</h1>
+              {/* XP bar — hidden on mobile (shown in row 2) */}
+              <div className="hidden sm:block"><XpBar xp={profile.xp ?? 0} /></div>
             </div>
           </div>
 
-          {/* ── RIGHT: nav links ── */}
-          <nav className="flex shrink-0 items-center gap-0.5">
+          {/* RIGHT: desktop nav */}
+          <nav className="hidden sm:flex shrink-0 items-center gap-0.5">
             <button onClick={toggleTheme} title={isLight ? 'ธีมมืด' : 'ธีมสว่าง'}
               className="rounded-lg border border-slate-800 px-2.5 py-2 text-sm transition-all hover:border-slate-700">
               {isLight ? '🌙' : '☀️'}
@@ -243,10 +246,48 @@ export default function StudentPage() {
               ออก
             </button>
           </nav>
+
+          {/* RIGHT: mobile icon-only nav */}
+          <div className="flex sm:hidden shrink-0 items-center gap-1">
+            <button onClick={toggleTheme} className="rounded-lg border border-slate-800 p-2 text-sm transition-all hover:border-slate-700">
+              {isLight ? '🌙' : '☀️'}
+            </button>
+            <Link href="/student/leaderboard" className="rounded-lg border border-slate-800 p-2 text-sm transition-all hover:border-slate-700">🏆</Link>
+            <button onClick={signOut} className="rounded-lg border border-slate-800 p-2 text-xs text-slate-500 transition-all hover:border-slate-700 hover:text-slate-300">ออก</button>
+          </div>
+        </div>
+
+        {/* ── Row 2 (mobile only): subject + class + XP bar ── */}
+        <div className="sm:hidden border-t border-slate-800/50 px-4 py-2">
+          <div className="flex items-center gap-2 mb-1">
+            <span className="shrink-0 rounded border border-slate-700 bg-slate-800 px-1.5 py-0.5 text-[10px] font-bold text-slate-300">
+              ห้อง {profile.classId ?? '—'}
+            </span>
+            <span className="truncate text-[10px] text-slate-500">
+              {subject?.name ?? 'Computing Science & IT'}
+            </span>
+          </div>
+          <XpBar xp={profile.xp ?? 0} />
         </div>
       </header>
 
-      <main className="mx-auto max-w-[1200px] px-6 py-6 space-y-5">
+      {/* ── Mobile bottom nav ── */}
+      <nav className="sm:hidden fixed bottom-0 inset-x-0 z-40 border-t border-slate-800/70 bg-slate-950/95 backdrop-blur-md flex">
+        {[
+          { href: '/student/quests',      icon: '⚡', label: 'เควส' },
+          { href: '/student/milestones',  icon: '🏁', label: 'Milestone' },
+          { href: '/student/leaderboard', icon: '🏆', label: 'อันดับ' },
+          { href: '/student/profile',     icon: '📋', label: 'Portfolio' },
+        ].map(({ href, icon, label }) => (
+          <Link key={href} href={href}
+            className="flex flex-1 flex-col items-center gap-0.5 py-2.5 text-slate-500 transition-colors active:bg-slate-800/40">
+            <span className="text-base leading-none">{icon}</span>
+            <span className="text-[9px] font-semibold">{label}</span>
+          </Link>
+        ))}
+      </nav>
+
+      <main className="mx-auto max-w-[1200px] px-4 py-4 space-y-5 pb-24 sm:px-6 sm:py-6 sm:pb-6">
         {fetching ? (
           <div className="flex items-center justify-center py-24"><div className="h-6 w-6 animate-spin rounded-full border-2 border-slate-700 border-t-slate-400" /></div>
         ) : (

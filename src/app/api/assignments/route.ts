@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { adminAuth, adminDb } from '@/lib/firebase/admin';
-import { uploadAssignmentFile } from '@/lib/google-drive';
+import { uploadAssignmentAttachment } from '@/lib/storage';
 import { cookies } from 'next/headers';
 import { FieldValue } from 'firebase-admin/firestore';
 import { sendLineNotify, getLineNotifyToken } from '@/lib/line-notify';
@@ -60,15 +60,18 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: 'Missing required fields' }, { status: 400 });
   }
 
-  let driveFileId: string | undefined;
-  let driveWebViewLink: string | undefined;
+  let fileUrl: string | undefined;
+  let fileUploaded = false;
 
   if (file) {
-    // Upload once — all classes share the same file link
-    const buffer = Buffer.from(await file.arrayBuffer());
-    const result = await uploadAssignmentFile(classIds[0], buffer, file.type, file.name);
-    driveFileId = result.fileId;
-    driveWebViewLink = result.webViewLink;
+    try {
+      const buffer = Buffer.from(await file.arrayBuffer());
+      const result = await uploadAssignmentAttachment(classIds[0], buffer, file.type, file.name);
+      fileUrl = result.url;
+      fileUploaded = true;
+    } catch (err) {
+      console.error('[assignments POST] Storage upload failed:', err instanceof Error ? err.message : err);
+    }
   }
 
   const docRef = await adminDb.collection('assignments').add({
@@ -77,8 +80,9 @@ export async function POST(req: NextRequest) {
     dueDate: dueDate ? new Date(dueDate) : null,
     classIds,
     teacherId: uid,
-    driveFileId: driveFileId ?? null,
-    driveWebViewLink: driveWebViewLink ?? null,
+    fileUrl: fileUrl ?? null,
+    // Keep driveWebViewLink alias for backward compatibility with student page
+    driveWebViewLink: fileUrl ?? null,
     blocks,
     rubric: rubric || null,
     subjectId: subjectId || null,
@@ -101,7 +105,7 @@ export async function POST(req: NextRequest) {
     sendLineNotify(lineToken, `\n📚 มอบหมาย${typeLabel}ใหม่\nชื่อ: ${title}\nห้อง: ${classList}${due}`);
   }
 
-  return NextResponse.json({ id: docRef.id }, { status: 201 });
+  return NextResponse.json({ id: docRef.id, fileUploaded, fileUrl: fileUrl ?? null }, { status: 201 });
 }
 
 export async function DELETE(req: NextRequest) {

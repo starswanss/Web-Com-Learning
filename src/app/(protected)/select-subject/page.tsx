@@ -22,17 +22,43 @@ export default function SelectSubjectPage() {
 
   const [subjects, setSubjects] = useState<Subject[]>([]);
   const [fetching, setFetching] = useState(true);
+  const [fetchError, setFetchError] = useState<string | null>(null);
+  const [studentClassId, setStudentClassId] = useState<string | null>(null);
 
   useEffect(() => {
     if (loading) return;
     if (!profile) return;
     if (!profile.onboardingComplete) { router.push('/onboarding'); return; }
 
-    const endpoint = profile.role === 'teacher' ? '/api/subjects' : '/api/subjects/student';
-    fetch(endpoint)
-      .then((r) => r.json())
-      .then((data) => setSubjects(Array.isArray(data) ? data : []))
-      .finally(() => setFetching(false));
+    if (profile.role === 'teacher') {
+      fetch('/api/subjects')
+        .then((r) => r.json())
+        .then((data) => setSubjects(Array.isArray(data) ? data : []))
+        .catch(() => setFetchError('โหลดวิชาไม่ได้ กรุณาลองใหม่'))
+        .finally(() => setFetching(false));
+    } else {
+      fetch('/api/subjects/student')
+        .then((r) => r.json())
+        .then((data) => {
+          if (data?.error === 'Unauthorized') {
+            setFetchError('เซสชันหมดอายุ กรุณาล็อกอินใหม่');
+            return;
+          }
+          if (data?.error === 'no_class') {
+            setFetchError('ยังไม่มีข้อมูลห้องเรียน กรุณาทำ Onboarding ใหม่');
+            return;
+          }
+          if (data?.subjects) {
+            setSubjects(Array.isArray(data.subjects) ? data.subjects : []);
+            setStudentClassId(data.classId ?? null);
+          } else if (Array.isArray(data)) {
+            // Legacy format fallback
+            setSubjects(data);
+          }
+        })
+        .catch(() => setFetchError('โหลดวิชาไม่ได้ กรุณาลองใหม่'))
+        .finally(() => setFetching(false));
+    }
   }, [loading, profile, router]);
 
   function selectSubject(subject: Subject) {
@@ -63,19 +89,52 @@ export default function SelectSubjectPage() {
           <div className="flex justify-center py-16">
             <div className="h-6 w-6 animate-spin rounded-full border-2 border-slate-700 border-t-slate-300" />
           </div>
+        ) : fetchError ? (
+          <div className="rounded-2xl border border-red-800/60 bg-red-950/30 py-12 text-center px-6">
+            <p className="text-sm font-medium text-red-400">{fetchError}</p>
+            <button
+              onClick={() => window.location.reload()}
+              className="mt-4 rounded-lg border border-red-800 px-4 py-2 text-xs text-red-400 hover:bg-red-950/40 transition-all"
+            >
+              ลองใหม่
+            </button>
+          </div>
         ) : subjects.length === 0 ? (
-          <div className="rounded-2xl border border-dashed border-slate-800 py-16 text-center">
-            <p className="text-slate-400">ยังไม่มีวิชา</p>
+          <div className="rounded-2xl border border-dashed border-slate-800 py-12 text-center px-6 space-y-3">
+            <p className="text-2xl">📚</p>
+            <p className="text-slate-300 font-medium">ยังไม่มีวิชาที่กำหนดให้ห้องคุณ</p>
             {profile.role === 'teacher' && (
-              <Link
-                href="/teacher/subjects"
-                className="mt-3 inline-block rounded-lg bg-blue-600 px-4 py-2 text-sm text-white hover:bg-blue-500 transition-all"
-              >
-                สร้างวิชาแรก
-              </Link>
+              <>
+                <p className="text-sm text-slate-500">เพิ่มวิชาและเลือกห้องที่ต้องการได้เลย</p>
+                <Link
+                  href="/teacher/subjects"
+                  className="inline-block rounded-lg bg-blue-600 px-4 py-2 text-sm text-white hover:bg-blue-500 transition-all"
+                >
+                  + สร้างวิชาแรก
+                </Link>
+              </>
             )}
             {profile.role === 'student' && (
-              <p className="mt-2 text-sm text-slate-500">รอครูสร้างวิชาและเพิ่มห้องของคุณ</p>
+              <div className="space-y-2">
+                <p className="text-sm text-slate-500">
+                  รอครูเพิ่มวิชาให้ห้องของคุณ
+                </p>
+                {studentClassId && (
+                  <div className="inline-flex items-center gap-2 rounded-xl border border-slate-700 bg-slate-800 px-4 py-2">
+                    <span className="text-xs text-slate-400">ห้องของคุณ:</span>
+                    <span className="rounded-lg bg-blue-900/40 border border-blue-700/60 px-2 py-0.5 text-xs font-bold text-blue-300">
+                      {studentClassId}
+                    </span>
+                  </div>
+                )}
+                <p className="text-xs text-slate-600">บอกครูให้เพิ่มห้อง {studentClassId ?? profile.classId ?? '?'} ในวิชา</p>
+                <button
+                  onClick={() => window.location.reload()}
+                  className="rounded-lg border border-slate-700 px-4 py-2 text-xs text-slate-400 hover:border-slate-600 hover:text-slate-200 transition-all"
+                >
+                  รีเฟรช
+                </button>
+              </div>
             )}
           </div>
         ) : (

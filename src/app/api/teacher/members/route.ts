@@ -1,5 +1,6 @@
-import { NextResponse } from 'next/server';
+import { NextRequest, NextResponse } from 'next/server';
 import { adminAuth, adminDb } from '@/lib/firebase/admin';
+import { FieldValue } from 'firebase-admin/firestore';
 import { cookies } from 'next/headers';
 
 async function getTeacherUid(): Promise<string | null> {
@@ -29,6 +30,7 @@ export async function GET() {
       classId: (data.classId as string) ?? '',
       onboardingComplete: !!(data.onboardingComplete),
       createdAt: data.createdAt?._seconds ?? null,
+      xp: (data.xp as number) ?? 0,
     };
   }).sort((a, b) => {
     if (a.classId < b.classId) return -1;
@@ -37,4 +39,26 @@ export async function GET() {
   });
 
   return NextResponse.json(members);
+}
+
+export async function PATCH(req: NextRequest) {
+  const uid = await getTeacherUid();
+  if (!uid) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+
+  const { studentUid, classId } = await req.json() as { studentUid: string; classId: string };
+  if (!studentUid || !classId) {
+    return NextResponse.json({ error: 'Missing studentUid or classId' }, { status: 400 });
+  }
+
+  const studentDoc = await adminDb.collection('users').doc(studentUid).get();
+  if (!studentDoc.exists || studentDoc.data()?.role !== 'student') {
+    return NextResponse.json({ error: 'Student not found' }, { status: 404 });
+  }
+
+  await adminDb.collection('users').doc(studentUid).update({
+    classId,
+    updatedAt: FieldValue.serverTimestamp(),
+  });
+
+  return NextResponse.json({ ok: true });
 }

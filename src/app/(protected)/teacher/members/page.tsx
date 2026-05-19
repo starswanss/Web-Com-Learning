@@ -4,6 +4,7 @@ import { useEffect, useState, useMemo } from 'react';
 import { useRouter } from 'next/navigation';
 import { useAuth } from '@/context/AuthContext';
 import Link from 'next/link';
+import { calcLevel, levelColor, levelBarColor } from '@/lib/xp';
 
 interface Member {
   uid: string;
@@ -12,6 +13,7 @@ interface Member {
   classId: string;
   onboardingComplete: boolean;
   createdAt: number | null;
+  xp: number;
 }
 
 const ALL_CLASSES = Array.from({ length: 18 }, (_, i) => `ม.3/${i + 1}`);
@@ -35,6 +37,18 @@ export default function MembersPage() {
   const [fetching, setFetching] = useState(true);
   const [selectedClass, setSelectedClass] = useState<string>('all');
   const [search, setSearch] = useState('');
+
+  // Class inline edit state
+  const [editingUid, setEditingUid] = useState<string | null>(null);
+  const [editClassId, setEditClassId] = useState('');
+  const [saving, setSaving] = useState(false);
+  const [saveError, setSaveError] = useState<string | null>(null);
+
+  // XP inline edit state
+  const [xpEditingUid, setXpEditingUid] = useState<string | null>(null);
+  const [xpAmount, setXpAmount] = useState('');
+  const [xpSaving, setXpSaving] = useState(false);
+  const [xpError, setXpError] = useState<string | null>(null);
 
   useEffect(() => {
     if (!loading && profile?.role !== 'teacher') router.push('/dashboard');
@@ -68,6 +82,86 @@ export default function MembersPage() {
   const activeCount = members.filter(m => m.onboardingComplete).length;
   const pendingCount = members.length - activeCount;
 
+  // ── Class edit ──
+  function startEdit(m: Member) {
+    setXpEditingUid(null);
+    setEditingUid(m.uid);
+    setEditClassId(m.classId || ALL_CLASSES[0]);
+    setSaveError(null);
+  }
+
+  function cancelEdit() {
+    setEditingUid(null);
+    setEditClassId('');
+    setSaveError(null);
+  }
+
+  async function saveEdit(uid: string) {
+    if (!editClassId) return;
+    setSaving(true);
+    setSaveError(null);
+    try {
+      const res = await fetch('/api/teacher/members', {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ studentUid: uid, classId: editClassId }),
+      });
+      if (!res.ok) throw new Error('failed');
+      setMembers(prev =>
+        prev.map(m => m.uid === uid ? { ...m, classId: editClassId } : m)
+      );
+      setEditingUid(null);
+    } catch {
+      setSaveError('บันทึกไม่สำเร็จ');
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  // ── XP edit ──
+  function startXpEdit(m: Member) {
+    setEditingUid(null);
+    setXpEditingUid(m.uid);
+    setXpAmount('');
+    setXpError(null);
+  }
+
+  function cancelXpEdit() {
+    setXpEditingUid(null);
+    setXpAmount('');
+    setXpError(null);
+  }
+
+  async function xpAction(uid: string, action: 'reset' | 'add') {
+    setXpSaving(true);
+    setXpError(null);
+    try {
+      const body: Record<string, unknown> = { studentUid: uid, action };
+      if (action === 'add') {
+        const n = parseInt(xpAmount, 10);
+        if (!xpAmount || isNaN(n) || n === 0) {
+          setXpError('ใส่จำนวน XP');
+          setXpSaving(false);
+          return;
+        }
+        body.amount = n;
+      }
+      const res = await fetch('/api/teacher/xp', {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(body),
+      });
+      if (!res.ok) throw new Error('failed');
+      const { newXp } = await res.json() as { newXp: number };
+      setMembers(prev => prev.map(m => m.uid === uid ? { ...m, xp: newXp } : m));
+      setXpEditingUid(null);
+    } catch {
+      setXpError('บันทึกไม่สำเร็จ');
+    } finally {
+      setXpSaving(false);
+    }
+  }
+
   if (loading || !profile) return <Spinner />;
 
   return (
@@ -86,7 +180,6 @@ export default function MembersPage() {
       </header>
 
       <main className="mx-auto max-w-6xl px-6 py-6 space-y-6">
-
         {fetching ? (
           <div className="flex items-center justify-center py-24">
             <div className="h-6 w-6 animate-spin rounded-full border-2 border-slate-700 border-t-slate-400" />
@@ -96,10 +189,10 @@ export default function MembersPage() {
             {/* ── STAT CARDS ── */}
             <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
               {[
-                { label: 'ลงทะเบียนทั้งหมด', value: members.length, color: 'text-slate-100', line: 'bg-slate-500', glow: 'from-slate-500/8' },
-                { label: 'ใช้งานแล้ว',         value: activeCount,   color: 'text-emerald-300', line: 'bg-emerald-500', glow: 'from-emerald-500/10' },
-                { label: 'รอ Onboarding',      value: pendingCount,  color: 'text-amber-300',   line: 'bg-amber-400',   glow: 'from-amber-400/10' },
-                { label: 'จำนวนห้อง',           value: Object.keys(classCounts).filter(k=>k).length, color: 'text-blue-300', line: 'bg-blue-500', glow: 'from-blue-500/10' },
+                { label: 'ลงทะเบียนทั้งหมด', value: members.length,   color: 'text-slate-100',   line: 'bg-slate-500',   glow: 'from-slate-500/8' },
+                { label: 'ใช้งานแล้ว',         value: activeCount,      color: 'text-emerald-300', line: 'bg-emerald-500', glow: 'from-emerald-500/10' },
+                { label: 'รอ Onboarding',       value: pendingCount,     color: 'text-amber-300',   line: 'bg-amber-400',   glow: 'from-amber-400/10' },
+                { label: 'จำนวนห้อง', value: Object.keys(classCounts).filter(k => k).length, color: 'text-blue-300', line: 'bg-blue-500', glow: 'from-blue-500/10' },
               ].map(s => (
                 <div key={s.label} className={`relative overflow-hidden rounded-2xl border border-slate-800/80 bg-gradient-to-b ${s.glow} to-slate-900 p-4`}>
                   <div className={`absolute inset-x-0 top-0 h-[2px] ${s.line}`} />
@@ -147,7 +240,7 @@ export default function MembersPage() {
 
             {/* ── MEMBER TABLE ── */}
             <div className="overflow-hidden rounded-2xl border border-slate-800/80 bg-slate-900">
-              {/* Table header */}
+              {/* Table toolbar */}
               <div className="flex items-center gap-4 border-b border-slate-800/80 px-5 py-3.5">
                 <div className="flex-1">
                   <p className="text-[9px] font-bold uppercase tracking-widest text-slate-500">
@@ -173,39 +266,154 @@ export default function MembersPage() {
               ) : (
                 <div className="divide-y divide-slate-800/50">
                   {/* Column header */}
-                  <div className="grid grid-cols-[2.5rem_1fr_1fr_6rem_7rem_5rem] gap-4 px-5 py-2">
-                    {['', 'ชื่อ', 'อีเมล', 'ห้อง', 'วันที่เข้าร่วม', 'สถานะ'].map(h => (
+                  <div className="grid grid-cols-[2.5rem_1fr_1fr_9rem_10rem_6rem_5rem] gap-3 px-5 py-2">
+                    {['', 'ชื่อ', 'อีเมล', 'ห้อง', 'เลเวล / XP', 'วันที่เข้าร่วม', 'สถานะ'].map(h => (
                       <p key={h} className="text-[9px] font-bold uppercase tracking-widest text-slate-600">{h}</p>
                     ))}
                   </div>
-                  {filtered.map(m => (
-                    <div key={m.uid}
-                      className="grid grid-cols-[2.5rem_1fr_1fr_6rem_7rem_5rem] items-center gap-4 px-5 py-3 transition-colors hover:bg-slate-800/20">
-                      {/* Avatar */}
-                      <div className="flex h-9 w-9 items-center justify-center rounded-full bg-slate-800 text-[11px] font-bold text-slate-300">
-                        {initials(m.displayName)}
+
+                  {filtered.map(m => {
+                    const isEditing = editingUid === m.uid;
+                    const isXpEditing = xpEditingUid === m.uid;
+                    const lvInfo = calcLevel(m.xp);
+                    return (
+                      <div key={m.uid} className="group">
+                        <div className="grid grid-cols-[2.5rem_1fr_1fr_9rem_10rem_6rem_5rem] items-center gap-3 px-5 py-3 transition-colors hover:bg-slate-800/20">
+                          {/* Avatar */}
+                          <div className="flex h-9 w-9 items-center justify-center rounded-full bg-slate-800 text-[11px] font-bold text-slate-300">
+                            {initials(m.displayName)}
+                          </div>
+                          {/* Name */}
+                          <p className="truncate text-sm font-medium text-slate-200">{m.displayName || '—'}</p>
+                          {/* Email */}
+                          <p className="truncate text-xs text-slate-500">{m.email}</p>
+
+                          {/* Class — inline edit */}
+                          <div className="flex items-center gap-1.5">
+                            {isEditing ? (
+                              <>
+                                <select
+                                  value={editClassId}
+                                  onChange={e => setEditClassId(e.target.value)}
+                                  className="rounded-lg border border-blue-700 bg-slate-800 px-2 py-1 text-xs text-slate-200 focus:outline-none focus:border-blue-500"
+                                  autoFocus
+                                >
+                                  {ALL_CLASSES.map(cls => (
+                                    <option key={cls} value={cls}>{cls}</option>
+                                  ))}
+                                </select>
+                                <button
+                                  onClick={() => saveEdit(m.uid)}
+                                  disabled={saving}
+                                  className="flex h-6 w-6 shrink-0 items-center justify-center rounded-lg bg-emerald-600 text-white hover:bg-emerald-500 disabled:opacity-50 transition-all text-xs"
+                                  title="บันทึก"
+                                >
+                                  {saving ? '…' : '✓'}
+                                </button>
+                                <button
+                                  onClick={cancelEdit}
+                                  disabled={saving}
+                                  className="flex h-6 w-6 shrink-0 items-center justify-center rounded-lg border border-slate-700 text-slate-500 hover:text-slate-200 disabled:opacity-50 transition-all text-xs"
+                                  title="ยกเลิก"
+                                >
+                                  ✕
+                                </button>
+                                {saveError && <span className="text-[10px] text-red-400">{saveError}</span>}
+                              </>
+                            ) : (
+                              <>
+                                <span className="inline-flex items-center rounded-full border border-slate-700/60 bg-slate-800/60 px-2 py-0.5 text-[10px] font-semibold text-slate-300">
+                                  {m.classId || '—'}
+                                </span>
+                                <button
+                                  onClick={() => startEdit(m)}
+                                  className="hidden group-hover:flex h-5 w-5 items-center justify-center rounded-md border border-slate-700 text-slate-600 hover:border-blue-700 hover:text-blue-400 transition-all text-[10px]"
+                                  title="แก้ไขห้อง"
+                                >
+                                  ✏
+                                </button>
+                              </>
+                            )}
+                          </div>
+
+                          {/* XP / Level — inline edit */}
+                          <div className="flex items-center gap-1.5 overflow-hidden">
+                            {isXpEditing ? (
+                              <div className="flex items-center gap-1 flex-wrap">
+                                <input
+                                  type="number"
+                                  value={xpAmount}
+                                  onChange={e => setXpAmount(e.target.value)}
+                                  placeholder="± XP"
+                                  className="w-16 rounded-lg border border-violet-700 bg-slate-800 px-2 py-1 text-xs text-slate-200 focus:outline-none focus:border-violet-500"
+                                  autoFocus
+                                />
+                                <button
+                                  onClick={() => xpAction(m.uid, 'add')}
+                                  disabled={xpSaving}
+                                  className="flex h-6 items-center rounded-lg bg-violet-700 px-2 text-white hover:bg-violet-600 disabled:opacity-50 transition-all text-[10px] font-bold"
+                                  title="เพิ่ม/ลด XP"
+                                >
+                                  {xpSaving ? '…' : '+XP'}
+                                </button>
+                                <button
+                                  onClick={() => xpAction(m.uid, 'reset')}
+                                  disabled={xpSaving}
+                                  className="flex h-6 items-center rounded-lg border border-red-800 px-2 text-red-400 hover:border-red-600 hover:text-red-300 disabled:opacity-50 transition-all text-[10px]"
+                                  title="รีเซ็ต XP เป็น 0"
+                                >
+                                  Reset
+                                </button>
+                                <button
+                                  onClick={cancelXpEdit}
+                                  disabled={xpSaving}
+                                  className="flex h-6 w-6 shrink-0 items-center justify-center rounded-lg border border-slate-700 text-slate-500 hover:text-slate-200 disabled:opacity-50 transition-all text-xs"
+                                >
+                                  ✕
+                                </button>
+                                {xpError && <span className="text-[10px] text-red-400">{xpError}</span>}
+                              </div>
+                            ) : (
+                              <div className="flex items-center gap-1.5">
+                                <span className={`text-xs font-bold ${levelColor(lvInfo.level)}`}>
+                                  Lv.{lvInfo.level}
+                                </span>
+                                <div className="flex flex-col gap-0.5">
+                                  <div className="h-1 w-12 overflow-hidden rounded-full bg-slate-800">
+                                    <div
+                                      className={`h-full rounded-full ${levelBarColor(lvInfo.level)} transition-all`}
+                                      style={{ width: `${lvInfo.progress}%` }}
+                                    />
+                                  </div>
+                                  <span className="text-[9px] text-slate-600">{m.xp} XP</span>
+                                </div>
+                                <button
+                                  onClick={() => startXpEdit(m)}
+                                  className="hidden group-hover:flex h-5 w-5 items-center justify-center rounded-md border border-slate-700 text-slate-600 hover:border-violet-700 hover:text-violet-400 transition-all text-[10px]"
+                                  title="จัดการ XP"
+                                >
+                                  ⚡
+                                </button>
+                              </div>
+                            )}
+                          </div>
+
+                          {/* Joined */}
+                          <p className="text-[10px] text-slate-600">{formatDate(m.createdAt)}</p>
+
+                          {/* Status */}
+                          <span className={`inline-flex items-center gap-1 rounded-full border px-2 py-0.5 text-[9px] font-bold ${
+                            m.onboardingComplete
+                              ? 'border-emerald-800/50 bg-emerald-950/30 text-emerald-400'
+                              : 'border-amber-800/50 bg-amber-950/30 text-amber-500'
+                          }`}>
+                            <span className={`h-1.5 w-1.5 rounded-full ${m.onboardingComplete ? 'bg-emerald-500' : 'bg-amber-400 animate-pulse'}`} />
+                            {m.onboardingComplete ? 'ใช้งาน' : 'รอ'}
+                          </span>
+                        </div>
                       </div>
-                      {/* Name */}
-                      <p className="truncate text-sm font-medium text-slate-200">{m.displayName || '—'}</p>
-                      {/* Email */}
-                      <p className="truncate text-xs text-slate-500">{m.email}</p>
-                      {/* Class */}
-                      <span className="inline-flex items-center rounded-full border border-slate-700/60 bg-slate-800/60 px-2 py-0.5 text-[10px] font-semibold text-slate-300">
-                        {m.classId || '—'}
-                      </span>
-                      {/* Joined */}
-                      <p className="text-[10px] text-slate-600">{formatDate(m.createdAt)}</p>
-                      {/* Status */}
-                      <span className={`inline-flex items-center gap-1 rounded-full border px-2 py-0.5 text-[9px] font-bold ${
-                        m.onboardingComplete
-                          ? 'border-emerald-800/50 bg-emerald-950/30 text-emerald-400'
-                          : 'border-amber-800/50 bg-amber-950/30 text-amber-500'
-                      }`}>
-                        <span className={`h-1.5 w-1.5 rounded-full ${m.onboardingComplete ? 'bg-emerald-500' : 'bg-amber-400 animate-pulse'}`} />
-                        {m.onboardingComplete ? 'ใช้งาน' : 'รอ'}
-                      </span>
-                    </div>
-                  ))}
+                    );
+                  })}
                 </div>
               )}
             </div>

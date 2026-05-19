@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { adminAuth, adminDb } from '@/lib/firebase/admin';
 import { cookies } from 'next/headers';
 import { FieldValue } from 'firebase-admin/firestore';
-import { ensureStudentFolder, uploadFileToDrive } from '@/lib/google-drive';
+import { uploadSubmissionFile } from '@/lib/storage';
 import { gradeSubmission, answersToText } from '@/lib/gemini';
 import { calcXpGain } from '@/lib/xp';
 
@@ -68,15 +68,13 @@ export async function POST(req: NextRequest) {
 
   const [uploadResult, othersSnap] = await Promise.all([
     fileBuffer
-      ? ensureStudentFolder(student.classId, student.displayName).then((folderId) =>
-          uploadFileToDrive(folderId, fileBuffer, file!.type, file!.name)
-        )
+      ? uploadSubmissionFile(student.classId, student.displayName, fileBuffer, file!.type, file!.name)
+          .catch((err) => { console.error('[submissions] upload failed:', err); return null; })
       : Promise.resolve(null),
     adminDb.collection('submissions').where('assignmentId', '==', assignmentId).limit(20).get(),
   ]);
 
-  const driveFileId = uploadResult?.fileId;
-  const driveWebViewLink = uploadResult?.webViewLink;
+  const driveWebViewLink = uploadResult?.url ?? null;
   const otherContents = othersSnap.docs.map((d) => d.data().content as string).filter(Boolean);
 
   let score: number | null = null;
@@ -120,7 +118,6 @@ export async function POST(req: NextRequest) {
       classId: student.classId,
       content: content || null,
       answers: answers ?? null,
-      driveFileId: driveFileId ?? null,
       driveWebViewLink: driveWebViewLink ?? null,
       score: score ?? null,
       feedback: feedback ?? null,

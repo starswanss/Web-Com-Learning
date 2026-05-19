@@ -50,6 +50,7 @@ export default function NewAssignmentPage() {
     : '';
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [uploadNote, setUploadNote] = useState<string | null>(null);
   const [templates, setTemplates] = useState<Template[]>([]);
   const [showTemplates, setShowTemplates] = useState(false);
   const [savingTemplate, setSavingTemplate] = useState(false);
@@ -198,21 +199,32 @@ export default function NewAssignmentPage() {
     setSubmitting(true);
     try {
       if (contentType === 'quiz' && quizMode === 'prepost') {
-        // Create a shared group ID so both can be looked up as a pair
         const groupId = Math.random().toString(36).slice(2, 9);
         const [preRes, postRes] = await Promise.all([
           fetch('/api/assignments', { method: 'POST', body: buildFormData({ quizPhase: 'pre',  pairedQuizId: groupId, title: `${title.trim()} (ก่อนเรียน)` }) }),
           fetch('/api/assignments', { method: 'POST', body: buildFormData({ quizPhase: 'post', pairedQuizId: groupId, title: `${title.trim()} (หลังเรียน)` }) }),
         ]);
-        if (!preRes.ok || !postRes.ok) throw new Error('failed');
+        if (!preRes.ok || !postRes.ok) {
+          const errData = await (!preRes.ok ? preRes : postRes).json().catch(() => ({}));
+          throw new Error(errData.error ?? 'สร้างแบบทดสอบไม่สำเร็จ');
+        }
       } else {
         const fd = buildFormData(contentType === 'quiz' ? { quizPhase: 'standalone' } : {});
         const res = await fetch('/api/assignments', { method: 'POST', body: fd });
-        if (!res.ok) throw new Error('failed');
+        if (!res.ok) {
+          const errData = await res.json().catch(() => ({}));
+          throw new Error(errData.error ?? 'บันทึกไม่สำเร็จ');
+        }
+        const resData = await res.json().catch(() => ({}));
+        if (file && resData.fileUploaded === false) {
+          setUploadNote('⚠ บันทึกสำเร็จแต่อัปโหลดไฟล์แนบไม่ได้ (ตรวจสอบ Firebase Storage)');
+          setTimeout(() => router.push('/teacher'), 3000);
+          return;
+        }
       }
       router.push('/teacher');
-    } catch {
-      setError('เกิดข้อผิดพลาด กรุณาลองใหม่');
+    } catch (err) {
+      setError(`เกิดข้อผิดพลาด: ${err instanceof Error ? err.message : 'กรุณาลองใหม่'}`);
     } finally {
       setSubmitting(false);
     }
@@ -231,6 +243,9 @@ export default function NewAssignmentPage() {
         <form onSubmit={handleSubmit} className="space-y-8">
           {error && (
             <div className="rounded-xl border border-red-800 bg-red-950/50 px-4 py-3 text-sm text-red-400">{error}</div>
+          )}
+          {uploadNote && (
+            <div className="rounded-xl border border-amber-800 bg-amber-950/50 px-4 py-3 text-sm text-amber-400">{uploadNote}</div>
           )}
 
           {/* Basic info */}

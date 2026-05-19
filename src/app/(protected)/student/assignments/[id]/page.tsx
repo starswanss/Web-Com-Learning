@@ -4,7 +4,7 @@ import { useEffect, useState, useRef, FormEvent, use } from 'react';
 import { useRouter } from 'next/navigation';
 import { useAuth } from '@/context/AuthContext';
 import Link from 'next/link';
-import type { FormBlock } from '@/types';
+import type { FormBlock, InfographicColor } from '@/types';
 
 interface Assignment {
   id: string;
@@ -63,6 +63,7 @@ export default function SubmissionPage({ params }: { params: Promise<{ id: strin
   const [answers, setAnswers] = useState<Record<string, string | string[]>>({});
   const [content, setContent] = useState('');
   const [file, setFile] = useState<File | null>(null);
+  const [filePreview, setFilePreview] = useState<string | null>(null);
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [result, setResult] = useState<{ score: number; feedback: string } | null>(null);
@@ -427,21 +428,20 @@ export default function SubmissionPage({ params }: { params: Promise<{ id: strin
               </div>
             )}
 
-            <div>
-              <label className="mb-2 block text-sm font-medium text-slate-300">
-                แนบรูปภาพ (ถ้ามี)
-              </label>
-              <label className="flex cursor-pointer items-center gap-2 rounded-xl border border-slate-700 bg-slate-800 px-4 py-3 text-sm text-slate-300 hover:border-slate-600 transition-all">
-                <span>เลือกรูปภาพ</span>
-                <input
-                  type="file"
-                  accept="image/*"
-                  className="hidden"
-                  onChange={(e) => setFile(e.target.files?.[0] ?? null)}
-                />
-              </label>
-              {file && <p className="mt-2 truncate text-sm text-slate-400">{file.name}</p>}
-            </div>
+            <ImageUploadBox
+              file={file}
+              preview={filePreview}
+              onFile={(f) => {
+                setFile(f);
+                if (f) {
+                  const reader = new FileReader();
+                  reader.onload = e => setFilePreview(e.target?.result as string);
+                  reader.readAsDataURL(f);
+                } else {
+                  setFilePreview(null);
+                }
+              }}
+            />
 
             {error && (
               <div className="rounded-xl border border-red-800 bg-red-950/50 px-4 py-3 text-sm text-red-400">
@@ -642,6 +642,31 @@ function BlockRenderer({
           )}
         </div>
       );
+
+    case 'infographic': {
+      const COLORS: Record<InfographicColor, { bg: string; border: string; bar: string; text: string }> = {
+        blue:   { bg: 'bg-blue-950/50',    border: 'border-blue-700',    bar: 'bg-blue-500',    text: 'text-blue-300'    },
+        green:  { bg: 'bg-emerald-950/50', border: 'border-emerald-700', bar: 'bg-emerald-500', text: 'text-emerald-300' },
+        purple: { bg: 'bg-purple-950/50',  border: 'border-purple-700',  bar: 'bg-purple-500',  text: 'text-purple-300'  },
+        orange: { bg: 'bg-orange-950/50',  border: 'border-orange-700',  bar: 'bg-orange-500',  text: 'text-orange-300'  },
+        red:    { bg: 'bg-red-950/50',     border: 'border-red-700',     bar: 'bg-red-500',     text: 'text-red-300'     },
+        slate:  { bg: 'bg-slate-800/50',   border: 'border-slate-600',   bar: 'bg-slate-400',   text: 'text-slate-200'   },
+      };
+      const c = COLORS[(block as Extract<FormBlock, { type: 'infographic' }>).color] ?? COLORS.blue;
+      const b = block as Extract<FormBlock, { type: 'infographic' }>;
+      return (
+        <div className={`rounded-xl border ${c.border} ${c.bg} overflow-hidden`}>
+          <div className={`h-1 ${c.bar}`} />
+          <div className="px-4 py-3 flex items-start gap-3">
+            <span className="text-2xl shrink-0 mt-0.5">{b.icon}</span>
+            <div className="min-w-0">
+              <p className={`font-bold text-sm ${c.text}`}>{b.title}</p>
+              {b.body && <p className="mt-1 text-xs text-slate-400 whitespace-pre-wrap">{b.body}</p>}
+            </div>
+          </div>
+        </div>
+      );
+    }
 
     case 'short-answer':
       return (
@@ -1163,6 +1188,60 @@ function QuizRulesScreen({
       >
         {checked ? '▶ เริ่มทำแบบทดสอบ' : 'กรุณายืนยันว่าอ่านกฎแล้ว'}
       </button>
+    </div>
+  );
+}
+
+function ImageUploadBox({
+  file, preview, onFile,
+}: {
+  file: File | null;
+  preview: string | null;
+  onFile: (f: File | null) => void;
+}) {
+  const fileRef = useRef<HTMLInputElement>(null);
+
+  function handlePaste(e: React.ClipboardEvent) {
+    const items = e.clipboardData?.items;
+    if (!items) return;
+    for (const item of Array.from(items)) {
+      if (item.type.startsWith('image/')) {
+        e.preventDefault();
+        const f = item.getAsFile();
+        if (f) onFile(f);
+        break;
+      }
+    }
+  }
+
+  return (
+    <div className="space-y-2" onPaste={handlePaste}>
+      <label className="mb-1 block text-sm font-medium text-slate-300">แนบรูปภาพ (ถ้ามี)</label>
+      {preview ? (
+        <div className="relative">
+          {/* eslint-disable-next-line @next/next/no-img-element */}
+          <img src={preview} alt="preview" className="max-h-48 w-full rounded-xl border border-slate-700 object-contain" />
+          <button
+            type="button"
+            onClick={() => onFile(null)}
+            className="absolute right-2 top-2 flex h-6 w-6 items-center justify-center rounded-full bg-slate-900/80 text-xs text-red-400 hover:text-red-300 border border-slate-700"
+          >✕</button>
+          <p className="mt-1 truncate text-xs text-slate-500">{file?.name}</p>
+        </div>
+      ) : (
+        <div
+          className="flex cursor-pointer flex-col items-center justify-center gap-2 rounded-xl border border-dashed border-slate-700 bg-slate-800/40 py-6 text-center transition-all hover:border-slate-500"
+          onClick={() => fileRef.current?.click()}
+          onPaste={handlePaste}
+        >
+          <span className="text-2xl">📷</span>
+          <p className="text-xs text-slate-400">คลิกเพื่อเลือกภาพ หรือ <span className="text-blue-400">วางจากคลิปบอร์ด (Ctrl+V)</span></p>
+        </div>
+      )}
+      <input
+        type="file" accept="image/*" className="hidden" ref={fileRef}
+        onChange={e => { const f = e.target.files?.[0]; if (f) onFile(f); }}
+      />
     </div>
   );
 }

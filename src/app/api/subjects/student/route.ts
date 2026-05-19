@@ -14,14 +14,27 @@ export async function GET() {
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
     }
 
-    const classId = userSnap.data()!.classId as string;
+    const classId = (userSnap.data()!.classId ?? '') as string;
+
+    if (!classId) {
+      // Student has no classId set — onboarding incomplete or data missing
+      return NextResponse.json({ error: 'no_class', subjects: [] }, { status: 200 });
+    }
+
     const snap = await adminDb
       .collection('subjects')
       .where('classIds', 'array-contains', classId)
       .get();
 
-    return NextResponse.json(snap.docs.map((d) => ({ id: d.id, ...d.data() })));
-  } catch {
+    const subjects = snap.docs.map((d) => ({
+      id: d.id,
+      name: d.data().name as string,
+      classIds: (d.data().classIds ?? []) as string[],
+    }));
+
+    return NextResponse.json({ classId, subjects });
+  } catch (err) {
+    console.error('[subjects/student]', err);
     return NextResponse.json({ error: 'Server error' }, { status: 500 });
   }
 }

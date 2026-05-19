@@ -19,24 +19,28 @@ export type BlockType =
   | 'heading'
   | 'paragraph'
   | 'image'
+  | 'infographic'
   | 'short-answer'
   | 'long-answer'
   | 'multiple-choice'
   | 'checkbox'
   | 'ordering';
 
+export type InfographicColor = 'blue' | 'green' | 'purple' | 'orange' | 'red' | 'slate';
+
 interface BaseBlock { id: string; type: BlockType; half?: boolean }
 export interface HeadingBlock       extends BaseBlock { type: 'heading';         text: string }
 export interface ParagraphBlock     extends BaseBlock { type: 'paragraph';       text: string }
 export interface ImageBlock         extends BaseBlock { type: 'image';           url: string; caption?: string }
+export interface InfographicBlock   extends BaseBlock { type: 'infographic';     title: string; body: string; icon: string; color: InfographicColor }
 export interface ShortAnswerBlock   extends BaseBlock { type: 'short-answer';    question: string; required?: boolean }
 export interface LongAnswerBlock    extends BaseBlock { type: 'long-answer';     question: string; required?: boolean }
-export interface MultipleChoiceBlock extends BaseBlock { type: 'multiple-choice'; question: string; options: string[]; optionImages?: (string | null)[]; required?: boolean }
-export interface CheckboxBlock      extends BaseBlock { type: 'checkbox';        question: string; options: string[]; optionImages?: (string | null)[]; required?: boolean }
+export interface MultipleChoiceBlock extends BaseBlock { type: 'multiple-choice'; question: string; options: string[]; optionImages?: (string | null)[]; correctIndex?: number; required?: boolean }
+export interface CheckboxBlock      extends BaseBlock { type: 'checkbox';        question: string; options: string[]; optionImages?: (string | null)[]; correctIndexes?: number[]; required?: boolean }
 export interface OrderingBlock      extends BaseBlock { type: 'ordering';        question: string; items: string[]; required?: boolean }
 
 export type FormBlock =
-  | HeadingBlock | ParagraphBlock | ImageBlock
+  | HeadingBlock | ParagraphBlock | ImageBlock | InfographicBlock
   | ShortAnswerBlock | LongAnswerBlock
   | MultipleChoiceBlock | CheckboxBlock | OrderingBlock;
 

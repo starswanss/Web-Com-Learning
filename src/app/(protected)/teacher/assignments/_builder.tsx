@@ -2,8 +2,8 @@
 
 import { useRef } from 'react';
 import type {
-  FormBlock, BlockType,
-  HeadingBlock, ParagraphBlock, ImageBlock,
+  FormBlock, BlockType, InfographicColor,
+  HeadingBlock, ParagraphBlock, ImageBlock, InfographicBlock,
   ShortAnswerBlock, LongAnswerBlock,
   MultipleChoiceBlock, CheckboxBlock, OrderingBlock,
 } from '@/types';
@@ -19,6 +19,7 @@ export function makeBlock(type: BlockType): FormBlock {
     case 'heading':         return { id: uid(), type, text: 'หัวข้อใหม่' };
     case 'paragraph':       return { id: uid(), type, text: '' };
     case 'image':           return { id: uid(), type, url: '', caption: '' };
+    case 'infographic':     return { id: uid(), type, title: 'หัวข้อ', body: '', icon: '💡', color: 'blue' };
     case 'short-answer':    return { id: uid(), type, question: '', required: false };
     case 'long-answer':     return { id: uid(), type, question: '', required: false };
     case 'multiple-choice': return { id: uid(), type, question: '', options: ['', ''], optionImages: [null, null], required: false };
@@ -43,6 +44,7 @@ export const BLOCK_LABELS: { type: BlockType; label: string; icon: string }[] = 
   { type: 'heading',         label: 'หัวข้อ',              icon: 'H'  },
   { type: 'paragraph',       label: 'ข้อความ',             icon: '¶'  },
   { type: 'image',           label: 'รูปภาพ',              icon: '🖼'  },
+  { type: 'infographic',     label: 'อินโฟกราฟิก',        icon: '🎨'  },
   { type: 'short-answer',    label: 'ตอบสั้น',             icon: '—'  },
   { type: 'long-answer',     label: 'ตอบยาว',              icon: '≡'  },
   { type: 'multiple-choice', label: 'ตัวเลือก',            icon: '◉'  },
@@ -101,17 +103,63 @@ function ParagraphEditor({ block, onChange }: { block: ParagraphBlock; onChange:
 }
 
 function ImageEditor({ block, onChange }: { block: ImageBlock; onChange: (b: FormBlock) => void }) {
+  const fileRef = useRef<HTMLInputElement>(null);
+
+  function handleFile(file: File) {
+    const reader = new FileReader();
+    reader.onload = e => onChange({ ...block, url: e.target?.result as string });
+    reader.readAsDataURL(file);
+  }
+
+  function handlePaste(e: React.ClipboardEvent) {
+    const items = e.clipboardData?.items;
+    if (!items) return;
+    for (const item of Array.from(items)) {
+      if (item.type.startsWith('image/')) {
+        e.preventDefault();
+        const file = item.getAsFile();
+        if (file) handleFile(file);
+        break;
+      }
+    }
+  }
+
   return (
-    <div className="space-y-2">
-      <input
-        value={block.url}
-        onChange={e => onChange({ ...block, url: e.target.value })}
-        placeholder="URL รูปภาพ (https://...)"
-        className="input text-sm"
-      />
+    <div className="space-y-2" onPaste={handlePaste}>
+      <div className="flex gap-2">
+        <input
+          value={block.url.startsWith('data:') ? '' : block.url}
+          onChange={e => onChange({ ...block, url: e.target.value })}
+          placeholder="URL รูปภาพ (https://...) หรือวางภาพที่นี่ (Ctrl+V)"
+          className="input flex-1 text-sm"
+        />
+        <button
+          type="button"
+          onClick={() => fileRef.current?.click()}
+          className="shrink-0 rounded-xl border border-slate-700 px-3 py-2 text-xs text-slate-400 hover:border-slate-500 hover:text-slate-200 transition-all"
+          title="อัปโหลดรูปจากเครื่อง"
+        >
+          📁 อัปโหลด
+        </button>
+        <input
+          type="file" accept="image/*" className="hidden" ref={fileRef}
+          onChange={e => { const f = e.target.files?.[0]; if (f) handleFile(f); }}
+        />
+      </div>
+
+      {/* Paste hint */}
+      {!block.url && (
+        <div
+          className="flex cursor-pointer items-center justify-center rounded-xl border border-dashed border-slate-700 py-6 text-xs text-slate-600 hover:border-slate-500 hover:text-slate-400 transition-all"
+          onClick={() => fileRef.current?.click()}
+        >
+          📋 วางภาพจากคลิปบอร์ด (Ctrl+V) หรือคลิกเพื่ออัปโหลด
+        </div>
+      )}
+
       {block.url && (
         // eslint-disable-next-line @next/next/no-img-element
-        <img src={block.url} alt="preview" className="max-h-48 rounded-lg object-cover"
+        <img src={block.url} alt="preview" className="max-h-48 rounded-lg object-cover border border-slate-700"
           onError={e => { (e.target as HTMLImageElement).style.display = 'none'; }} />
       )}
       <input
@@ -124,7 +172,80 @@ function ImageEditor({ block, onChange }: { block: ImageBlock; onChange: (b: For
   );
 }
 
-/* Question header: textarea so multi-line questions are possible */
+/* ── Infographic editor ────────────────────────────────────────── */
+
+const INFOGRAPHIC_COLORS: Record<InfographicColor, { bg: string; border: string; bar: string; text: string }> = {
+  blue:   { bg: 'bg-blue-950/50',    border: 'border-blue-700',    bar: 'bg-blue-500',    text: 'text-blue-300'    },
+  green:  { bg: 'bg-emerald-950/50', border: 'border-emerald-700', bar: 'bg-emerald-500', text: 'text-emerald-300' },
+  purple: { bg: 'bg-purple-950/50',  border: 'border-purple-700',  bar: 'bg-purple-500',  text: 'text-purple-300'  },
+  orange: { bg: 'bg-orange-950/50',  border: 'border-orange-700',  bar: 'bg-orange-500',  text: 'text-orange-300'  },
+  red:    { bg: 'bg-red-950/50',     border: 'border-red-700',     bar: 'bg-red-500',     text: 'text-red-300'     },
+  slate:  { bg: 'bg-slate-800/50',   border: 'border-slate-600',   bar: 'bg-slate-400',   text: 'text-slate-200'   },
+};
+
+const COLOR_DOT: Record<InfographicColor, string> = {
+  blue: 'bg-blue-500', green: 'bg-emerald-500', purple: 'bg-purple-500',
+  orange: 'bg-orange-500', red: 'bg-red-500', slate: 'bg-slate-400',
+};
+
+function InfographicEditor({ block, onChange }: { block: InfographicBlock; onChange: (b: FormBlock) => void }) {
+  const c = INFOGRAPHIC_COLORS[block.color] ?? INFOGRAPHIC_COLORS.blue;
+  return (
+    <div className="space-y-3">
+      {/* Toolbar: color + icon */}
+      <div className="flex items-center gap-3">
+        <div className="flex gap-1.5">
+          {(Object.keys(INFOGRAPHIC_COLORS) as InfographicColor[]).map(color => (
+            <button
+              key={color} type="button"
+              onClick={() => onChange({ ...block, color })}
+              className={`h-5 w-5 rounded-full ${COLOR_DOT[color]} transition-all ${
+                block.color === color ? 'ring-2 ring-white ring-offset-1 ring-offset-slate-900 scale-110' : 'opacity-60 hover:opacity-100'
+              }`}
+              title={color}
+            />
+          ))}
+        </div>
+        <input
+          value={block.icon}
+          onChange={e => onChange({ ...block, icon: e.target.value })}
+          maxLength={2}
+          placeholder="💡"
+          className="w-12 rounded-lg border border-slate-700 bg-slate-800 px-2 py-1 text-center text-lg focus:outline-none focus:border-slate-500"
+          title="ไอคอน (emoji)"
+        />
+      </div>
+
+      <input
+        value={block.title}
+        onChange={e => onChange({ ...block, title: e.target.value })}
+        placeholder="หัวข้อ..."
+        className="input text-sm font-semibold"
+      />
+      <AutoTextarea
+        value={block.body}
+        onChange={v => onChange({ ...block, body: v })}
+        placeholder="รายละเอียด / ข้อมูล... (รองรับหลายบรรทัด)"
+        minRows={2}
+        className="input w-full text-sm"
+      />
+
+      {/* Live preview */}
+      <div className={`rounded-xl border ${c.border} ${c.bg} overflow-hidden`}>
+        <div className={`h-1 ${c.bar}`} />
+        <div className="px-4 py-3 flex items-start gap-3">
+          <span className="text-2xl shrink-0 mt-0.5">{block.icon || '💡'}</span>
+          <div className="min-w-0">
+            <p className={`font-bold text-sm ${c.text}`}>{block.title || 'หัวข้อ'}</p>
+            {block.body && <p className="mt-1 text-xs text-slate-400 whitespace-pre-wrap">{block.body}</p>}
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+/* ── Question header ───────────────────────────────────────────── */
 function QuestionHeader({
   question, required, onQuestion, onRequired,
 }: {
@@ -148,22 +269,30 @@ function QuestionHeader({
   );
 }
 
-/* Options editor with per-option image upload */
+/* ── Options editor (multiple-choice / checkbox) ──────────────── */
 function OptionsEditor({
-  options, optionImages = [], onChange, onImagesChange, type,
+  options, optionImages = [], onChange,
+  correctIndex, correctIndexes, onCorrectChange,
+  type,
 }: {
   options: string[];
   optionImages?: (string | null)[];
-  onChange: (opts: string[]) => void;
-  onImagesChange?: (imgs: (string | null)[]) => void;
+  onChange: (opts: string[], imgs: (string | null)[]) => void;
+  correctIndex?: number;
+  correctIndexes?: number[];
+  onCorrectChange?: (val: number | number[]) => void;
   type: 'multiple-choice' | 'checkbox';
 }) {
   const fileRefs = useRef<(HTMLInputElement | null)[]>([]);
 
+  const imgs = optionImages.length >= options.length
+    ? optionImages
+    : Array(options.length).fill(null);
+
   function setImage(i: number, dataUrl: string | null) {
-    const next = [...(optionImages.length >= options.length ? optionImages : Array(options.length).fill(null))];
+    const next = [...imgs];
     next[i] = dataUrl;
-    onImagesChange?.(next);
+    onChange(options, next);
   }
 
   function handleFile(i: number, file: File) {
@@ -172,23 +301,93 @@ function OptionsEditor({
     reader.readAsDataURL(file);
   }
 
+  function updateText(i: number, val: string) {
+    const next = [...options]; next[i] = val;
+    onChange(next, imgs);
+  }
+
+  function addOption() {
+    onChange([...options, ''], [...imgs, null]);
+  }
+
+  function removeOption(i: number) {
+    const newOpts = options.filter((_, j) => j !== i);
+    const newImgs = imgs.filter((_, j) => j !== i);
+    onChange(newOpts, newImgs);
+    // Update correct answer index if needed
+    if (type === 'multiple-choice' && typeof correctIndex === 'number') {
+      if (correctIndex === i) onCorrectChange?.(-1);
+      else if (correctIndex > i) onCorrectChange?.(correctIndex - 1);
+    }
+    if (type === 'checkbox' && correctIndexes) {
+      const updated = correctIndexes
+        .filter(ci => ci !== i)
+        .map(ci => ci > i ? ci - 1 : ci);
+      onCorrectChange?.(updated);
+    }
+  }
+
   const bulletIcon = type === 'multiple-choice' ? '◉' : '☑';
 
   return (
     <div className="space-y-2">
+      {/* Answer key legend */}
+      <p className="text-[10px] text-slate-500 flex items-center gap-1">
+        <span className="text-emerald-500">✓</span>
+        คลิก{type === 'multiple-choice' ? 'วงกลม' : 'ช่องกาเครื่องหมาย'}ทางซ้ายเพื่อตั้งเฉลย
+      </p>
+
       {options.map((opt, i) => {
-        const img = optionImages[i] ?? null;
+        const img = imgs[i] ?? null;
+        const isCorrectSingle = type === 'multiple-choice' && correctIndex === i;
+        const isCorrectMulti  = type === 'checkbox' && (correctIndexes ?? []).includes(i);
+        const isCorrect = type === 'multiple-choice' ? isCorrectSingle : isCorrectMulti;
+
         return (
-          <div key={i} className="rounded-xl border border-slate-800 bg-slate-800/40 p-2">
+          <div key={i} className={`rounded-xl border p-2 transition-all ${
+            isCorrect ? 'border-emerald-700 bg-emerald-950/30' : 'border-slate-800 bg-slate-800/40'
+          }`}>
             <div className="flex items-center gap-2">
+              {/* Correct answer toggle */}
+              {type === 'multiple-choice' ? (
+                <button
+                  type="button"
+                  onClick={() => onCorrectChange?.(isCorrectSingle ? -1 : i)}
+                  title="ตั้งเป็นคำตอบที่ถูก"
+                  className={`shrink-0 h-4 w-4 rounded-full border-2 flex items-center justify-center transition-all ${
+                    isCorrectSingle ? 'border-emerald-500 bg-emerald-500' : 'border-slate-600 hover:border-emerald-600'
+                  }`}
+                >
+                  {isCorrectSingle && <span className="h-1.5 w-1.5 rounded-full bg-white" />}
+                </button>
+              ) : (
+                <button
+                  type="button"
+                  onClick={() => {
+                    const cur = correctIndexes ?? [];
+                    onCorrectChange?.(cur.includes(i) ? cur.filter(ci => ci !== i) : [...cur, i]);
+                  }}
+                  title="ตั้งเป็นคำตอบที่ถูก"
+                  className={`shrink-0 h-4 w-4 rounded border-2 flex items-center justify-center transition-all ${
+                    isCorrectMulti ? 'border-emerald-500 bg-emerald-500' : 'border-slate-600 hover:border-emerald-600'
+                  }`}
+                >
+                  {isCorrectMulti && (
+                    <svg viewBox="0 0 10 8" className="h-2.5 w-2.5 fill-white">
+                      <path d="M1 4l3 3 5-6" stroke="white" strokeWidth="1.5" fill="none" strokeLinecap="round" strokeLinejoin="round" />
+                    </svg>
+                  )}
+                </button>
+              )}
+
               <span className="shrink-0 text-slate-500 text-xs">{bulletIcon}</span>
               <input
                 value={opt}
-                onChange={e => { const next = [...options]; next[i] = e.target.value; onChange(next); }}
+                onChange={e => updateText(i, e.target.value)}
                 placeholder={`ตัวเลือก ${i + 1}`}
                 className="input flex-1 text-sm"
               />
-              {/* Image upload button */}
+              {/* Image upload */}
               <button type="button"
                 onClick={() => fileRefs.current[i]?.click()}
                 title="อัปโหลดรูปประกอบตัวเลือก"
@@ -212,17 +411,11 @@ function OptionsEditor({
               )}
               {options.length > 2 && (
                 <button type="button"
-                  onClick={() => {
-                    onChange(options.filter((_, j) => j !== i));
-                    const imgs = [...(optionImages.length >= options.length ? optionImages : Array(options.length).fill(null))];
-                    imgs.splice(i, 1);
-                    onImagesChange?.(imgs);
-                  }}
+                  onClick={() => removeOption(i)}
                   className="shrink-0 text-slate-600 hover:text-red-400 text-sm">×
                 </button>
               )}
             </div>
-            {/* Image preview */}
             {img && (
               // eslint-disable-next-line @next/next/no-img-element
               <img src={img} alt={`option-${i}`}
@@ -232,11 +425,7 @@ function OptionsEditor({
         );
       })}
       <button type="button"
-        onClick={() => {
-          onChange([...options, '']);
-          const imgs = [...(optionImages.length >= options.length ? optionImages : Array(options.length).fill(null)), null];
-          onImagesChange?.(imgs);
-        }}
+        onClick={addOption}
         className="text-xs text-blue-400 hover:text-blue-300 transition-colors">
         + เพิ่มตัวเลือก
       </button>
@@ -244,7 +433,7 @@ function OptionsEditor({
   );
 }
 
-/* Ordering (drag-to-rank) editor — teacher defines the CORRECT order */
+/* ── Ordering editor ───────────────────────────────────────────── */
 function OrderingEditor({ block, onChange }: { block: OrderingBlock; onChange: (b: FormBlock) => void }) {
   const items = block.items;
 
@@ -301,10 +490,11 @@ function OrderingEditor({ block, onChange }: { block: OrderingBlock; onChange: (
 
 export function BlockEditor({ block, onChange }: { block: FormBlock; onChange: (b: FormBlock) => void }) {
   switch (block.type) {
-    case 'heading':   return <HeadingEditor block={block} onChange={onChange} />;
-    case 'paragraph': return <ParagraphEditor block={block} onChange={onChange} />;
-    case 'image':     return <ImageEditor block={block} onChange={onChange} />;
-    case 'ordering':  return <OrderingEditor block={block as OrderingBlock} onChange={onChange} />;
+    case 'heading':     return <HeadingEditor block={block} onChange={onChange} />;
+    case 'paragraph':   return <ParagraphEditor block={block} onChange={onChange} />;
+    case 'image':       return <ImageEditor block={block} onChange={onChange} />;
+    case 'infographic': return <InfographicEditor block={block as InfographicBlock} onChange={onChange} />;
+    case 'ordering':    return <OrderingEditor block={block as OrderingBlock} onChange={onChange} />;
 
     case 'short-answer':
       return (
@@ -337,8 +527,9 @@ export function BlockEditor({ block, onChange }: { block: FormBlock; onChange: (
             type="multiple-choice"
             options={b.options}
             optionImages={b.optionImages}
-            onChange={opts => onChange({ ...b, options: opts })}
-            onImagesChange={imgs => onChange({ ...b, optionImages: imgs })}
+            correctIndex={b.correctIndex}
+            onChange={(opts, imgs) => onChange({ ...b, options: opts, optionImages: imgs })}
+            onCorrectChange={val => onChange({ ...b, correctIndex: val as number })}
           />
           <p className="mt-2 text-xs text-slate-500">เลือกได้ 1 ข้อ</p>
         </div>
@@ -356,8 +547,9 @@ export function BlockEditor({ block, onChange }: { block: FormBlock; onChange: (
             type="checkbox"
             options={b.options}
             optionImages={b.optionImages}
-            onChange={opts => onChange({ ...b, options: opts })}
-            onImagesChange={imgs => onChange({ ...b, optionImages: imgs })}
+            correctIndexes={b.correctIndexes}
+            onChange={(opts, imgs) => onChange({ ...b, options: opts, optionImages: imgs })}
+            onCorrectChange={val => onChange({ ...b, correctIndexes: val as number[] })}
           />
           <p className="mt-2 text-xs text-slate-500">เลือกได้หลายข้อ</p>
         </div>
