@@ -271,23 +271,7 @@ export default function StudentPage() {
         </div>
       </header>
 
-      {/* ── Mobile bottom nav ── */}
-      <nav className="sm:hidden fixed bottom-0 inset-x-0 z-40 border-t border-slate-800/70 bg-slate-950/95 backdrop-blur-md flex">
-        {[
-          { href: '/student/quests',      icon: '⚡', label: 'เควส' },
-          { href: '/student/milestones',  icon: '🏁', label: 'Milestone' },
-          { href: '/student/leaderboard', icon: '🏆', label: 'อันดับ' },
-          { href: '/student/profile',     icon: '📋', label: 'Portfolio' },
-        ].map(({ href, icon, label }) => (
-          <Link key={href} href={href}
-            className="flex flex-1 flex-col items-center gap-0.5 py-2.5 text-slate-500 transition-colors active:bg-slate-800/40">
-            <span className="text-base leading-none">{icon}</span>
-            <span className="text-[9px] font-semibold">{label}</span>
-          </Link>
-        ))}
-      </nav>
-
-      <main className="mx-auto max-w-[1200px] px-4 py-4 space-y-5 pb-24 sm:px-6 sm:py-6 sm:pb-6">
+      <main className="mx-auto max-w-[1200px] px-4 py-4 space-y-5 sm:px-6 sm:py-6">
         {fetching ? (
           <div className="flex items-center justify-center py-24"><div className="h-6 w-6 animate-spin rounded-full border-2 border-slate-700 border-t-slate-400" /></div>
         ) : (
