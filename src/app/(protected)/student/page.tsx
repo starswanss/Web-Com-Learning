@@ -720,13 +720,18 @@ function AssignmentRow({ assignment: a }: { assignment: AssignmentWithSubmission
           </span>
         )}
         {!a.submission && a.isOpen !== false && (
-          <span className="rounded-xl border border-blue-800/60 bg-blue-950/30 px-3 py-1.5 text-[10px] font-semibold text-blue-400">
-            ส่งงาน →
-          </span>
+          a.contentType === 'knowledge'
+            ? <span className="rounded-xl border border-emerald-800/60 bg-emerald-950/30 px-3 py-1.5 text-[10px] font-semibold text-emerald-400">เปิดดู →</span>
+            : <span className="rounded-xl border border-blue-800/60 bg-blue-950/30 px-3 py-1.5 text-[10px] font-semibold text-blue-400">ส่งงาน →</span>
         )}
-        {a.submission && !hasScore && (
+        {a.submission && !hasScore && a.contentType !== 'knowledge' && (
           <span className="rounded-xl border border-amber-800/60 bg-amber-950/30 px-3 py-1.5 text-[10px] font-semibold text-amber-400">
             รอตรวจ
+          </span>
+        )}
+        {a.submission && a.contentType === 'knowledge' && !hasScore && (
+          <span className="rounded-xl border border-emerald-900/40 bg-emerald-950/20 px-3 py-1.5 text-[10px] font-semibold text-emerald-600">
+            อ่านแล้ว ✓
           </span>
         )}
       </div>

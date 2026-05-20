@@ -36,7 +36,6 @@ export default function NewAssignmentPage() {
   const [title, setTitle] = useState('');
   const [dueDate, setDueDate] = useState('');
   const [selectedClasses, setSelectedClasses] = useState<string[]>([]);
-  const [file, setFile] = useState<File | null>(null);
   const [rubric, setRubric] = useState('');
   const [unit, setUnit] = useState('');
   const [contentType, setContentType] = useState<ContentType>(
@@ -50,7 +49,6 @@ export default function NewAssignmentPage() {
     : '';
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [uploadNote, setUploadNote] = useState<string | null>(null);
   const [templates, setTemplates] = useState<Template[]>([]);
   const [showTemplates, setShowTemplates] = useState(false);
   const [savingTemplate, setSavingTemplate] = useState(false);
@@ -184,7 +182,6 @@ export default function NewAssignmentPage() {
     fd.append('contentType', contentType);
     if (timeLimit) fd.append('timeLimit', timeLimit);
     fd.append('subjectId', subjectId);
-    if (file) fd.append('file', file);
     if (extra) Object.entries(extra).forEach(([k, v]) => fd.append(k, v));
     return fd;
   }
@@ -215,12 +212,6 @@ export default function NewAssignmentPage() {
           const errData = await res.json().catch(() => ({}));
           throw new Error(errData.error ?? 'บันทึกไม่สำเร็จ');
         }
-        const resData = await res.json().catch(() => ({}));
-        if (file && resData.fileUploaded === false) {
-          setUploadNote('⚠ บันทึกสำเร็จแต่อัปโหลดไฟล์แนบไม่ได้ (ตรวจสอบ Firebase Storage)');
-          setTimeout(() => router.push('/teacher'), 3000);
-          return;
-        }
       }
       router.push('/teacher');
     } catch (err) {
@@ -244,10 +235,6 @@ export default function NewAssignmentPage() {
           {error && (
             <div className="rounded-xl border border-red-800 bg-red-950/50 px-4 py-3 text-sm text-red-400">{error}</div>
           )}
-          {uploadNote && (
-            <div className="rounded-xl border border-amber-800 bg-amber-950/50 px-4 py-3 text-sm text-amber-400">{uploadNote}</div>
-          )}
-
           {/* Basic info */}
           <section className="rounded-2xl border border-slate-800 bg-slate-900 p-6 space-y-5">
             <h2 className="text-sm font-semibold text-slate-400 uppercase tracking-wider">ข้อมูลพื้นฐาน</h2>
@@ -391,15 +378,8 @@ export default function NewAssignmentPage() {
               </>
             )}
 
-            <div>
-              <label className="mb-1.5 block text-sm font-medium text-slate-300">ไฟล์แนบ (ถ้ามี)</label>
-              <div className="flex items-center gap-3">
-                <label className="flex cursor-pointer items-center gap-2 rounded-xl border border-slate-700 bg-slate-800 px-4 py-2 text-sm text-slate-300 hover:border-slate-600 transition-all">
-                  <span>เลือกไฟล์</span>
-                  <input type="file" className="hidden" onChange={(e) => setFile(e.target.files?.[0] ?? null)} />
-                </label>
-                {file && <span className="truncate text-sm text-slate-400">{file.name}</span>}
-              </div>
+            <div className="rounded-xl border border-slate-800 bg-slate-800/30 px-4 py-3 text-xs text-slate-500">
+              📄 ต้องการแนบ PDF? ใช้บล็อก <span className="font-semibold text-slate-400">+ ไฟล์ PDF</span> ในส่วนเนื้อหาใบงานด้านล่าง
             </div>
 
             <div>

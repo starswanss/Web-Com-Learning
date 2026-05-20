@@ -33,8 +33,12 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: 'File too large (max 2 MB)' }, { status: 400 });
   }
 
-  const buffer = Buffer.from(await file.arrayBuffer());
-  const { url } = await uploadToStorage('icons', buffer, file.type, file.name);
-
-  return NextResponse.json({ url });
+  try {
+    const buffer = Buffer.from(await file.arrayBuffer());
+    const { url } = await uploadToStorage('icons', buffer, file.type, file.name);
+    return NextResponse.json({ url });
+  } catch (err) {
+    console.error('[upload-icon] Storage error:', err instanceof Error ? err.message : err);
+    return NextResponse.json({ error: 'อัปโหลดไม่สำเร็จ ตรวจสอบการตั้งค่า Firebase Storage' }, { status: 500 });
+  }
 }

@@ -32,8 +32,12 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: 'File too large (max 20 MB)' }, { status: 400 });
   }
 
-  const buffer = Buffer.from(await file.arrayBuffer());
-  const { url } = await uploadToStorage('pdfs', buffer, file.type, file.name);
-
-  return NextResponse.json({ url });
+  try {
+    const buffer = Buffer.from(await file.arrayBuffer());
+    const { url } = await uploadToStorage('pdfs', buffer, file.type, file.name);
+    return NextResponse.json({ url });
+  } catch (err) {
+    console.error('[upload-pdf] Drive error:', err instanceof Error ? err.message : err);
+    return NextResponse.json({ error: 'อัปโหลดไม่สำเร็จ กรุณาลองใหม่' }, { status: 500 });
+  }
 }

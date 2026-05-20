@@ -95,3 +95,10 @@ export async function uploadAssignmentFile(
   const { assignmentsId } = await ensureClassFolders(classId);
   return uploadFileToDrive(assignmentsId, buffer, mimeType, filename);
 }
+
+/** Get or create Root > LMS Media > {subfolder} */
+export async function ensureMediaFolder(subfolder: 'Icons' | 'PDFs'): Promise<string> {
+  const root = process.env.GOOGLE_DRIVE_ROOT_FOLDER_ID!;
+  const mediaFolder = await getOrCreateFolder('LMS Media', root);
+  return getOrCreateFolder(subfolder, mediaFolder);
+}

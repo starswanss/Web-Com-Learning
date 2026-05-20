@@ -186,9 +186,11 @@ function PdfEditor({ block, onChange }: { block: PdfBlock; onChange: (b: FormBlo
       const form = new FormData();
       form.append('file', file);
       const res = await fetch('/api/teacher/upload-pdf', { method: 'POST', body: form });
-      const json = await res.json();
-      if (!res.ok) throw new Error(json.error ?? 'upload failed');
-      onChange({ ...block, url: json.url as string });
+      let json: { url?: string; error?: string } = {};
+      try { json = await res.json(); } catch { /* non-JSON error response */ }
+      if (!res.ok) throw new Error(json.error ?? 'อัปโหลดไม่สำเร็จ กรุณาลองใหม่');
+      if (!json.url) throw new Error('ไม่ได้รับ URL จากเซิร์ฟเวอร์');
+      onChange({ ...block, url: json.url });
     } catch (err) {
       setUploadError(err instanceof Error ? err.message : 'อัปโหลดไม่สำเร็จ');
     } finally {
