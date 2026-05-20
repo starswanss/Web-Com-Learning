@@ -112,6 +112,7 @@ export default function TeacherPage() {
   const [calYear, setCalYear] = useState(() => new Date().getFullYear());
   const [calMonth, setCalMonth] = useState(() => new Date().getMonth());
   const [selectedDay, setSelectedDay] = useState<number | null>(null);
+  const [menuOpen, setMenuOpen] = useState(false);
 
   useEffect(() => {
     if (!loading && profile?.role !== 'teacher') router.push('/dashboard');
@@ -233,21 +234,71 @@ export default function TeacherPage() {
               <Image src={user.photoURL} alt="" width={30} height={30} className="hidden sm:block rounded-full ring-2 ring-slate-700/60" />
             )}
             <button onClick={signOut}
-              className="rounded-lg border border-slate-800 px-3 py-1.5 text-[11px] text-slate-500 transition-all hover:border-slate-700 hover:text-slate-300">
+              className="hidden sm:block rounded-lg border border-slate-800 px-3 py-1.5 text-[11px] text-slate-500 transition-all hover:border-slate-700 hover:text-slate-300">
               ออก
+            </button>
+            {/* Hamburger — mobile only */}
+            <button
+              onClick={() => setMenuOpen(true)}
+              className="xl:hidden rounded-lg border border-slate-700 bg-slate-800 px-2.5 py-2 text-slate-300 transition-all active:bg-slate-700"
+            >
+              <svg className="h-4 w-4" fill="none" stroke="currentColor" strokeWidth={2} viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" d="M4 6h16M4 12h16M4 18h16"/>
+              </svg>
             </button>
           </div>
         </div>
       </header>
 
-      {/* ── Mobile bottom nav (teacher) ── */}
+      {/* ── Mobile full-menu overlay ── */}
+      {menuOpen && (
+        <div className="xl:hidden fixed inset-0 z-50 flex flex-col">
+          {/* backdrop */}
+          <div className="absolute inset-0 bg-slate-950/80 backdrop-blur-sm" onClick={() => setMenuOpen(false)} />
+          {/* drawer from bottom */}
+          <div className="absolute inset-x-0 bottom-0 rounded-t-2xl border-t border-slate-800 bg-slate-900 px-4 pt-4 pb-8 z-10">
+            <div className="mb-4 flex items-center justify-between">
+              <p className="text-sm font-bold text-slate-200">เมนูทั้งหมด</p>
+              <button onClick={() => setMenuOpen(false)} className="rounded-lg border border-slate-700 p-2 text-slate-400 hover:text-slate-200">
+                <svg className="h-4 w-4" fill="none" stroke="currentColor" strokeWidth={2} viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12"/></svg>
+              </button>
+            </div>
+            <div className="grid grid-cols-3 gap-2">
+              {NAV_LINKS.map(n => (
+                <Link key={n.href} href={n.href} onClick={() => setMenuOpen(false)}
+                  className="flex flex-col items-center gap-1.5 rounded-xl border border-slate-800 bg-slate-800/60 px-2 py-4 text-center text-slate-300 transition-all active:bg-slate-700">
+                  <span className="text-xl leading-none">
+                    {n.href.includes('overview') ? '📊' :
+                     n.href.includes('students') ? '🎓' :
+                     n.href.includes('members')  ? '👥' :
+                     n.href.includes('milestone') ? '🏁' :
+                     n.href.includes('quests')   ? '⚡' :
+                     n.href.includes('leaderboard') ? '🏆' :
+                     n.href.includes('analytics') ? '📈' :
+                     n.href.includes('timetable') ? '🗓' :
+                     n.href.includes('question')  ? '❓' :
+                     n.href.includes('template')  ? '📋' :
+                     n.href.includes('export')    ? '📤' :
+                     n.href.includes('admin')     ? '⚙️' : '📄'}
+                  </span>
+                  <span className="text-[11px] font-semibold leading-tight">{n.label}</span>
+                </Link>
+              ))}
+            </div>
+            <button onClick={signOut} className="mt-4 w-full rounded-xl border border-red-900/50 py-3 text-sm text-red-400 active:bg-red-950/30">
+              ออกจากระบบ
+            </button>
+          </div>
+        </div>
+      )}
+
+      {/* ── Mobile bottom nav (teacher) — quick access 4 items ── */}
       <nav className="xl:hidden fixed bottom-0 inset-x-0 z-40 border-t border-slate-800/70 bg-slate-950/95 backdrop-blur-md grid grid-cols-5">
         {[
           { href: '/teacher/overview',    icon: '📊', label: 'ภาพรวม' },
           { href: '/teacher/members',     icon: '👥', label: 'สมาชิก' },
           { href: '/teacher/leaderboard', icon: '🏆', label: 'Rank' },
-          { href: '/teacher/analytics',   icon: '📈', label: 'Analytics' },
-          { href: '/teacher/admin',       icon: '⚙️', label: 'Admin' },
+          { href: '/teacher/timetable',   icon: '🗓', label: 'ตารางสอน' },
         ].map(({ href, icon, label }) => (
           <Link key={href} href={href}
             className="flex flex-col items-center gap-0.5 py-2.5 text-slate-500 transition-colors active:bg-slate-800/40">
@@ -255,6 +306,13 @@ export default function TeacherPage() {
             <span className="text-[9px] font-semibold">{label}</span>
           </Link>
         ))}
+        <button onClick={() => setMenuOpen(true)}
+          className="flex flex-col items-center gap-0.5 py-2.5 text-slate-400 transition-colors active:bg-slate-800/40">
+          <svg className="h-5 w-5" fill="none" stroke="currentColor" strokeWidth={2} viewBox="0 0 24 24">
+            <path strokeLinecap="round" strokeLinejoin="round" d="M4 6h16M4 12h16M4 18h16"/>
+          </svg>
+          <span className="text-[9px] font-semibold">เมนู</span>
+        </button>
       </nav>
 
       <main className="mx-auto max-w-[1400px] px-4 py-4 space-y-4 pb-24 sm:px-6 sm:py-6 xl:pb-6">
