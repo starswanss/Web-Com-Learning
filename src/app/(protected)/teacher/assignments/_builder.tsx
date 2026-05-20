@@ -1,9 +1,9 @@
 'use client';
 
-import { useRef } from 'react';
+import { useRef, useState } from 'react';
 import type {
   FormBlock, BlockType, InfographicColor,
-  HeadingBlock, ParagraphBlock, ImageBlock, InfographicBlock,
+  HeadingBlock, ParagraphBlock, ImageBlock, PdfBlock, InfographicBlock,
   ShortAnswerBlock, LongAnswerBlock,
   MultipleChoiceBlock, CheckboxBlock, OrderingBlock,
 } from '@/types';
@@ -19,6 +19,7 @@ export function makeBlock(type: BlockType): FormBlock {
     case 'heading':         return { id: uid(), type, text: 'หัวข้อใหม่' };
     case 'paragraph':       return { id: uid(), type, text: '' };
     case 'image':           return { id: uid(), type, url: '', caption: '' };
+    case 'pdf':             return { id: uid(), type, url: '', caption: '', height: 600 };
     case 'infographic':     return { id: uid(), type, title: 'หัวข้อ', body: '', icon: '💡', color: 'blue' };
     case 'short-answer':    return { id: uid(), type, question: '', required: false };
     case 'long-answer':     return { id: uid(), type, question: '', required: false };
@@ -44,6 +45,7 @@ export const BLOCK_LABELS: { type: BlockType; label: string; icon: string }[] = 
   { type: 'heading',         label: 'หัวข้อ',              icon: 'H'  },
   { type: 'paragraph',       label: 'ข้อความ',             icon: '¶'  },
   { type: 'image',           label: 'รูปภาพ',              icon: '🖼'  },
+  { type: 'pdf',             label: 'ไฟล์ PDF',            icon: '📄'  },
   { type: 'infographic',     label: 'อินโฟกราฟิก',        icon: '🎨'  },
   { type: 'short-answer',    label: 'ตอบสั้น',             icon: '—'  },
   { type: 'long-answer',     label: 'ตอบยาว',              icon: '≡'  },
@@ -168,6 +170,105 @@ function ImageEditor({ block, onChange }: { block: ImageBlock; onChange: (b: For
         placeholder="คำบรรยายภาพ (ไม่บังคับ)"
         className="input text-xs"
       />
+    </div>
+  );
+}
+
+function PdfEditor({ block, onChange }: { block: PdfBlock; onChange: (b: FormBlock) => void }) {
+  const fileRef = useRef<HTMLInputElement>(null);
+  const [uploading, setUploading] = useState(false);
+  const [uploadError, setUploadError] = useState<string | null>(null);
+
+  async function handleFile(file: File) {
+    setUploading(true);
+    setUploadError(null);
+    try {
+      const form = new FormData();
+      form.append('file', file);
+      const res = await fetch('/api/teacher/upload-pdf', { method: 'POST', body: form });
+      const json = await res.json();
+      if (!res.ok) throw new Error(json.error ?? 'upload failed');
+      onChange({ ...block, url: json.url as string });
+    } catch (err) {
+      setUploadError(err instanceof Error ? err.message : 'อัปโหลดไม่สำเร็จ');
+    } finally {
+      setUploading(false);
+    }
+  }
+
+  return (
+    <div className="space-y-3">
+      {/* URL input or upload */}
+      <div className="flex gap-2">
+        <input
+          value={block.url}
+          onChange={e => onChange({ ...block, url: e.target.value })}
+          placeholder="URL ไฟล์ PDF (https://...) หรืออัปโหลดจากเครื่อง"
+          className="input flex-1 text-sm"
+        />
+        <button
+          type="button"
+          onClick={() => fileRef.current?.click()}
+          disabled={uploading}
+          className="shrink-0 rounded-xl border border-slate-700 px-3 py-2 text-xs text-slate-400 hover:border-slate-500 hover:text-slate-200 transition-all disabled:opacity-50"
+        >
+          {uploading ? (
+            <span className="inline-block h-3.5 w-3.5 animate-spin rounded-full border-2 border-slate-600 border-t-slate-300" />
+          ) : '📁 อัปโหลด PDF'}
+        </button>
+        <input
+          ref={fileRef}
+          type="file"
+          accept="application/pdf"
+          style={{ display: 'none' }}
+          onChange={e => { const f = e.target.files?.[0]; e.target.value = ''; if (f) handleFile(f); }}
+        />
+      </div>
+
+      {uploadError && <p className="text-[10px] text-red-400">⚠ {uploadError}</p>}
+
+      {/* Height control */}
+      <div className="flex items-center gap-3">
+        <label className="text-[10px] text-slate-500 shrink-0">ความสูง iframe (px)</label>
+        <input
+          type="number"
+          min="300"
+          max="1200"
+          step="50"
+          value={block.height ?? 600}
+          onChange={e => onChange({ ...block, height: Math.max(300, parseInt(e.target.value) || 600) })}
+          style={{ width: '5rem' }}
+          className="rounded-lg border border-slate-700 bg-slate-900 px-2 py-1 text-center text-xs text-slate-300 outline-none focus:border-slate-500"
+        />
+        <span className="text-[10px] text-slate-600">แนะนำ 600–800 px</span>
+      </div>
+
+      {/* Caption */}
+      <input
+        value={block.caption ?? ''}
+        onChange={e => onChange({ ...block, caption: e.target.value })}
+        placeholder="หัวข้อ / คำอธิบายไฟล์ (ไม่บังคับ)"
+        className="input text-xs"
+      />
+
+      {/* Preview */}
+      {block.url && (
+        <div className="rounded-xl border border-slate-700 overflow-hidden">
+          <div className="flex items-center justify-between border-b border-slate-700 bg-slate-800 px-3 py-1.5">
+            <span className="text-[10px] text-slate-400">📄 {block.caption || 'ตัวอย่าง PDF'}</span>
+            <a href={block.url} target="_blank" rel="noreferrer"
+              className="text-[10px] text-blue-400 hover:text-blue-300 transition-colors">
+              เปิดในแท็บใหม่ ↗
+            </a>
+          </div>
+          <iframe
+            src={block.url}
+            title={block.caption || 'PDF preview'}
+            className="w-full bg-white"
+            style={{ height: `${Math.min(block.height ?? 600, 400)}px` }}
+          />
+        </div>
+      )}
     </div>
   );
 }
@@ -493,6 +594,7 @@ export function BlockEditor({ block, onChange }: { block: FormBlock; onChange: (
     case 'heading':     return <HeadingEditor block={block} onChange={onChange} />;
     case 'paragraph':   return <ParagraphEditor block={block} onChange={onChange} />;
     case 'image':       return <ImageEditor block={block} onChange={onChange} />;
+    case 'pdf':         return <PdfEditor block={block as PdfBlock} onChange={onChange} />;
     case 'infographic': return <InfographicEditor block={block as InfographicBlock} onChange={onChange} />;
     case 'ordering':    return <OrderingEditor block={block as OrderingBlock} onChange={onChange} />;
 

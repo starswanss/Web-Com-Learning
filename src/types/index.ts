@@ -19,6 +19,7 @@ export type BlockType =
   | 'heading'
   | 'paragraph'
   | 'image'
+  | 'pdf'
   | 'infographic'
   | 'short-answer'
   | 'long-answer'
@@ -32,6 +33,7 @@ interface BaseBlock { id: string; type: BlockType; half?: boolean }
 export interface HeadingBlock       extends BaseBlock { type: 'heading';         text: string }
 export interface ParagraphBlock     extends BaseBlock { type: 'paragraph';       text: string }
 export interface ImageBlock         extends BaseBlock { type: 'image';           url: string; caption?: string }
+export interface PdfBlock           extends BaseBlock { type: 'pdf';             url: string; caption?: string; height?: number }
 export interface InfographicBlock   extends BaseBlock { type: 'infographic';     title: string; body: string; icon: string; color: InfographicColor }
 export interface ShortAnswerBlock   extends BaseBlock { type: 'short-answer';    question: string; required?: boolean }
 export interface LongAnswerBlock    extends BaseBlock { type: 'long-answer';     question: string; required?: boolean }
@@ -40,7 +42,7 @@ export interface CheckboxBlock      extends BaseBlock { type: 'checkbox';       
 export interface OrderingBlock      extends BaseBlock { type: 'ordering';        question: string; items: string[]; required?: boolean }
 
 export type FormBlock =
-  | HeadingBlock | ParagraphBlock | ImageBlock | InfographicBlock
+  | HeadingBlock | ParagraphBlock | ImageBlock | PdfBlock | InfographicBlock
   | ShortAnswerBlock | LongAnswerBlock
   | MultipleChoiceBlock | CheckboxBlock | OrderingBlock;
 

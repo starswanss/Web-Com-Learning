@@ -541,6 +541,33 @@ function BlockRenderer({
         </div>
       );
 
+    case 'pdf': {
+      const pdfBlock = block as Extract<FormBlock, { type: 'pdf' }>;
+      return (
+        <div className="rounded-xl border border-slate-700 overflow-hidden">
+          <div className="flex items-center justify-between border-b border-slate-700 bg-slate-800/60 px-3 py-2">
+            <span className="text-xs font-medium text-slate-300">
+              📄 {pdfBlock.caption || 'เอกสาร PDF'}
+            </span>
+            <a
+              href={pdfBlock.url}
+              target="_blank"
+              rel="noreferrer"
+              className="rounded-lg border border-slate-600 px-2.5 py-1 text-[10px] text-blue-400 hover:border-blue-600 hover:text-blue-300 transition-all"
+            >
+              เปิดในแท็บใหม่ ↗
+            </a>
+          </div>
+          <iframe
+            src={pdfBlock.url}
+            title={pdfBlock.caption || 'PDF'}
+            className="w-full bg-white"
+            style={{ height: `${pdfBlock.height ?? 600}px` }}
+          />
+        </div>
+      );
+    }
+
     case 'infographic': {
       const COLORS: Record<InfographicColor, { bg: string; border: string; bar: string; text: string }> = {
         blue:   { bg: 'bg-blue-950/50',    border: 'border-blue-700',    bar: 'bg-blue-500',    text: 'text-blue-300'    },
