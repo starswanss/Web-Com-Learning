@@ -34,21 +34,40 @@ export async function PATCH(
   const subSnap = await adminDb.collection('submissions').doc(id).get();
   if (!subSnap.exists) return NextResponse.json({ error: 'Not found' }, { status: 404 });
 
+  const sub = subSnap.data()!;
+
   const assignmentSnap = await adminDb
     .collection('assignments')
-    .doc(subSnap.data()!.assignmentId)
+    .doc(sub.assignmentId)
     .get();
 
   if (!assignmentSnap.exists || assignmentSnap.data()?.teacherId !== uid) {
     return NextResponse.json({ error: 'Forbidden' }, { status: 403 });
   }
 
-  await adminDb.collection('submissions').doc(id).update({
+  // XP: score * 10, adjusted for any previously awarded XP
+  const previousXpAwarded = (sub.xpAwarded as number) ?? 0;
+  const newXpAwarded = score * 10;
+  const xpDelta = newXpAwarded - previousXpAwarded;
+  const studentUid = sub.studentId as string;
+
+  const batch = adminDb.batch();
+
+  batch.update(adminDb.collection('submissions').doc(id), {
     score,
     feedback,
     status: 'reviewed',
     reviewedAt: FieldValue.serverTimestamp(),
+    xpAwarded: newXpAwarded,
   });
 
-  return NextResponse.json({ ok: true });
+  if (xpDelta !== 0 && studentUid) {
+    batch.update(adminDb.collection('users').doc(studentUid), {
+      xp: FieldValue.increment(xpDelta),
+    });
+  }
+
+  await batch.commit();
+
+  return NextResponse.json({ ok: true, xpAwarded: newXpAwarded, xpDelta });
 }

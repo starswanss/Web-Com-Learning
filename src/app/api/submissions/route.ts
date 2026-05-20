@@ -125,6 +125,7 @@ export async function POST(req: NextRequest) {
       tabSwitchCount,
       selfScore: selfScore ?? null,
       status: gradingSuccess ? 'graded' : 'submitted',
+      xpAwarded: xpGain,
       submittedAt: FieldValue.serverTimestamp(),
       gradedAt: gradingSuccess ? FieldValue.serverTimestamp() : null,
     }),

@@ -7,7 +7,7 @@ import Image from 'next/image';
 import Link from 'next/link';
 import { CONTENT_TYPE_LABELS, type ContentType, type QuizPhase } from '@/types';
 import { useTheme } from '@/context/ThemeContext';
-import { calcLevel, levelColor, levelBarColor } from '@/lib/xp';
+import { calcLevel, levelColor, levelBarColor, DEFAULT_SETTINGS, type LevelSettings } from '@/lib/xp';
 
 /* ───────── Types ───────── */
 interface AssignmentWithSubmission {
@@ -60,28 +60,6 @@ function scoreColor(n: number) {
 const MONTH_NAMES_TH = ['มกราคม','กุมภาพันธ์','มีนาคม','เมษายน','พฤษภาคม','มิถุนายน','กรกฎาคม','สิงหาคม','กันยายน','ตุลาคม','พฤศจิกายน','ธันวาคม'];
 const DAY_NAMES_TH   = ['อา','จ','อ','พ','พฤ','ศ','ส'];
 
-/* ─── XP Bar Component ─── */
-function XpBar({ xp }: { xp: number }) {
-  const { level, title, currentXp, nextLevelXp, progress } = calcLevel(xp);
-  const barColor = levelBarColor(level);
-  const txtColor = levelColor(level);
-  return (
-    <div className="mt-1.5 flex items-center gap-2 max-w-[280px]">
-      <span className={`shrink-0 rounded-md border border-slate-700/80 bg-slate-800/80 px-1.5 py-0.5 text-[10px] font-black tabular-nums ${txtColor}`}>
-        Lv.{level}
-      </span>
-      <div className="flex-1 min-w-0">
-        <div className="h-2 overflow-hidden rounded-full bg-slate-800">
-          <div
-            className={`h-full rounded-full transition-all duration-700 ${barColor}`}
-            style={{ width: `${progress}%` }}
-          />
-        </div>
-        <p className="mt-0.5 text-[9px] text-slate-600 leading-none">{title} · {currentXp}/{nextLevelXp} XP</p>
-      </div>
-    </div>
-  );
-}
 
 /* ═══════════════════════════ MAIN PAGE ═══════════════════════════ */
 export default function StudentPage() {
@@ -95,6 +73,8 @@ export default function StudentPage() {
   const [calYear, setCalYear]   = useState(() => new Date().getFullYear());
   const [calMonth, setCalMonth] = useState(() => new Date().getMonth());
   const [selectedDay, setSelectedDay] = useState<number | null>(null);
+  const [medals, setMedals] = useState<Array<{ id: string; medal: string; icon?: string; points: number; reason: string }>>([]);
+  const [levelSettings, setLevelSettings] = useState<LevelSettings>(DEFAULT_SETTINGS);
 
   useEffect(() => {
     if (!loading && profile?.role !== 'student') router.push('/dashboard');
@@ -105,6 +85,8 @@ export default function StudentPage() {
     const saved = localStorage.getItem('lms_subject');
     const sub = saved ? JSON.parse(saved) : null;
     setSubject(sub);
+    fetch('/api/student/medals').then(r => r.json()).then(d => { if (Array.isArray(d)) setMedals(d); }).catch(() => {});
+    fetch('/api/teacher/level-settings').then(r => r.json()).then(d => setLevelSettings(s => ({ ...s, ...d }))).catch(() => {});
     const qs = new URLSearchParams();
     if (sub) qs.set('subject', sub.id);
     if (profile.classId) qs.set('classId', profile.classId);
@@ -209,13 +191,10 @@ export default function StudentPage() {
             )}
 
             <div className="min-w-0 flex-1">
-              {/* Subject + class — hidden on mobile (shown in row 2) */}
               <p className="hidden sm:block text-[9px] font-bold tracking-[0.12em] text-slate-600">
                 {subject?.name ?? 'Computing Science & IT'} · ห้อง {profile.classId ?? '—'}
               </p>
               <h1 className="truncate text-sm font-bold text-slate-100 leading-tight sm:text-base">{user?.displayName}</h1>
-              {/* XP bar — hidden on mobile (shown in row 2) */}
-              <div className="hidden sm:block"><XpBar xp={profile.xp ?? 0} /></div>
             </div>
           </div>
 
@@ -257,17 +236,14 @@ export default function StudentPage() {
           </div>
         </div>
 
-        {/* ── Row 2 (mobile only): subject + class + XP bar ── */}
-        <div className="sm:hidden border-t border-slate-800/50 px-4 py-2">
-          <div className="flex items-center gap-2 mb-1">
-            <span className="shrink-0 rounded border border-slate-700 bg-slate-800 px-1.5 py-0.5 text-[10px] font-bold text-slate-300">
-              ห้อง {profile.classId ?? '—'}
-            </span>
-            <span className="truncate text-[10px] text-slate-500">
-              {subject?.name ?? 'Computing Science & IT'}
-            </span>
-          </div>
-          <XpBar xp={profile.xp ?? 0} />
+        {/* ── Row 2 (mobile only): subject + class ── */}
+        <div className="sm:hidden border-t border-slate-800/50 px-4 py-2 flex items-center gap-2">
+          <span className="shrink-0 rounded border border-slate-700 bg-slate-800 px-1.5 py-0.5 text-[10px] font-bold text-slate-300">
+            ห้อง {profile.classId ?? '—'}
+          </span>
+          <span className="truncate text-[10px] text-slate-500">
+            {subject?.name ?? 'Computing Science & IT'}
+          </span>
         </div>
       </header>
 
@@ -426,6 +402,15 @@ export default function StudentPage() {
               {/* ── RIGHT: Sidebar ── */}
               <div className="space-y-4">
 
+                {/* Profile Card */}
+                <ProfileCard
+                  user={user}
+                  profile={profile}
+                  subject={subject}
+                  medals={medals}
+                  levelSettings={levelSettings}
+                />
+
                 {/* Upcoming */}
                 <div className="overflow-hidden rounded-2xl border border-slate-800/80 bg-slate-900">
                   <div className="border-b border-slate-800/80 px-5 py-3.5">
@@ -558,6 +543,123 @@ export default function StudentPage() {
 }
 
 /* ═══════════════════════════ SUB-COMPONENTS ═══════════════════════════ */
+
+const WATER_CSS = `
+@keyframes waterShimmer {
+  0%,100% { background-position: 0% 50%; }
+  50%      { background-position: 100% 50%; }
+}
+@keyframes waterBubble {
+  0%,100% { transform: translateY(0px); }
+  50%      { transform: translateY(-1.5px); }
+}
+.water-fill {
+  background: linear-gradient(90deg,#075985,#0284c7,#38bdf8,#22d3ee,#0ea5e9,#0369a1,#075985);
+  background-size: 400% 100%;
+  animation: waterShimmer 3s ease-in-out infinite;
+}
+.water-float { animation: waterBubble 2s ease-in-out infinite; }
+`;
+
+const DEFAULT_MEDAL_ICONS: Record<string, string> = {
+  gold: '⭐', diamond: '💎', silver: '🏅', special: '🎖',
+};
+
+function ProfileCard({
+  user, profile, subject, medals, levelSettings,
+}: {
+  user: import('firebase/auth').User | null;
+  profile: { classId?: string; xp?: number; displayName?: string };
+  subject: { id: string; name: string } | null;
+  medals: Array<{ id: string; medal: string; icon?: string; points: number; reason: string }>;
+  levelSettings: LevelSettings;
+}) {
+  const { level, title, icon, currentXp, nextLevelXp, progress } = calcLevel(profile.xp ?? 0, levelSettings);
+  const fillPct = Math.max(3, progress);
+
+  return (
+    <div className="overflow-hidden rounded-2xl border border-slate-800/80 bg-slate-900">
+      <style>{WATER_CSS}</style>
+
+      {/* Avatar + name */}
+      <div className="flex items-center gap-3 px-4 pt-4 pb-3">
+        {user?.photoURL ? (
+          <Image
+            src={user.photoURL} alt="" width={52} height={52}
+            className="shrink-0 rounded-full ring-2 ring-slate-700"
+          />
+        ) : (
+          <div className="flex h-13 w-13 shrink-0 items-center justify-center rounded-full bg-gradient-to-br from-blue-800 to-slate-800 text-xl font-bold text-slate-200">
+            {(user?.displayName ?? profile.displayName ?? '?')[0]}
+          </div>
+        )}
+        <div className="min-w-0">
+          <p className="truncate text-sm font-bold text-slate-100">{user?.displayName}</p>
+          <p className="text-[10px] text-slate-500">
+            ห้อง {profile.classId ?? '—'} · {subject?.name ?? 'Computing Science'}
+          </p>
+        </div>
+      </div>
+
+      {/* Medals row */}
+      {medals.length > 0 && (
+        <div className="border-t border-slate-800/60 px-4 py-2.5">
+          <p className="mb-1.5 text-[9px] font-bold uppercase tracking-widest text-slate-600">รางวัลที่ได้รับ</p>
+          <div className="flex flex-wrap gap-1.5">
+            {medals.slice(0, 10).map(m => (
+              <span
+                key={m.id}
+                title={m.reason || m.medal}
+                className="water-float inline-flex h-8 w-8 items-center justify-center rounded-xl border border-slate-700 bg-slate-800 text-lg"
+              >
+                {m.icon || DEFAULT_MEDAL_ICONS[m.medal] || '🏆'}
+              </span>
+            ))}
+            {medals.length > 10 && (
+              <span className="flex h-8 items-center rounded-xl border border-slate-700 bg-slate-800 px-2 text-[10px] font-bold text-slate-400">
+                +{medals.length - 10}
+              </span>
+            )}
+          </div>
+        </div>
+      )}
+
+      {/* Water XP bar */}
+      <div className="border-t border-slate-800/60 px-4 pb-4 pt-3">
+        <div className="mb-2 flex items-center justify-between">
+          <div className="flex items-center gap-1.5">
+            <span className="text-base leading-none">{icon}</span>
+            <span className="text-xs font-black text-slate-200">Lv.{level}</span>
+            <span className="text-[10px] text-slate-500">{title}</span>
+          </div>
+          <span className="text-[10px] font-medium text-slate-400 tabular-nums">{currentXp}/{nextLevelXp} XP</span>
+        </div>
+        <div className="relative h-7 overflow-hidden rounded-full bg-slate-800/80">
+          {/* Water fill */}
+          <div
+            className="water-fill absolute inset-y-0 left-0 rounded-full transition-all duration-1000"
+            style={{ width: `${fillPct}%` }}
+          />
+          {/* Shimmer highlight */}
+          <div
+            className="absolute inset-y-0 left-0 rounded-full"
+            style={{
+              width: `${fillPct}%`,
+              background: 'linear-gradient(180deg, rgba(255,255,255,0.18) 0%, transparent 60%)',
+            }}
+          />
+          {/* Label */}
+          <div className="absolute inset-0 flex items-center justify-center">
+            <span className="text-[10px] font-bold text-white/80 drop-shadow-sm">{progress}%</span>
+          </div>
+        </div>
+        {levelSettings.maxLevel && level >= levelSettings.maxLevel && (
+          <p className="mt-1 text-center text-[9px] font-bold text-yellow-400">✨ เลเวลสูงสุด!</p>
+        )}
+      </div>
+    </div>
+  );
+}
 
 function AssignmentRow({ assignment: a }: { assignment: AssignmentWithSubmission }) {
   const dueStatus = dueDateStatus(a.dueDate?._seconds);

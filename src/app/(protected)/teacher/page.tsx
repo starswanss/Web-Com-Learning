@@ -109,6 +109,7 @@ export default function TeacherPage() {
   const [toggling, setToggling] = useState<string | null>(null);
   const [subject, setSubject] = useState<{ id: string; name: string } | null>(null);
   const [timetable, setTimetable] = useState<TimetableCells>({});
+  const [subStats, setSubStats] = useState<Map<string, { total: number; submitted: number; notSubmitted: Array<{ uid: string; name: string; classId: string }> }>>(new Map());
   const [calYear, setCalYear] = useState(() => new Date().getFullYear());
   const [calMonth, setCalMonth] = useState(() => new Date().getMonth());
   const [selectedDay, setSelectedDay] = useState<number | null>(null);
@@ -123,7 +124,27 @@ export default function TeacherPage() {
     const sub = saved ? JSON.parse(saved) : null;
     setSubject(sub);
     const url = sub ? `/api/assignments?subject=${sub.id}` : '/api/assignments';
-    fetch(url).then(r => r.json()).then(d => setAssignments(Array.isArray(d) ? d : [])).finally(() => setFetching(false));
+    fetch(url)
+      .then(r => r.json())
+      .then((d: Assignment[]) => {
+        const list = Array.isArray(d) ? d : [];
+        setAssignments(list);
+        if (list.length > 0) {
+          const statsUrl = sub
+            ? `/api/teacher/submission-stats?subject=${sub.id}`
+            : '/api/teacher/submission-stats';
+          fetch(statsUrl)
+            .then(r => r.json())
+            .then((stats: Array<{ assignmentId: string; total: number; submitted: number; notSubmitted: number; notSubmittedNames: Array<{ uid: string; name: string; classId: string }> }>) => {
+              if (!Array.isArray(stats)) return;
+              const m = new Map<string, { total: number; submitted: number; notSubmitted: Array<{ uid: string; name: string; classId: string }> }>();
+              stats.forEach(s => m.set(s.assignmentId, { total: s.total, submitted: s.submitted, notSubmitted: s.notSubmittedNames }));
+              setSubStats(m);
+            })
+            .catch(() => {});
+        }
+      })
+      .finally(() => setFetching(false));
   }, [profile]);
 
   useEffect(() => {
@@ -295,6 +316,7 @@ export default function TeacherPage() {
                           items={items} accentBorder={smeta.accentBorder}
                           onDelete={handleDelete} onToggleQuiz={handleToggleQuiz}
                           deleting={deleting} toggling={toggling}
+                          subStats={subStats}
                         />
                       )}
                     </section>
@@ -436,12 +458,15 @@ export default function TeacherPage() {
 /* ═══════════════════════════ SUB-COMPONENTS ═══════════════════════════ */
 
 /* Groups items by unit, shows a sticky unit-divider row */
+type StatMap = Map<string, { total: number; submitted: number; notSubmitted: Array<{ uid: string; name: string; classId: string }> }>;
+
 function UnitGroupedRows({
-  items, accentBorder, onDelete, onToggleQuiz, deleting, toggling,
+  items, accentBorder, onDelete, onToggleQuiz, deleting, toggling, subStats,
 }: {
   items: Assignment[]; accentBorder: string;
   onDelete: (id: string) => void; onToggleQuiz: (id: string) => void;
   deleting: string | null; toggling: string | null;
+  subStats: StatMap;
 }) {
   // Stable sort: by unit then by createdAt desc
   const sorted = [...items].sort((a, b) => {
@@ -478,6 +503,7 @@ function UnitGroupedRows({
               key={a.id} assignment={a} accentBorder={accentBorder}
               onDelete={onDelete} onToggleQuiz={onToggleQuiz}
               deleting={deleting === a.id} toggling={toggling === a.id}
+              stat={subStats.get(a.id)}
             />
           ))}
         </div>
@@ -492,19 +518,24 @@ const QUIZ_PHASE_LABELS: Record<string, { label: string; color: string }> = {
 };
 
 function AssignmentRow({
-  assignment: a, accentBorder, onDelete, onToggleQuiz, deleting, toggling,
+  assignment: a, accentBorder, onDelete, onToggleQuiz, deleting, toggling, stat,
 }: {
   assignment: Assignment; accentBorder: string;
   onDelete: (id: string) => void; onToggleQuiz: (id: string) => void;
   deleting: boolean; toggling: boolean;
+  stat?: { total: number; submitted: number; notSubmitted: Array<{ uid: string; name: string; classId: string }> };
 }) {
+  const [showMissing, setShowMissing] = useState(false);
   const due = a.dueDate?._seconds;
   const dueStr = due ? new Date(due*1000).toLocaleDateString('th-TH',{day:'numeric',month:'short'}) : null;
   const status = due ? dueDateStatus(due) : null;
   const isQuiz = a.contentType === 'quiz';
 
+  const submitPct = stat && stat.total > 0 ? Math.round((stat.submitted / stat.total) * 100) : null;
+
   return (
-    <div className={`flex flex-col gap-2 border-l-2 ${accentBorder} px-4 py-3 transition-colors hover:bg-slate-800/20 sm:flex-row sm:items-center sm:gap-4 sm:px-5 sm:py-3.5`}>
+    <div className={`border-l-2 ${accentBorder} transition-colors hover:bg-slate-800/20`}>
+      <div className="flex flex-col gap-2 px-4 py-3 sm:flex-row sm:items-center sm:gap-4 sm:px-5 sm:py-3.5">
       {/* ── Info ── */}
       <div className="min-w-0 flex-1">
         <p className="font-medium text-slate-100 truncate">{a.title}</p>
@@ -533,7 +564,35 @@ function AssignmentRow({
             ))}
             {a.classIds.length > 4 && <span className="text-[9px] text-slate-600">+{a.classIds.length-4}</span>}
           </div>
+          {/* Submission stat badge */}
+          {stat && stat.total > 0 && (
+            <button
+              onClick={() => setShowMissing(v => !v)}
+              className={`flex items-center gap-1 rounded-full border px-2 py-0.5 text-[9px] font-semibold transition-all ${
+                stat.submitted === stat.total
+                  ? 'border-emerald-800/60 bg-emerald-950/30 text-emerald-400'
+                  : stat.submitted === 0
+                  ? 'border-red-800/60 bg-red-950/30 text-red-400'
+                  : 'border-amber-800/60 bg-amber-950/30 text-amber-400'
+              }`}
+            >
+              <span>{stat.submitted}/{stat.total} ส่งแล้ว</span>
+              {submitPct !== null && <span className="opacity-60">({submitPct}%)</span>}
+              {stat.notSubmitted.length > 0 && <span className="opacity-50">{showMissing ? '▲' : '▼'}</span>}
+            </button>
+          )}
         </div>
+        {/* Submission progress bar */}
+        {stat && stat.total > 0 && (
+          <div className="mt-1.5 h-1 w-full overflow-hidden rounded-full bg-slate-800">
+            <div
+              className={`h-full rounded-full transition-all duration-500 ${
+                stat.submitted === stat.total ? 'bg-emerald-500' : stat.submitted === 0 ? 'bg-red-800' : 'bg-amber-400'
+              }`}
+              style={{ width: `${submitPct ?? 0}%` }}
+            />
+          </div>
+        )}
       </div>
 
       {/* ── Action buttons — full-width row on mobile, compact on desktop ── */}
@@ -561,7 +620,24 @@ function AssignmentRow({
           {deleting ? '…' : '✕'}
         </button>
       </div>
-    </div>
+    </div>{/* closes inner flex row */}
+
+    {/* Expandable not-submitted list */}
+    {showMissing && stat && stat.notSubmitted.length > 0 && (
+      <div className="border-t border-slate-800/50 bg-slate-950/50 px-5 py-3">
+        <p className="mb-2 text-[9px] font-bold uppercase tracking-widest text-slate-500">
+          ยังไม่ส่ง · {stat.notSubmitted.length} คน
+        </p>
+        <div className="flex flex-wrap gap-1.5">
+          {stat.notSubmitted.map(s => (
+            <span key={s.uid} className="rounded-full border border-slate-700/60 bg-slate-800/60 px-2 py-0.5 text-[9px] text-slate-400">
+              {s.name} <span className="text-slate-600">{s.classId}</span>
+            </span>
+          ))}
+        </div>
+      </div>
+    )}
+  </div>
   );
 }
 

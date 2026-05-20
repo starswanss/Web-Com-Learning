@@ -15,7 +15,9 @@ const NAV_LINKS = [
   { href: '/teacher/timetable',     icon: '🗓', label: 'ตารางสอน' },
   { href: '/teacher/question-bank', icon: '❓', label: 'Q-Bank' },
   { href: '/teacher/templates',     icon: '📋', label: 'Template' },
-  { href: '/teacher/export-report', icon: '📤', label: 'Export' },
+  { href: '/teacher/export-report',    icon: '📤', label: 'Export' },
+  { href: '/teacher/submission-stats', icon: '📋', label: 'การส่ง' },
+  { href: '/teacher/level-settings',   icon: '🎚️', label: 'เลเวล' },
   { href: '/teacher/admin',         icon: '⚙️', label: 'Admin' },
 ];
 

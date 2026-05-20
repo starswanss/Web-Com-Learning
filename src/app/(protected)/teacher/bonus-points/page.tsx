@@ -23,12 +23,23 @@ interface BonusEntry {
   createdAt?: { _seconds: number };
 }
 
-const MEDALS = [
-  { id: 'gold',    icon: '⭐', label: 'Gold Star',    desc: 'ผลงานดีเยี่ยม',      color: 'border-yellow-600 bg-yellow-950/40 text-yellow-300' },
-  { id: 'diamond', icon: '💎', label: 'Diamond',      desc: 'ความพยายามพิเศษ',    color: 'border-cyan-600 bg-cyan-950/40 text-cyan-300' },
-  { id: 'silver',  icon: '🏅', label: 'Silver Medal', desc: 'ส่งงานครบ/ตรงเวลา',  color: 'border-slate-400 bg-slate-800/60 text-slate-200' },
-  { id: 'special', icon: '🎖', label: 'Special Award', desc: 'รางวัลพิเศษ',        color: 'border-purple-600 bg-purple-950/40 text-purple-300' },
-] as const;
+interface MedalType {
+  id: string;
+  icon: string;
+  label: string;
+  desc: string;
+  color: string;
+  isDefault?: boolean;
+}
+
+const PRESET_COLORS = [
+  { label: 'ทอง',    value: 'border-yellow-600 bg-yellow-950/40 text-yellow-300' },
+  { label: 'ฟ้า',    value: 'border-cyan-600 bg-cyan-950/40 text-cyan-300' },
+  { label: 'ม่วง',   value: 'border-purple-600 bg-purple-950/40 text-purple-300' },
+  { label: 'เขียว',  value: 'border-emerald-600 bg-emerald-950/40 text-emerald-300' },
+  { label: 'แดง',    value: 'border-rose-600 bg-rose-950/40 text-rose-300' },
+  { label: 'น้ำเงิน', value: 'border-blue-600 bg-blue-950/40 text-blue-300' },
+];
 
 export default function BonusPointsPage() {
   const { profile, loading } = useAuth();
@@ -39,6 +50,7 @@ export default function BonusPointsPage() {
   const [student, setStudent] = useState<StudentResult | null>(null);
   const [searchError, setSearchError] = useState('');
 
+  const [medalTypes, setMedalTypes] = useState<MedalType[]>([]);
   const [selectedMedal, setSelectedMedal] = useState<string>('gold');
   const [points, setPoints] = useState('10');
   const [reason, setReason] = useState('');
@@ -48,30 +60,39 @@ export default function BonusPointsPage() {
   const [history, setHistory] = useState<BonusEntry[]>([]);
   const [loadingHistory, setLoadingHistory] = useState(true);
 
+  // Medal management state
+  const [showMedalMgmt, setShowMedalMgmt] = useState(false);
+  const [newIcon, setNewIcon] = useState('🏆');
+  const [newLabel, setNewLabel] = useState('');
+  const [newDesc, setNewDesc] = useState('');
+  const [newColor, setNewColor] = useState(PRESET_COLORS[0].value);
+  const [editingMedal, setEditingMedal] = useState<MedalType | null>(null);
+  const [savingMedal, setSavingMedal] = useState(false);
+
   useEffect(() => {
     if (!loading && profile?.role !== 'teacher') router.push('/dashboard');
   }, [loading, profile, router]);
 
   useEffect(() => {
     if (profile?.role !== 'teacher') return;
+    fetch('/api/teacher/medal-types')
+      .then(r => r.json())
+      .then((d: MedalType[]) => { if (Array.isArray(d)) setMedalTypes(d); })
+      .catch(() => {});
     fetch('/api/teacher/bonus-points')
-      .then((r) => r.json())
-      .then((data) => setHistory(Array.isArray(data) ? data : []))
+      .then(r => r.json())
+      .then(d => setHistory(Array.isArray(d) ? d : []))
       .finally(() => setLoadingHistory(false));
   }, [profile]);
 
   async function searchStudent() {
     const q = searchEmail.trim();
     if (!q) return;
-    setSearching(true);
-    setSearchError('');
-    setStudent(null);
-    setAwarded(false);
+    setSearching(true); setSearchError(''); setStudent(null); setAwarded(false);
     try {
       const res = await fetch(`/api/teacher/bonus-points/search?email=${encodeURIComponent(q)}`);
       if (!res.ok) { setSearchError('ไม่พบนักเรียนในระบบ'); return; }
-      const data = await res.json();
-      setStudent(data);
+      setStudent(await res.json());
     } catch { setSearchError('เกิดข้อผิดพลาด'); }
     finally { setSearching(false); }
   }
@@ -80,22 +101,25 @@ export default function BonusPointsPage() {
     if (!student || !points) return;
     setAwarding(true);
     try {
+      const medal = medalTypes.find(m => m.id === selectedMedal);
       const res = await fetch('/api/teacher/bonus-points', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ studentId: student.studentId, points: parseInt(points), medal: selectedMedal, reason }),
+        body: JSON.stringify({
+          studentId: student.studentId,
+          points: parseInt(points),
+          medal: selectedMedal,
+          icon: medal?.icon,
+          reason,
+        }),
       });
       if (!res.ok) throw new Error();
       const { id } = await res.json();
-      const medal = MEDALS.find((m) => m.id === selectedMedal)!;
-      const newEntry: BonusEntry = {
+      setHistory(prev => [{
         id, studentId: student.studentId, studentName: student.displayName,
         classId: student.classId, points: parseInt(points), medal: selectedMedal, reason,
-      };
-      setHistory((prev) => [newEntry, ...prev]);
-      setAwarded(true);
-      setReason('');
-      setPoints('10');
+      }, ...prev]);
+      setAwarded(true); setReason(''); setPoints('10');
     } catch { /* ignore */ }
     finally { setAwarding(false); }
   }
@@ -106,23 +130,189 @@ export default function BonusPointsPage() {
       method: 'DELETE', headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ id }),
     });
-    setHistory((prev) => prev.filter((e) => e.id !== id));
+    setHistory(prev => prev.filter(e => e.id !== id));
+  }
+
+  async function saveMedal() {
+    if (!newLabel.trim()) return;
+    setSavingMedal(true);
+    try {
+      if (editingMedal) {
+        await fetch('/api/teacher/medal-types', {
+          method: 'PUT',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ id: editingMedal.id, icon: newIcon, label: newLabel, desc: newDesc, color: newColor }),
+        });
+        setMedalTypes(prev => prev.map(m => m.id === editingMedal.id
+          ? { ...m, icon: newIcon, label: newLabel, desc: newDesc, color: newColor } : m));
+        setEditingMedal(null);
+      } else {
+        const res = await fetch('/api/teacher/medal-types', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ icon: newIcon, label: newLabel, desc: newDesc, color: newColor }),
+        });
+        const created: MedalType = await res.json();
+        setMedalTypes(prev => [...prev, created]);
+      }
+      setNewIcon('🏆'); setNewLabel(''); setNewDesc(''); setNewColor(PRESET_COLORS[0].value);
+    } finally { setSavingMedal(false); }
+  }
+
+  async function deleteMedal(id: string) {
+    if (!confirm('ลบประเภทรางวัลนี้?')) return;
+    await fetch('/api/teacher/medal-types', {
+      method: 'DELETE',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ id }),
+    });
+    setMedalTypes(prev => prev.filter(m => m.id !== id));
+    if (selectedMedal === id) setSelectedMedal(medalTypes[0]?.id ?? 'gold');
+  }
+
+  function startEdit(m: MedalType) {
+    setEditingMedal(m);
+    setNewIcon(m.icon); setNewLabel(m.label); setNewDesc(m.desc); setNewColor(m.color);
+    setShowMedalMgmt(true);
   }
 
   if (loading || !profile) return <Spinner />;
 
-  const medalObj = MEDALS.find((m) => m.id === selectedMedal);
+  const medalObj = medalTypes.find(m => m.id === selectedMedal);
 
   return (
     <div className="min-h-screen bg-slate-950 px-4 py-10">
-      <div className="mx-auto max-w-3xl">
+      <div className="mx-auto max-w-3xl space-y-6">
+
         {/* Header */}
-        <div className="mb-8 flex items-center gap-3">
+        <div className="flex items-center gap-3">
           <Link href="/teacher/leaderboard" className="text-sm text-slate-400 hover:text-slate-200">← กลับ</Link>
           <div>
             <h1 className="text-xl font-bold text-slate-100">⭐ ให้ Bonus Points</h1>
             <p className="text-xs text-slate-500">ค้นหานักเรียนด้วยอีเมล แล้วมอบเหรียญรางวัล</p>
           </div>
+        </div>
+
+        {/* Medal Management Panel */}
+        <div className="rounded-2xl border border-slate-800 bg-slate-900 overflow-hidden">
+          <button
+            onClick={() => setShowMedalMgmt(v => !v)}
+            className="flex w-full items-center justify-between px-5 py-3.5 text-left transition-colors hover:bg-slate-800/40"
+          >
+            <div className="flex items-center gap-2">
+              <span className="text-sm font-semibold text-slate-200">⚙️ จัดการประเภทรางวัล</span>
+              <span className="rounded-full border border-slate-700 bg-slate-800 px-2 py-0.5 text-[10px] text-slate-400">
+                {medalTypes.length} ประเภท
+              </span>
+            </div>
+            <span className="text-slate-500 text-xs">{showMedalMgmt ? '▲' : '▼'}</span>
+          </button>
+
+          {showMedalMgmt && (
+            <div className="border-t border-slate-800 p-5 space-y-4">
+              {/* Existing medals */}
+              <div className="grid grid-cols-2 gap-2 sm:grid-cols-3">
+                {medalTypes.map(m => (
+                  <div
+                    key={m.id}
+                    className={`relative rounded-xl border p-3 ${m.color}`}
+                  >
+                    <div className="flex items-center gap-2 mb-1">
+                      <span className="text-xl">{m.icon}</span>
+                      <div className="min-w-0">
+                        <p className="text-xs font-bold truncate">{m.label}</p>
+                        <p className="text-[9px] opacity-70 truncate">{m.desc}</p>
+                      </div>
+                    </div>
+                    {!m.isDefault && (
+                      <div className="flex gap-1 mt-2">
+                        <button
+                          onClick={() => startEdit(m)}
+                          className="flex-1 rounded-lg border border-current/20 py-0.5 text-[9px] font-semibold opacity-70 hover:opacity-100 transition-opacity"
+                        >
+                          แก้ไข
+                        </button>
+                        <button
+                          onClick={() => deleteMedal(m.id)}
+                          className="flex-1 rounded-lg border border-red-800/40 py-0.5 text-[9px] font-semibold text-red-400 hover:border-red-700 transition-colors"
+                        >
+                          ลบ
+                        </button>
+                      </div>
+                    )}
+                    {m.isDefault && (
+                      <p className="mt-1.5 text-[9px] opacity-40 text-center">default</p>
+                    )}
+                  </div>
+                ))}
+              </div>
+
+              {/* Add / Edit form */}
+              <div className="rounded-xl border border-slate-700 bg-slate-800/50 p-4 space-y-3">
+                <p className="text-xs font-bold text-slate-300">
+                  {editingMedal ? `✏️ แก้ไข: ${editingMedal.label}` : '+ เพิ่มประเภทรางวัลใหม่'}
+                </p>
+                <div className="grid grid-cols-2 gap-3">
+                  <div>
+                    <label className="mb-1 block text-[10px] text-slate-500">สัญลักษณ์ (emoji)</label>
+                    <input
+                      value={newIcon} onChange={e => setNewIcon(e.target.value)} maxLength={4}
+                      className="input w-full text-center text-2xl"
+                    />
+                  </div>
+                  <div>
+                    <label className="mb-1 block text-[10px] text-slate-500">ชื่อรางวัล</label>
+                    <input
+                      value={newLabel} onChange={e => setNewLabel(e.target.value)} maxLength={30}
+                      placeholder="เช่น Gold Star"
+                      className="input w-full"
+                    />
+                  </div>
+                </div>
+                <div>
+                  <label className="mb-1 block text-[10px] text-slate-500">คำอธิบาย (ไม่บังคับ)</label>
+                  <input
+                    value={newDesc} onChange={e => setNewDesc(e.target.value)} maxLength={60}
+                    placeholder="เช่น ผลงานดีเยี่ยม"
+                    className="input w-full"
+                  />
+                </div>
+                <div>
+                  <label className="mb-1 block text-[10px] text-slate-500">สีพื้นหลัง</label>
+                  <div className="flex flex-wrap gap-2">
+                    {PRESET_COLORS.map(c => (
+                      <button
+                        key={c.value}
+                        onClick={() => setNewColor(c.value)}
+                        className={`rounded-lg border px-3 py-1.5 text-[10px] font-semibold transition-all ${c.value} ${
+                          newColor === c.value ? 'ring-2 ring-current' : 'opacity-60 hover:opacity-100'
+                        }`}
+                      >
+                        {c.label}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+                <div className="flex gap-2">
+                  <button
+                    onClick={saveMedal}
+                    disabled={savingMedal || !newLabel.trim()}
+                    className="flex-1 rounded-xl bg-blue-600 py-2 text-xs font-bold text-white hover:bg-blue-500 disabled:opacity-40 transition-all"
+                  >
+                    {savingMedal ? 'กำลังบันทึก…' : editingMedal ? 'บันทึกการแก้ไข' : 'เพิ่มรางวัล'}
+                  </button>
+                  {editingMedal && (
+                    <button
+                      onClick={() => { setEditingMedal(null); setNewIcon('🏆'); setNewLabel(''); setNewDesc(''); }}
+                      className="rounded-xl border border-slate-700 px-4 py-2 text-xs text-slate-400 hover:text-slate-200 transition-all"
+                    >
+                      ยกเลิก
+                    </button>
+                  )}
+                </div>
+              </div>
+            </div>
+          )}
         </div>
 
         <div className="grid gap-6 lg:grid-cols-2">
@@ -135,14 +325,13 @@ export default function BonusPointsPage() {
               <div className="flex gap-2">
                 <input
                   value={searchEmail}
-                  onChange={(e) => setSearchEmail(e.target.value)}
-                  onKeyDown={(e) => e.key === 'Enter' && searchStudent()}
+                  onChange={e => setSearchEmail(e.target.value)}
+                  onKeyDown={e => e.key === 'Enter' && searchStudent()}
                   placeholder="พิมพ์อีเมลหรือชื่อนักเรียน..."
                   className="input flex-1 text-sm"
                 />
                 <button
-                  onClick={searchStudent}
-                  disabled={searching}
+                  onClick={searchStudent} disabled={searching}
                   className="rounded-xl bg-blue-600 px-4 py-2 text-xs font-medium text-white hover:bg-blue-500 disabled:opacity-40"
                 >
                   {searching ? '…' : 'ค้นหา'}
@@ -150,24 +339,19 @@ export default function BonusPointsPage() {
               </div>
               {searchError && <p className="mt-2 text-xs text-red-400">{searchError}</p>}
 
-              {/* Student found card */}
               {student && (
                 <div className="mt-4 rounded-xl border border-emerald-800/50 bg-emerald-950/20 p-4">
                   <div className="flex items-center gap-3">
-                    <div className="flex h-12 w-12 items-center justify-center rounded-full bg-emerald-900/50 text-2xl">
+                    <div className="flex h-12 w-12 items-center justify-center rounded-full bg-emerald-900/50 text-xl font-bold text-emerald-300">
                       {student.displayName.slice(0, 2).toUpperCase() || '??'}
                     </div>
                     <div>
                       <p className="font-semibold text-emerald-300">{student.displayName}</p>
                       <p className="text-xs text-slate-400">{student.email}</p>
-                      <span className="mt-0.5 inline-block rounded-full border border-slate-600 px-2 py-0.5 text-[10px] text-slate-300">
-                        {student.classId}
-                      </span>
+                      <span className="mt-0.5 inline-block rounded-full border border-slate-600 px-2 py-0.5 text-[10px] text-slate-300">{student.classId}</span>
                     </div>
                   </div>
-                  {awarded && (
-                    <p className="mt-3 text-center text-xs font-medium text-emerald-400">✅ มอบเหรียญรางวัลแล้ว!</p>
-                  )}
+                  {awarded && <p className="mt-3 text-center text-xs font-medium text-emerald-400">✅ มอบเหรียญรางวัลแล้ว!</p>}
                 </div>
               )}
             </div>
@@ -177,12 +361,10 @@ export default function BonusPointsPage() {
               <div className="rounded-2xl border border-slate-800 bg-slate-900 p-5 space-y-4">
                 <h2 className="text-sm font-semibold text-slate-300">🏅 เลือกรางวัล</h2>
 
-                {/* Medal type */}
                 <div className="grid grid-cols-2 gap-2">
-                  {MEDALS.map((m) => (
+                  {medalTypes.map(m => (
                     <button
-                      key={m.id}
-                      type="button"
+                      key={m.id} type="button"
                       onClick={() => setSelectedMedal(m.id)}
                       className={`flex items-center gap-2 rounded-xl border p-3 text-left transition-all ${
                         selectedMedal === m.id ? m.color + ' ring-1 ring-current' : 'border-slate-700 text-slate-400 hover:border-slate-600'
@@ -197,56 +379,42 @@ export default function BonusPointsPage() {
                   ))}
                 </div>
 
-                {/* Points */}
                 <div>
                   <label className="mb-1.5 block text-xs font-medium text-slate-400">คะแนน Bonus</label>
-                  <div className="flex items-center gap-2">
-                    {[5, 10, 15, 20, 30].map((n) => (
+                  <div className="flex items-center gap-2 flex-wrap">
+                    {[5, 10, 15, 20, 30].map(n => (
                       <button
-                        key={n}
-                        type="button"
-                        onClick={() => setPoints(String(n))}
+                        key={n} type="button" onClick={() => setPoints(String(n))}
                         className={`rounded-lg border px-3 py-1.5 text-xs font-semibold transition-all ${
                           points === String(n) ? 'border-yellow-600 bg-yellow-950/40 text-yellow-300' : 'border-slate-700 text-slate-400 hover:border-slate-600'
                         }`}
-                      >
-                        +{n}
-                      </button>
+                      >+{n}</button>
                     ))}
                     <input
-                      type="number"
-                      min="1"
-                      max="100"
-                      value={points}
-                      onChange={(e) => setPoints(e.target.value)}
+                      type="number" min="1" max="100" value={points}
+                      onChange={e => setPoints(e.target.value)}
                       className="w-16 rounded-lg border border-slate-700 bg-slate-800 px-2 py-1.5 text-center text-xs text-slate-300"
                     />
                   </div>
                 </div>
 
-                {/* Reason */}
                 <div>
                   <label className="mb-1.5 block text-xs font-medium text-slate-400">เหตุผล (ไม่บังคับ)</label>
                   <input
-                    value={reason}
-                    onChange={(e) => setReason(e.target.value)}
+                    value={reason} onChange={e => setReason(e.target.value)}
                     placeholder="เช่น ช่วยเหลือเพื่อน, ตอบคำถามได้ถูก..."
                     className="input text-sm"
                   />
                 </div>
 
-                {/* Preview & Award button */}
                 <div className="rounded-xl border border-slate-700 bg-slate-800 p-3 text-center">
-                  <p className="text-2xl">{medalObj?.icon}</p>
-                  <p className="mt-1 text-sm font-semibold text-slate-200">
-                    {medalObj?.label} · +{points} คะแนน
-                  </p>
+                  <p className="text-3xl">{medalObj?.icon}</p>
+                  <p className="mt-1 text-sm font-semibold text-slate-200">{medalObj?.label} · +{points} คะแนน</p>
                   <p className="text-xs text-slate-400">→ {student.displayName}</p>
                 </div>
 
                 <button
-                  onClick={awardBonus}
-                  disabled={awarding || !points}
+                  onClick={awardBonus} disabled={awarding || !points}
                   className="w-full rounded-xl bg-yellow-600 py-3 text-sm font-bold text-slate-950 hover:bg-yellow-500 disabled:opacity-40 transition-all active:scale-95"
                 >
                   {awarding ? 'กำลังมอบรางวัล…' : `🎁 มอบ ${medalObj?.icon} +${points} ให้ ${student.displayName}`}
@@ -268,15 +436,16 @@ export default function BonusPointsPage() {
               <div className="px-5 py-12 text-center text-sm text-slate-600">ยังไม่มีการมอบรางวัล</div>
             ) : (
               <div className="divide-y divide-slate-800 max-h-[600px] overflow-y-auto">
-                {history.map((entry) => {
-                  const m = MEDALS.find((x) => x.id === entry.medal);
+                {history.map(entry => {
+                  const m = medalTypes.find(x => x.id === entry.medal);
+                  const icon = m?.icon ?? '🏅';
                   return (
                     <div key={entry.id} className="flex items-center gap-3 px-5 py-3">
-                      <span className="shrink-0 text-2xl">{m?.icon ?? '🏅'}</span>
+                      <span className="shrink-0 text-2xl">{icon}</span>
                       <div className="min-w-0 flex-1">
                         <p className="text-sm font-medium text-slate-200 truncate">{entry.studentName}</p>
                         <p className="text-[10px] text-slate-500">
-                          {entry.classId} · {m?.label} · +{entry.points} pts
+                          {entry.classId} · {m?.label ?? entry.medal} · +{entry.points} pts
                         </p>
                         {entry.reason && <p className="text-[10px] text-slate-600 italic truncate">{entry.reason}</p>}
                       </div>

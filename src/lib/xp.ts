@@ -1,38 +1,67 @@
-const LEVEL_TITLES: Record<number, string> = {
-  1: 'ผู้เริ่มต้น',
-  2: 'ผู้เริ่มต้น',
-  3: 'นักเรียนใหม่',
-  4: 'นักเรียนใหม่',
-  5: 'นักเรียนดี',
-  6: 'นักเรียนดี',
-  7: 'เก่งมาก',
-  8: 'เก่งมาก',
-  9: 'ยอดเยี่ยม',
-  10: 'ยอดเยี่ยม',
+export interface LevelTier {
+  fromLevel: number;
+  name: string;
+  icon: string;
+}
+
+export interface LevelSettings {
+  xpPerLevel: number;
+  maxLevel: number | null;
+  tiers: LevelTier[];
+}
+
+export const DEFAULT_SETTINGS: LevelSettings = {
+  xpPerLevel: 100,
+  maxLevel: null,
+  tiers: [
+    { fromLevel: 1,  name: 'ผู้เริ่มต้น', icon: '🌱' },
+    { fromLevel: 3,  name: 'นักเรียนใหม่', icon: '📖' },
+    { fromLevel: 5,  name: 'นักเรียนดี',   icon: '⭐' },
+    { fromLevel: 7,  name: 'เก่งมาก',       icon: '🔥' },
+    { fromLevel: 9,  name: 'ยอดเยี่ยม',     icon: '💎' },
+    { fromLevel: 11, name: 'อัจฉริยะ',      icon: '🧠' },
+  ],
 };
 
-export function levelTitle(level: number): string {
-  if (level >= 11) return 'อัจฉริยะ';
-  return LEVEL_TITLES[level] ?? 'ผู้เริ่มต้น';
+export function levelTitle(level: number, tiers?: LevelTier[]): string {
+  const t = tiers ?? DEFAULT_SETTINGS.tiers;
+  const sorted = [...t].sort((a, b) => b.fromLevel - a.fromLevel);
+  return sorted.find(tier => level >= tier.fromLevel)?.name ?? 'ผู้เริ่มต้น';
+}
+
+export function levelIcon(level: number, tiers?: LevelTier[]): string {
+  const t = tiers ?? DEFAULT_SETTINGS.tiers;
+  const sorted = [...t].sort((a, b) => b.fromLevel - a.fromLevel);
+  return sorted.find(tier => level >= tier.fromLevel)?.icon ?? '🌱';
 }
 
 export interface LevelInfo {
   level: number;
   title: string;
-  currentXp: number;   // XP earned within this level
-  nextLevelXp: number; // XP needed to reach next level
-  progress: number;    // 0-100 percent
+  icon: string;
+  currentXp: number;
+  nextLevelXp: number;
+  progress: number;
   totalXp: number;
 }
 
-export function calcLevel(xp: number): LevelInfo {
+export function calcLevel(xp: number, settings?: LevelSettings): LevelInfo {
+  const s = settings ?? DEFAULT_SETTINGS;
   const totalXp = Math.max(0, xp);
-  const XP_PER_LEVEL = 100;
-  const level = Math.floor(totalXp / XP_PER_LEVEL) + 1;
-  const currentXp = totalXp % XP_PER_LEVEL;
-  const nextLevelXp = XP_PER_LEVEL;
-  const progress = Math.round((currentXp / nextLevelXp) * 100);
-  return { level, title: levelTitle(level), currentXp, nextLevelXp, progress, totalXp };
+  const xpPerLevel = Math.max(1, s.xpPerLevel);
+  let level = Math.floor(totalXp / xpPerLevel) + 1;
+  if (s.maxLevel !== null) level = Math.min(level, s.maxLevel);
+  const currentXp = totalXp % xpPerLevel;
+  const progress = Math.round((currentXp / xpPerLevel) * 100);
+  return {
+    level,
+    title: levelTitle(level, s.tiers),
+    icon: levelIcon(level, s.tiers),
+    currentXp,
+    nextLevelXp: xpPerLevel,
+    progress,
+    totalXp,
+  };
 }
 
 export function calcXpGain(score: number | null): number {
@@ -45,20 +74,18 @@ export function calcXpGain(score: number | null): number {
   return base;
 }
 
-export function levelColor(level: number): string {
-  if (level >= 11) return 'text-yellow-400';
-  if (level >= 9)  return 'text-violet-400';
-  if (level >= 7)  return 'text-blue-400';
-  if (level >= 5)  return 'text-emerald-400';
-  if (level >= 3)  return 'text-sky-400';
-  return 'text-slate-400';
+export function levelColor(level: number, tiers?: LevelTier[]): string {
+  const t = tiers ?? DEFAULT_SETTINGS.tiers;
+  const sorted = [...t].sort((a, b) => b.fromLevel - a.fromLevel);
+  const idx = sorted.findIndex(tier => level >= tier.fromLevel);
+  const COLORS = ['text-yellow-400', 'text-violet-400', 'text-blue-400', 'text-emerald-400', 'text-sky-400', 'text-slate-400'];
+  return COLORS[Math.min(idx, COLORS.length - 1)] ?? 'text-slate-400';
 }
 
-export function levelBarColor(level: number): string {
-  if (level >= 11) return 'bg-yellow-400';
-  if (level >= 9)  return 'bg-violet-500';
-  if (level >= 7)  return 'bg-blue-500';
-  if (level >= 5)  return 'bg-emerald-500';
-  if (level >= 3)  return 'bg-sky-500';
-  return 'bg-slate-500';
+export function levelBarColor(level: number, tiers?: LevelTier[]): string {
+  const t = tiers ?? DEFAULT_SETTINGS.tiers;
+  const sorted = [...t].sort((a, b) => b.fromLevel - a.fromLevel);
+  const idx = sorted.findIndex(tier => level >= tier.fromLevel);
+  const COLORS = ['bg-yellow-400', 'bg-violet-500', 'bg-blue-500', 'bg-emerald-500', 'bg-sky-500', 'bg-slate-500'];
+  return COLORS[Math.min(idx, COLORS.length - 1)] ?? 'bg-slate-500';
 }
