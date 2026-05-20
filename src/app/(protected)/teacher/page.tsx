@@ -64,8 +64,10 @@ const NAV_LINKS = [
   { href: '/teacher/timetable',      label: 'ตารางสอน' },
   { href: '/teacher/question-bank',  label: 'Q-Bank' },
   { href: '/teacher/templates',      label: 'Template' },
-  { href: '/teacher/export-report',  label: 'Export' },
-  { href: '/teacher/admin',          label: 'Admin' },
+  { href: '/teacher/export-report',    label: 'Export' },
+  { href: '/teacher/submission-stats', label: '📋 การส่ง' },
+  { href: '/teacher/level-settings',   label: '🎚️ เลเวล' },
+  { href: '/teacher/admin',            label: 'Admin' },
 ];
 
 /* ───────── Helpers ───────── */
