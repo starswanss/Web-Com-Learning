@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { useAuth } from '@/context/AuthContext';
 import Link from 'next/link';
@@ -41,6 +41,16 @@ const PRESET_COLORS = [
   { label: 'น้ำเงิน', value: 'border-blue-600 bg-blue-950/40 text-blue-300' },
 ];
 
+function isUrl(s: string) { return s.startsWith('http') || s.startsWith('data:'); }
+
+function MedalIcon({ icon, className = 'h-6 w-6' }: { icon: string; className?: string }) {
+  if (isUrl(icon)) {
+    // eslint-disable-next-line @next/next/no-img-element
+    return <img src={icon} alt="" className={`${className} rounded object-contain`} />;
+  }
+  return <span className="text-xl leading-none">{icon}</span>;
+}
+
 export default function BonusPointsPage() {
   const { profile, loading } = useAuth();
   const router = useRouter();
@@ -68,6 +78,9 @@ export default function BonusPointsPage() {
   const [newColor, setNewColor] = useState(PRESET_COLORS[0].value);
   const [editingMedal, setEditingMedal] = useState<MedalType | null>(null);
   const [savingMedal, setSavingMedal] = useState(false);
+  const [uploadingIcon, setUploadingIcon] = useState(false);
+  const [uploadIconError, setUploadIconError] = useState<string | null>(null);
+  const iconFileRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
     if (!loading && profile?.role !== 'teacher') router.push('/dashboard');
@@ -84,6 +97,26 @@ export default function BonusPointsPage() {
       .then(d => setHistory(Array.isArray(d) ? d : []))
       .finally(() => setLoadingHistory(false));
   }, [profile]);
+
+  async function handleIconFile(e: React.ChangeEvent<HTMLInputElement>) {
+    const file = e.target.files?.[0];
+    e.target.value = '';
+    if (!file) return;
+    setUploadingIcon(true);
+    setUploadIconError(null);
+    try {
+      const form = new FormData();
+      form.append('file', file);
+      const res = await fetch('/api/teacher/upload-icon', { method: 'POST', body: form });
+      const json = await res.json();
+      if (!res.ok) throw new Error(json.error ?? 'upload failed');
+      setNewIcon(json.url as string);
+    } catch (err) {
+      setUploadIconError(err instanceof Error ? err.message : 'อัปโหลดไม่สำเร็จ');
+    } finally {
+      setUploadingIcon(false);
+    }
+  }
 
   async function searchStudent() {
     const q = searchEmail.trim();
@@ -182,6 +215,15 @@ export default function BonusPointsPage() {
 
   return (
     <div className="min-h-screen bg-slate-950 px-4 py-10">
+      {/* hidden file input for icon upload */}
+      <input
+        ref={iconFileRef}
+        type="file"
+        accept="image/png,image/gif,image/webp,image/jpeg"
+        style={{ display: 'none' }}
+        onChange={handleIconFile}
+      />
+
       <div className="mx-auto max-w-3xl space-y-6">
 
         {/* Header */}
@@ -213,12 +255,11 @@ export default function BonusPointsPage() {
               {/* Existing medals */}
               <div className="grid grid-cols-2 gap-2 sm:grid-cols-3">
                 {medalTypes.map(m => (
-                  <div
-                    key={m.id}
-                    className={`relative rounded-xl border p-3 ${m.color}`}
-                  >
+                  <div key={m.id} className={`relative rounded-xl border p-3 ${m.color}`}>
                     <div className="flex items-center gap-2 mb-1">
-                      <span className="text-xl">{m.icon}</span>
+                      <div className="h-7 w-7 shrink-0 flex items-center justify-center">
+                        <MedalIcon icon={m.icon} className="h-7 w-7" />
+                      </div>
                       <div className="min-w-0">
                         <p className="text-xs font-bold truncate">{m.label}</p>
                         <p className="text-[9px] opacity-70 truncate">{m.desc}</p>
@@ -252,22 +293,63 @@ export default function BonusPointsPage() {
                 <p className="text-xs font-bold text-slate-300">
                   {editingMedal ? `✏️ แก้ไข: ${editingMedal.label}` : '+ เพิ่มประเภทรางวัลใหม่'}
                 </p>
-                <div className="grid grid-cols-2 gap-3">
-                  <div>
-                    <label className="mb-1 block text-[10px] text-slate-500">สัญลักษณ์ (emoji)</label>
-                    <input
-                      value={newIcon} onChange={e => setNewIcon(e.target.value)} maxLength={4}
-                      className="input w-full text-center text-2xl"
-                    />
+
+                {/* Icon picker — full width row */}
+                <div className="space-y-1">
+                  <p className="text-[10px] text-slate-500">สัญลักษณ์ (emoji หรืออัปโหลดรูป PNG/GIF)</p>
+                  <div className="flex items-center gap-3">
+                    {/* Large clickable preview — click to upload */}
+                    <button
+                      type="button"
+                      onClick={() => { setUploadIconError(null); iconFileRef.current?.click(); }}
+                      disabled={uploadingIcon}
+                      className="group relative flex h-14 w-14 shrink-0 items-center justify-center rounded-xl border-2 border-dashed border-slate-700 bg-slate-800 transition-all hover:border-blue-600 disabled:cursor-not-allowed disabled:opacity-50"
+                      title="คลิกเพื่ออัปโหลดรูป"
+                    >
+                      <MedalIcon icon={newIcon} className="h-9 w-9" />
+                      <span className="absolute inset-0 flex flex-col items-center justify-center gap-0.5 rounded-xl bg-slate-900/85 text-[9px] font-medium text-blue-400 opacity-0 transition-opacity group-hover:opacity-100">
+                        {uploadingIcon
+                          ? <span className="h-4 w-4 animate-spin rounded-full border-2 border-slate-600 border-t-blue-400" />
+                          : <><span className="text-base">📁</span><span>อัปโหลด</span></>}
+                      </span>
+                    </button>
+
+                    {/* Separator */}
+                    <div className="flex flex-col items-center gap-0.5">
+                      <div className="h-4 w-px bg-slate-800" />
+                      <span className="text-[9px] text-slate-700">หรือ</span>
+                      <div className="h-4 w-px bg-slate-800" />
+                    </div>
+
+                    {/* Emoji text input — no .input class to avoid width:100% override */}
+                    <div>
+                      <p className="mb-0.5 text-[9px] text-slate-600">พิมพ์ emoji</p>
+                      <input
+                        type="text"
+                        value={isUrl(newIcon) ? '' : newIcon}
+                        onChange={e => { if (e.target.value) setNewIcon(e.target.value); }}
+                        maxLength={4}
+                        placeholder="🏆"
+                        style={{ width: '3.5rem' }}
+                        className="rounded-xl border border-slate-700 bg-slate-900 py-2 text-center text-xl text-slate-100 outline-none transition-colors focus:border-slate-500"
+                        title="พิมพ์ emoji โดยตรง"
+                      />
+                    </div>
+
+                    <p className="text-[9px] leading-relaxed text-slate-700">PNG / GIF / WebP<br />สูงสุด 2 MB</p>
                   </div>
-                  <div>
-                    <label className="mb-1 block text-[10px] text-slate-500">ชื่อรางวัล</label>
-                    <input
-                      value={newLabel} onChange={e => setNewLabel(e.target.value)} maxLength={30}
-                      placeholder="เช่น Gold Star"
-                      className="input w-full"
-                    />
-                  </div>
+                  {uploadIconError && (
+                    <p className="text-[10px] text-red-400">⚠ {uploadIconError}</p>
+                  )}
+                </div>
+
+                <div>
+                  <label className="mb-1 block text-[10px] text-slate-500">ชื่อรางวัล</label>
+                  <input
+                    value={newLabel} onChange={e => setNewLabel(e.target.value)} maxLength={30}
+                    placeholder="เช่น Gold Star"
+                    className="input w-full"
+                  />
                 </div>
                 <div>
                   <label className="mb-1 block text-[10px] text-slate-500">คำอธิบาย (ไม่บังคับ)</label>
@@ -370,7 +452,9 @@ export default function BonusPointsPage() {
                         selectedMedal === m.id ? m.color + ' ring-1 ring-current' : 'border-slate-700 text-slate-400 hover:border-slate-600'
                       }`}
                     >
-                      <span className="text-2xl">{m.icon}</span>
+                      <div className="h-8 w-8 shrink-0 flex items-center justify-center">
+                        <MedalIcon icon={m.icon} className="h-8 w-8" />
+                      </div>
                       <div>
                         <p className="text-xs font-semibold">{m.label}</p>
                         <p className="text-[10px] opacity-70">{m.desc}</p>
@@ -408,7 +492,11 @@ export default function BonusPointsPage() {
                 </div>
 
                 <div className="rounded-xl border border-slate-700 bg-slate-800 p-3 text-center">
-                  <p className="text-3xl">{medalObj?.icon}</p>
+                  <div className="flex justify-center">
+                    <div className="h-10 w-10 flex items-center justify-center">
+                      <MedalIcon icon={medalObj?.icon ?? '🏅'} className="h-10 w-10" />
+                    </div>
+                  </div>
                   <p className="mt-1 text-sm font-semibold text-slate-200">{medalObj?.label} · +{points} คะแนน</p>
                   <p className="text-xs text-slate-400">→ {student.displayName}</p>
                 </div>
@@ -417,7 +505,7 @@ export default function BonusPointsPage() {
                   onClick={awardBonus} disabled={awarding || !points}
                   className="w-full rounded-xl bg-yellow-600 py-3 text-sm font-bold text-slate-950 hover:bg-yellow-500 disabled:opacity-40 transition-all active:scale-95"
                 >
-                  {awarding ? 'กำลังมอบรางวัล…' : `🎁 มอบ ${medalObj?.icon} +${points} ให้ ${student.displayName}`}
+                  {awarding ? 'กำลังมอบรางวัล…' : `🎁 มอบ ${isUrl(medalObj?.icon ?? '') ? '' : medalObj?.icon} ${medalObj?.label} +${points} ให้ ${student.displayName}`}
                 </button>
               </div>
             )}
@@ -441,7 +529,9 @@ export default function BonusPointsPage() {
                   const icon = m?.icon ?? '🏅';
                   return (
                     <div key={entry.id} className="flex items-center gap-3 px-5 py-3">
-                      <span className="shrink-0 text-2xl">{icon}</span>
+                      <div className="h-8 w-8 shrink-0 flex items-center justify-center">
+                        <MedalIcon icon={icon} className="h-8 w-8" />
+                      </div>
                       <div className="min-w-0 flex-1">
                         <p className="text-sm font-medium text-slate-200 truncate">{entry.studentName}</p>
                         <p className="text-[10px] text-slate-500">

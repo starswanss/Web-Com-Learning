@@ -18,11 +18,12 @@ export async function GET() {
 
   const snap = await adminDb.collection('bonusPoints')
     .where('studentId', '==', uid)
-    .orderBy('createdAt', 'desc')
     .limit(20)
     .get();
 
-  const medals = snap.docs.map(d => {
+  const medals = snap.docs
+    .sort((a, b) => (b.data().createdAt?._seconds ?? 0) - (a.data().createdAt?._seconds ?? 0))
+    .map(d => {
     const data = d.data();
     return {
       id: d.id,

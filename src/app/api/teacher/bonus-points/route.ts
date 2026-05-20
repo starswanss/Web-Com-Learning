@@ -37,7 +37,7 @@ export async function POST(req: NextRequest) {
   const uid = await getTeacherUid();
   if (!uid) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
 
-  const { studentId, points, medal, reason } = await req.json();
+  const { studentId, points, medal, reason, icon } = await req.json();
   if (!studentId || !points || !medal) {
     return NextResponse.json({ error: 'Missing required fields' }, { status: 400 });
   }
@@ -54,6 +54,7 @@ export async function POST(req: NextRequest) {
     classId: student.classId ?? '',
     points: Number(points),
     medal,
+    icon: icon ?? null,
     reason: reason?.trim() ?? '',
     teacherId: uid,
     createdAt: FieldValue.serverTimestamp(),

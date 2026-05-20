@@ -42,6 +42,13 @@ export default function SubmissionStatsPage() {
 
   useEffect(() => {
     if (profile?.role !== 'teacher') return;
+    const saved = localStorage.getItem('lms_subject');
+    if (saved) {
+      try {
+        const sub = JSON.parse(saved);
+        if (sub?.id) setSelectedSubject(sub.id);
+      } catch { /* ignore */ }
+    }
     fetch('/api/teacher/subjects')
       .then(r => r.json())
       .then((d: Subject[]) => setSubjects(Array.isArray(d) ? d : []))

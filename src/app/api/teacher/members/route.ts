@@ -41,6 +41,44 @@ export async function GET() {
   return NextResponse.json(members);
 }
 
+export async function DELETE(req: NextRequest) {
+  const uid = await getTeacherUid();
+  if (!uid) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+
+  const { studentUid } = await req.json() as { studentUid: string };
+  if (!studentUid) return NextResponse.json({ error: 'Missing studentUid' }, { status: 400 });
+
+  const studentDoc = await adminDb.collection('users').doc(studentUid).get();
+  if (!studentDoc.exists || studentDoc.data()?.role !== 'student') {
+    return NextResponse.json({ error: 'Student not found' }, { status: 404 });
+  }
+
+  // Delete Firebase Auth account (best-effort — may not exist for test data)
+  try {
+    await adminAuth.deleteUser(studentUid);
+  } catch (err) {
+    console.error('[members DELETE] auth delete failed:', err);
+  }
+
+  // Delete Firestore user document
+  await adminDb.collection('users').doc(studentUid).delete();
+
+  // Clean up related collections
+  const [submissionsSnap, bonusSnap, claimsSnap] = await Promise.all([
+    adminDb.collection('submissions').where('studentId', '==', studentUid).get(),
+    adminDb.collection('bonusPoints').where('studentId', '==', studentUid).get(),
+    adminDb.collection('questClaims').where('studentId', '==', studentUid).get(),
+  ]);
+
+  const batch = adminDb.batch();
+  submissionsSnap.docs.forEach(d => batch.delete(d.ref));
+  bonusSnap.docs.forEach(d => batch.delete(d.ref));
+  claimsSnap.docs.forEach(d => batch.delete(d.ref));
+  await batch.commit();
+
+  return NextResponse.json({ ok: true });
+}
+
 export async function PATCH(req: NextRequest) {
   const uid = await getTeacherUid();
   if (!uid) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });

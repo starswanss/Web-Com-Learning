@@ -91,10 +91,10 @@ export default function SubmissionPage({ params }: { params: Promise<{ id: strin
     if (!loading && profile?.role !== 'student') router.push('/dashboard');
   }, [loading, profile, router]);
 
-  // Track tab switches — only after the quiz has started (not during rules screen)
+  // Track tab switches — only for quizzes, and only after the quiz has started
   useEffect(() => {
     if (submission !== null && submission !== undefined) return;
-    if (assignment?.contentType === 'quiz' && !quizStarted) return;
+    if (assignment?.contentType !== 'quiz' || !quizStarted) return;
 
     function handleVisibility() {
       if (document.hidden) {

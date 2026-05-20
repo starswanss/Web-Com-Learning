@@ -36,41 +36,72 @@ function scoreColor(score: number) {
   return 'text-red-400';
 }
 
+/* ─── Flame decoration above podium cards ─── */
+function FireDecor({ rank }: { rank: 1 | 2 | 3 }) {
+  if (rank === 1) return (
+    <div className="relative flex justify-center gap-0.5 select-none pointer-events-none" aria-hidden>
+      <span className="text-xl animate-fire-flicker" style={{ animationDelay: '0.05s', animationDuration: '0.62s' }}>🔥</span>
+      <span className="text-3xl animate-fire-flicker" style={{ animationDelay: '0s',    animationDuration: '0.75s' }}>🔥</span>
+      <span className="text-xl animate-fire-flicker" style={{ animationDelay: '0.15s', animationDuration: '0.67s' }}>🔥</span>
+      <span className="absolute -top-3 left-[28%] animate-ember-rise text-xs text-orange-400" style={{ animationDelay: '0.4s'  }}>✦</span>
+      <span className="absolute -top-2 right-[22%] animate-ember-rise text-[10px] text-yellow-400" style={{ animationDelay: '1.0s'  }}>◆</span>
+      <span className="absolute -top-1 left-[52%] animate-ember-rise text-[8px]  text-red-400"    style={{ animationDelay: '1.6s'  }}>✦</span>
+    </div>
+  );
+  if (rank === 2) return (
+    <div className="flex justify-center gap-1 select-none pointer-events-none" aria-hidden>
+      <span className="text-lg animate-fire-flicker" style={{ animationDelay: '0.1s',  animationDuration: '0.82s' }}>🔥</span>
+      <span className="text-xl animate-fire-flicker" style={{ animationDelay: '0.3s',  animationDuration: '0.90s' }}>🔥</span>
+    </div>
+  );
+  return (
+    <div className="flex justify-center select-none pointer-events-none" aria-hidden>
+      <span className="text-lg animate-fire-flicker" style={{ animationDelay: '0.2s', animationDuration: '1s' }}>🔥</span>
+    </div>
+  );
+}
+
 /* ─── Top-3 podium card ─── */
 function PodiumCard({ entry, size }: { entry: LeaderboardEntry; size: 'large' | 'medium' | 'small' }) {
   const cfg = {
     large: {
       order: 'order-2',
-      outer: 'bg-gradient-to-b from-yellow-950/60 to-amber-950/40 border-yellow-600/60 ring-2 ring-yellow-600/30 shadow-xl shadow-yellow-900/20',
+      outer: 'bg-gradient-to-b from-orange-950/80 via-yellow-950/50 to-amber-950/50 border-orange-500/80 ring-2 ring-orange-500/50 shadow-2xl shadow-orange-900/50 animate-fire-glow-1',
       nameSize: 'text-xl font-bold',
       scoreSize: 'text-5xl font-black',
       avatar: 'h-20 w-20 text-4xl',
+      avatarBorder: 'border-orange-700/60',
       crown: true,
       rankIcon: '👑',
-      rankColor: 'text-yellow-400',
       totalColor: 'text-yellow-300',
+      pedestal: 'h-10 bg-orange-900/40 border border-t-0 border-orange-700/40',
+      fireRank: 1 as const,
     },
     medium: {
       order: 'order-1',
-      outer: 'bg-gradient-to-b from-slate-800/80 to-slate-900/80 border-slate-500/60 ring-1 ring-slate-500/20 shadow-lg',
+      outer: 'bg-gradient-to-b from-slate-800/80 to-slate-900/80 border-amber-600/50 ring-1 ring-amber-600/20 shadow-lg shadow-amber-900/15 animate-fire-glow-2',
       nameSize: 'text-base font-semibold',
       scoreSize: 'text-4xl font-black',
       avatar: 'h-16 w-16 text-3xl',
+      avatarBorder: 'border-slate-600',
       crown: false,
       rankIcon: '🥈',
-      rankColor: 'text-slate-300',
       totalColor: 'text-slate-200',
+      pedestal: 'h-6 bg-amber-900/20 border border-t-0 border-amber-700/20',
+      fireRank: 2 as const,
     },
     small: {
       order: 'order-3',
-      outer: 'bg-gradient-to-b from-orange-950/50 to-slate-900/80 border-orange-700/40 ring-1 ring-orange-700/20 shadow-md',
+      outer: 'bg-gradient-to-b from-orange-950/60 to-slate-900/80 border-amber-700/50 ring-1 ring-amber-700/20 shadow-md shadow-amber-900/10 animate-fire-glow-3',
       nameSize: 'text-base font-semibold',
       scoreSize: 'text-4xl font-black',
       avatar: 'h-16 w-16 text-3xl',
+      avatarBorder: 'border-slate-600',
       crown: false,
       rankIcon: '🥉',
-      rankColor: 'text-orange-400',
       totalColor: 'text-orange-300',
+      pedestal: 'h-4 bg-orange-900/20 border border-t-0 border-orange-800/20',
+      fireRank: 3 as const,
     },
   }[size];
 
@@ -78,11 +109,17 @@ function PodiumCard({ entry, size }: { entry: LeaderboardEntry; size: 'large' | 
 
   return (
     <div className={`${cfg.order} flex flex-col items-center`}>
-      {cfg.crown && (
-        <div className="mb-1 text-3xl animate-bounce">👑</div>
-      )}
+      <FireDecor rank={cfg.fireRank} />
+      {cfg.crown && <div className="mt-1 text-3xl animate-bounce">👑</div>}
       <div className={`w-full rounded-3xl border p-5 text-center ${cfg.outer}`}>
-        <div className={`mx-auto mb-3 flex items-center justify-center rounded-full bg-slate-800 border border-slate-600 ${cfg.avatar}`}>
+        {size === 'large' && (
+          <div className="-mt-1 mb-2 flex justify-center">
+            <span className="animate-pulse rounded-full border border-orange-700/50 bg-orange-950/40 px-2.5 py-0.5 text-[10px] font-bold uppercase tracking-wider text-orange-400">
+              🔥 ON FIRE
+            </span>
+          </div>
+        )}
+        <div className={`mx-auto mb-3 flex items-center justify-center rounded-full bg-slate-800 border ${cfg.avatarBorder} ${cfg.avatar}`}>
           <span>{initials}</span>
         </div>
         <div className="mb-2 text-2xl">{cfg.rankIcon}</div>
@@ -111,11 +148,7 @@ function PodiumCard({ entry, size }: { entry: LeaderboardEntry; size: 'large' | 
         )}
         <p className="mt-2 text-[10px] text-slate-600">ส่งงาน {entry.submittedCount} ชิ้น</p>
       </div>
-      <div className={`mt-0 w-full rounded-b-xl ${
-        size === 'large' ? 'h-10 bg-yellow-800/30 border border-t-0 border-yellow-700/30' :
-        size === 'medium' ? 'h-6 bg-slate-700/30 border border-t-0 border-slate-600/30' :
-        'h-4 bg-orange-900/30 border border-t-0 border-orange-800/30'
-      }`} />
+      <div className={`mt-0 w-full rounded-b-xl ${cfg.pedestal}`} />
     </div>
   );
 }
@@ -189,21 +222,21 @@ export default function TeacherLeaderboardPage() {
             onClick={() => setActiveTab('score')}
             className={`rounded-xl border px-4 py-2 text-sm font-medium transition-all ${
               activeTab === 'score'
-                ? 'border-yellow-600 bg-yellow-950/30 text-yellow-300'
+                ? 'border-orange-600 bg-orange-950/30 text-orange-300'
                 : 'border-slate-700 text-slate-400 hover:border-slate-600'
             }`}
           >
-            🏆 อันดับคะแนน
+            🔥 อันดับคะแนน
           </button>
           <button
             onClick={() => setActiveTab('level')}
             className={`rounded-xl border px-4 py-2 text-sm font-medium transition-all ${
               activeTab === 'level'
-                ? 'border-violet-600 bg-violet-950/30 text-violet-300'
+                ? 'border-orange-600 bg-orange-950/30 text-orange-300'
                 : 'border-slate-700 text-slate-400 hover:border-slate-600'
             }`}
           >
-            ⚡ อันดับเลเวล
+            🔥 อันดับเลเวล
           </button>
         </div>
 
@@ -230,7 +263,7 @@ export default function TeacherLeaderboardPage() {
 
         {fetching ? (
           <div className="flex items-center justify-center py-32">
-            <div className="h-8 w-8 animate-spin rounded-full border-2 border-slate-700 border-t-yellow-400" />
+            <div className="h-8 w-8 animate-spin rounded-full border-2 border-slate-700 border-t-orange-400" />
           </div>
         ) : activeTab === 'score' ? (
           /* ─── Score Tab ─── */
@@ -244,8 +277,8 @@ export default function TeacherLeaderboardPage() {
               {/* ─── Podium ─── */}
               {podiumEntries.length >= 1 && (
                 <div className="mb-10">
-                  <p className="mb-6 text-center text-xs font-medium uppercase tracking-widest text-slate-500">
-                    🌟 อันดับสูงสุด 🌟
+                  <p className="mb-6 text-center text-xs font-bold uppercase tracking-widest text-orange-500/80">
+                    🔥 อันดับสูงสุด 🔥
                   </p>
                   <div className={`grid gap-4 items-end ${podiumEntries.length === 3 ? 'grid-cols-3' : podiumEntries.length === 2 ? 'grid-cols-2' : 'grid-cols-1 max-w-xs mx-auto'}`}>
                     {podiumEntries.length === 3
@@ -308,37 +341,48 @@ export default function TeacherLeaderboardPage() {
               {/* Top 3 level cards */}
               {filteredLevel.length >= 1 && (
                 <div className="mb-8">
-                  <p className="mb-5 text-center text-xs font-medium uppercase tracking-widest text-slate-500">
-                    ⚡ เลเวลสูงสุด ⚡
+                  <p className="mb-5 text-center text-xs font-bold uppercase tracking-widest text-orange-500/80">
+                    🔥 เลเวลสูงสุด 🔥
                   </p>
-                  <div className={`grid gap-4 ${filteredLevel.length >= 3 ? 'grid-cols-3' : filteredLevel.length === 2 ? 'grid-cols-2' : 'grid-cols-1 max-w-xs mx-auto'}`}>
+                  <div className={`grid gap-4 items-end ${filteredLevel.length >= 3 ? 'grid-cols-3' : filteredLevel.length === 2 ? 'grid-cols-2' : 'grid-cols-1 max-w-xs mx-auto'}`}>
                     {filteredLevel.slice(0, 3).map((e, i) => {
                       const medals = ['👑', '🥈', '🥉'];
                       const rings = [
-                        'border-violet-500/60 ring-2 ring-violet-500/30 bg-gradient-to-b from-violet-950/60 to-slate-900',
-                        'border-slate-500/60 ring-1 ring-slate-500/20 bg-gradient-to-b from-slate-800/80 to-slate-900',
-                        'border-slate-700/60 bg-gradient-to-b from-slate-800/50 to-slate-900',
+                        'border-orange-500/70 ring-2 ring-orange-500/40 bg-gradient-to-b from-orange-950/80 via-violet-950/40 to-slate-900 animate-fire-glow-1',
+                        'border-amber-600/50 ring-1 ring-amber-600/20 bg-gradient-to-b from-slate-800/80 to-slate-900 animate-fire-glow-2',
+                        'border-amber-700/40 bg-gradient-to-b from-slate-800/50 to-slate-900 animate-fire-glow-3',
                       ];
                       const initials = e.displayName.slice(0, 2).toUpperCase() || '??';
+                      const fireRank = (i + 1) as 1 | 2 | 3;
                       return (
-                        <div key={e.uid} className={`rounded-2xl border p-5 text-center ${rings[i] ?? rings[2]}`}>
-                          <div className="mx-auto mb-3 flex h-14 w-14 items-center justify-center rounded-full bg-slate-800 border border-slate-700 text-xl font-bold text-slate-300">
-                            {initials}
-                          </div>
-                          <div className="mb-1 text-xl">{medals[i]}</div>
-                          <p className="text-sm font-semibold text-slate-100 leading-tight truncate">{e.displayName}</p>
-                          <p className="mt-0.5 text-[11px] text-slate-500">{e.classId}</p>
-                          <p className={`mt-3 text-4xl font-black ${levelColor(e.level)}`}>Lv.{e.level}</p>
-                          <p className="text-[10px] text-slate-500 mt-0.5">{e.title}</p>
-                          {/* XP bar */}
-                          <div className="mt-3 px-2">
-                            <div className="h-1.5 w-full overflow-hidden rounded-full bg-slate-800">
-                              <div
-                                className={`h-full rounded-full ${levelBarColor(e.level)} transition-all`}
-                                style={{ width: `${e.progress}%` }}
-                              />
+                        <div key={e.uid} className="flex flex-col items-center">
+                          <FireDecor rank={fireRank} />
+                          {i === 0 && <div className="mt-1 text-3xl animate-bounce">👑</div>}
+                          <div className={`w-full rounded-2xl border p-5 text-center ${rings[i] ?? rings[2]}`}>
+                            {i === 0 && (
+                              <div className="-mt-1 mb-2 flex justify-center">
+                                <span className="animate-pulse rounded-full border border-orange-700/50 bg-orange-950/40 px-2.5 py-0.5 text-[10px] font-bold uppercase tracking-wider text-orange-400">
+                                  🔥 ON FIRE
+                                </span>
+                              </div>
+                            )}
+                            <div className={`mx-auto mb-3 flex h-14 w-14 items-center justify-center rounded-full bg-slate-800 border ${i === 0 ? 'border-orange-700/60' : 'border-slate-700'} text-xl font-bold text-slate-300`}>
+                              {initials}
                             </div>
-                            <p className="mt-1 text-[9px] text-slate-600">{e.currentXp}/{e.nextLevelXp} XP · รวม {e.xp} XP</p>
+                            <div className="mb-1 text-xl">{medals[i]}</div>
+                            <p className="text-sm font-semibold text-slate-100 leading-tight truncate">{e.displayName}</p>
+                            <p className="mt-0.5 text-[11px] text-slate-500">{e.classId}</p>
+                            <p className={`mt-3 text-4xl font-black ${levelColor(e.level)}`}>Lv.{e.level}</p>
+                            <p className="text-[10px] text-slate-500 mt-0.5">{e.title}</p>
+                            <div className="mt-3 px-2">
+                              <div className="h-1.5 w-full overflow-hidden rounded-full bg-slate-800">
+                                <div
+                                  className={`h-full rounded-full ${levelBarColor(e.level)} transition-all`}
+                                  style={{ width: `${e.progress}%` }}
+                                />
+                              </div>
+                              <p className="mt-1 text-[9px] text-slate-600">{e.currentXp}/{e.nextLevelXp} XP · รวม {e.xp} XP</p>
+                            </div>
                           </div>
                         </div>
                       );
@@ -392,7 +436,7 @@ export default function TeacherLeaderboardPage() {
 function Spinner() {
   return (
     <div className="flex min-h-screen items-center justify-center">
-      <div className="h-8 w-8 animate-spin rounded-full border-2 border-slate-700 border-t-yellow-400" />
+      <div className="h-8 w-8 animate-spin rounded-full border-2 border-slate-700 border-t-orange-400" />
     </div>
   );
 }

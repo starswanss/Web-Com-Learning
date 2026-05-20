@@ -56,7 +56,7 @@ export async function POST(req: NextRequest) {
 
   const newMedal: MedalType = {
     id: `custom_${Date.now()}`,
-    icon: String(icon).slice(0, 10),
+    icon: String(icon).slice(0, 500),
     label: String(label).slice(0, 30),
     desc: String(desc ?? '').slice(0, 60),
     color: PRESET_COLORS.includes(color ?? '') ? color! : PRESET_COLORS[0],

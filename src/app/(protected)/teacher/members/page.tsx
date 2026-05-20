@@ -50,6 +50,10 @@ export default function MembersPage() {
   const [xpSaving, setXpSaving] = useState(false);
   const [xpError, setXpError] = useState<string | null>(null);
 
+  // Delete state
+  const [deletingUid, setDeletingUid] = useState<string | null>(null);
+  const [confirmDeleteUid, setConfirmDeleteUid] = useState<string | null>(null);
+
   useEffect(() => {
     if (!loading && profile?.role !== 'teacher') router.push('/dashboard');
   }, [loading, profile, router]);
@@ -162,6 +166,28 @@ export default function MembersPage() {
     }
   }
 
+  async function handleDelete(uid: string) {
+    if (confirmDeleteUid !== uid) {
+      setConfirmDeleteUid(uid);
+      return;
+    }
+    setDeletingUid(uid);
+    setConfirmDeleteUid(null);
+    try {
+      const res = await fetch('/api/teacher/members', {
+        method: 'DELETE',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ studentUid: uid }),
+      });
+      if (!res.ok) throw new Error('failed');
+      setMembers(prev => prev.filter(m => m.uid !== uid));
+    } catch {
+      // silently ignore — user stays in list
+    } finally {
+      setDeletingUid(null);
+    }
+  }
+
   if (loading || !profile) return <Spinner />;
 
   return (
@@ -266,9 +292,9 @@ export default function MembersPage() {
               ) : (
                 <div className="divide-y divide-slate-800/50">
                   {/* Column header */}
-                  <div className="grid grid-cols-[2.5rem_1fr_1fr_9rem_10rem_6rem_5rem] gap-3 px-5 py-2">
-                    {['', 'ชื่อ', 'อีเมล', 'ห้อง', 'เลเวล / XP', 'วันที่เข้าร่วม', 'สถานะ'].map(h => (
-                      <p key={h} className="text-[9px] font-bold uppercase tracking-widest text-slate-600">{h}</p>
+                  <div className="grid grid-cols-[2.5rem_1fr_1fr_9rem_10rem_6rem_5rem_3rem] gap-3 px-5 py-2">
+                    {['', 'ชื่อ', 'อีเมล', 'ห้อง', 'เลเวล / XP', 'วันที่เข้าร่วม', 'สถานะ', ''].map((h, i) => (
+                      <p key={i} className="text-[9px] font-bold uppercase tracking-widest text-slate-600">{h}</p>
                     ))}
                   </div>
 
@@ -278,7 +304,7 @@ export default function MembersPage() {
                     const lvInfo = calcLevel(m.xp);
                     return (
                       <div key={m.uid} className="group">
-                        <div className="grid grid-cols-[2.5rem_1fr_1fr_9rem_10rem_6rem_5rem] items-center gap-3 px-5 py-3 transition-colors hover:bg-slate-800/20">
+                        <div className="grid grid-cols-[2.5rem_1fr_1fr_9rem_10rem_6rem_5rem_3rem] items-center gap-3 px-5 py-3 transition-colors hover:bg-slate-800/20">
                           {/* Avatar */}
                           <div className="flex h-9 w-9 items-center justify-center rounded-full bg-slate-800 text-[11px] font-bold text-slate-300">
                             {initials(m.displayName)}
@@ -410,6 +436,36 @@ export default function MembersPage() {
                             <span className={`h-1.5 w-1.5 rounded-full ${m.onboardingComplete ? 'bg-emerald-500' : 'bg-amber-400 animate-pulse'}`} />
                             {m.onboardingComplete ? 'ใช้งาน' : 'รอ'}
                           </span>
+
+                          {/* Delete */}
+                          <div className="flex justify-center">
+                            {confirmDeleteUid === m.uid ? (
+                              <div className="flex items-center gap-1">
+                                <button
+                                  onClick={() => handleDelete(m.uid)}
+                                  disabled={deletingUid === m.uid}
+                                  className="rounded-lg bg-red-700 px-2 py-1 text-[9px] font-bold text-white hover:bg-red-600 disabled:opacity-50 transition-all"
+                                >
+                                  {deletingUid === m.uid ? '…' : 'ยืนยัน'}
+                                </button>
+                                <button
+                                  onClick={() => setConfirmDeleteUid(null)}
+                                  className="rounded-lg border border-slate-700 px-1.5 py-1 text-[9px] text-slate-500 hover:text-slate-300 transition-all"
+                                >
+                                  ✕
+                                </button>
+                              </div>
+                            ) : (
+                              <button
+                                onClick={() => handleDelete(m.uid)}
+                                disabled={deletingUid === m.uid}
+                                className="hidden group-hover:flex h-6 w-6 items-center justify-center rounded-lg border border-slate-800 text-slate-700 hover:border-red-800 hover:text-red-500 disabled:opacity-40 transition-all text-xs"
+                                title="ลบนักเรียน"
+                              >
+                                🗑
+                              </button>
+                            )}
+                          </div>
                         </div>
                       </div>
                     );

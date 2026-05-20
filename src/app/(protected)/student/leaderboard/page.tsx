@@ -22,38 +22,72 @@ function scoreColor(score: number) {
   return 'text-red-400';
 }
 
+/* ─── Flame decoration above podium cards ─── */
+function FireDecor({ rank }: { rank: 1 | 2 | 3 }) {
+  if (rank === 1) return (
+    <div className="relative flex justify-center gap-0.5 select-none pointer-events-none" aria-hidden>
+      <span className="text-xl animate-fire-flicker" style={{ animationDelay: '0.05s', animationDuration: '0.62s' }}>🔥</span>
+      <span className="text-3xl animate-fire-flicker" style={{ animationDelay: '0s',    animationDuration: '0.75s' }}>🔥</span>
+      <span className="text-xl animate-fire-flicker" style={{ animationDelay: '0.15s', animationDuration: '0.67s' }}>🔥</span>
+      <span className="absolute -top-3 left-[28%] animate-ember-rise text-xs text-orange-400" style={{ animationDelay: '0.4s'  }}>✦</span>
+      <span className="absolute -top-2 right-[22%] animate-ember-rise text-[10px] text-yellow-400" style={{ animationDelay: '1.0s'  }}>◆</span>
+      <span className="absolute -top-1 left-[52%] animate-ember-rise text-[8px]  text-red-400"    style={{ animationDelay: '1.6s'  }}>✦</span>
+    </div>
+  );
+  if (rank === 2) return (
+    <div className="flex justify-center gap-1 select-none pointer-events-none" aria-hidden>
+      <span className="text-lg animate-fire-flicker" style={{ animationDelay: '0.1s',  animationDuration: '0.82s' }}>🔥</span>
+      <span className="text-xl animate-fire-flicker" style={{ animationDelay: '0.3s',  animationDuration: '0.90s' }}>🔥</span>
+    </div>
+  );
+  return (
+    <div className="flex justify-center select-none pointer-events-none" aria-hidden>
+      <span className="text-lg animate-fire-flicker" style={{ animationDelay: '0.2s', animationDuration: '1s' }}>🔥</span>
+    </div>
+  );
+}
+
 function AnonPodiumCard({ entry, size, myName }: { entry: LeaderboardEntry; size: 'large' | 'medium' | 'small'; myName?: string }) {
   const isMe = entry.isMe;
   const cfg = {
     large: {
       outer: isMe
-        ? 'bg-gradient-to-b from-yellow-950/80 to-blue-950/50 border-yellow-500/70 ring-2 ring-yellow-500/40 shadow-xl shadow-yellow-900/30'
-        : 'bg-gradient-to-b from-yellow-950/60 to-amber-950/40 border-yellow-600/60 ring-2 ring-yellow-600/30 shadow-xl shadow-yellow-900/20',
+        ? 'bg-gradient-to-b from-yellow-950/80 to-blue-950/50 border-yellow-500/70 ring-2 ring-yellow-500/40 shadow-xl shadow-yellow-900/30 animate-fire-glow-1'
+        : 'bg-gradient-to-b from-orange-950/80 via-yellow-950/50 to-amber-950/50 border-orange-500/80 ring-2 ring-orange-500/50 shadow-2xl shadow-orange-900/50 animate-fire-glow-1',
       nameSize: 'text-xl font-bold',
       scoreSize: 'text-5xl font-black',
       avatar: 'h-20 w-20 text-3xl',
+      avatarBorder: isMe ? 'border-yellow-700/60' : 'border-orange-700/60',
       rankIcon: '👑',
       totalColor: 'text-yellow-300',
+      pedestal: 'h-10 bg-orange-900/40 border border-t-0 border-orange-700/40',
+      fireRank: 1 as const,
     },
     medium: {
       outer: isMe
-        ? 'bg-gradient-to-b from-slate-800/80 to-blue-950/50 border-blue-500/60 ring-2 ring-blue-500/30'
-        : 'bg-gradient-to-b from-slate-800/80 to-slate-900/80 border-slate-500/60 ring-1 ring-slate-500/20 shadow-lg',
+        ? 'bg-gradient-to-b from-slate-800/80 to-blue-950/50 border-blue-500/60 ring-2 ring-blue-500/30 animate-fire-glow-2'
+        : 'bg-gradient-to-b from-slate-800/80 to-slate-900/80 border-amber-600/50 ring-1 ring-amber-600/20 shadow-lg shadow-amber-900/15 animate-fire-glow-2',
       nameSize: 'text-base font-semibold',
       scoreSize: 'text-4xl font-black',
       avatar: 'h-16 w-16 text-2xl',
+      avatarBorder: 'border-slate-600',
       rankIcon: '🥈',
       totalColor: 'text-slate-200',
+      pedestal: 'h-6 bg-amber-900/20 border border-t-0 border-amber-700/20',
+      fireRank: 2 as const,
     },
     small: {
       outer: isMe
-        ? 'bg-gradient-to-b from-orange-950/70 to-blue-950/50 border-blue-500/60 ring-2 ring-blue-500/30'
-        : 'bg-gradient-to-b from-orange-950/50 to-slate-900/80 border-orange-700/40 ring-1 ring-orange-700/20 shadow-md',
+        ? 'bg-gradient-to-b from-orange-950/70 to-blue-950/50 border-blue-500/60 ring-2 ring-blue-500/30 animate-fire-glow-3'
+        : 'bg-gradient-to-b from-orange-950/60 to-slate-900/80 border-amber-700/50 ring-1 ring-amber-700/20 shadow-md shadow-amber-900/10 animate-fire-glow-3',
       nameSize: 'text-base font-semibold',
       scoreSize: 'text-4xl font-black',
       avatar: 'h-16 w-16 text-2xl',
+      avatarBorder: 'border-slate-600',
       rankIcon: '🥉',
       totalColor: 'text-orange-300',
+      pedestal: 'h-4 bg-orange-900/20 border border-t-0 border-orange-800/20',
+      fireRank: 3 as const,
     },
   }[size];
 
@@ -62,11 +96,21 @@ function AnonPodiumCard({ entry, size, myName }: { entry: LeaderboardEntry; size
 
   return (
     <div className={`flex flex-col items-center ${size === 'large' ? 'order-2' : size === 'medium' ? 'order-1' : 'order-3'}`}>
-      {size === 'large' && (
-        <div className="mb-1 text-3xl animate-bounce">👑</div>
-      )}
+      <FireDecor rank={cfg.fireRank} />
+      {size === 'large' && <div className="mt-1 text-3xl animate-bounce">👑</div>}
       <div className={`w-full rounded-3xl border p-5 text-center ${cfg.outer}`}>
-        <div className={`mx-auto mb-3 flex items-center justify-center rounded-full bg-slate-800 border border-slate-600 ${cfg.avatar}`}>
+        {size === 'large' && (
+          <div className="-mt-1 mb-2 flex justify-center">
+            <span className={`animate-pulse rounded-full border px-2.5 py-0.5 text-[10px] font-bold uppercase tracking-wider ${
+              isMe
+                ? 'border-yellow-700/50 bg-yellow-950/40 text-yellow-400'
+                : 'border-orange-700/50 bg-orange-950/40 text-orange-400'
+            }`}>
+              🔥 ON FIRE
+            </span>
+          </div>
+        )}
+        <div className={`mx-auto mb-3 flex items-center justify-center rounded-full bg-slate-800 border ${cfg.avatarBorder} ${cfg.avatar}`}>
           {avatarContent}
         </div>
         <div className="mb-2 text-2xl">{cfg.rankIcon}</div>
@@ -92,11 +136,7 @@ function AnonPodiumCard({ entry, size, myName }: { entry: LeaderboardEntry; size
         )}
         <p className="mt-2 text-[10px] text-slate-600">ส่งงาน {entry.submittedCount} ชิ้น</p>
       </div>
-      <div className={`mt-0 w-full rounded-b-xl ${
-        size === 'large' ? 'h-10 bg-yellow-800/30 border border-t-0 border-yellow-700/30' :
-        size === 'medium' ? 'h-6 bg-slate-700/30 border border-t-0 border-slate-600/30' :
-        'h-4 bg-orange-900/30 border border-t-0 border-orange-800/30'
-      }`} />
+      <div className={`mt-0 w-full rounded-b-xl ${cfg.pedestal}`} />
     </div>
   );
 }
@@ -162,7 +202,7 @@ export default function StudentLeaderboardPage() {
 
         {fetching ? (
           <div className="flex items-center justify-center py-32">
-            <div className="h-8 w-8 animate-spin rounded-full border-2 border-slate-700 border-t-yellow-400" />
+            <div className="h-8 w-8 animate-spin rounded-full border-2 border-slate-700 border-t-orange-400" />
           </div>
         ) : entries.length === 0 ? (
           <div className="flex flex-col items-center justify-center rounded-2xl border border-dashed border-slate-800 py-20 text-center">
@@ -174,7 +214,7 @@ export default function StudentLeaderboardPage() {
             {/* ─── Podium ─── */}
             {podiumEntries.length >= 1 && (
               <div className="mb-8">
-                <p className="mb-6 text-center text-xs font-medium uppercase tracking-widest text-slate-500">🌟 ผู้นำห้องเรียน 🌟</p>
+                <p className="mb-6 text-center text-xs font-bold uppercase tracking-widest text-orange-500/80">🔥 ผู้นำห้องเรียน 🔥</p>
                 <div className={`grid gap-3 items-end ${podiumEntries.length === 3 ? 'grid-cols-3' : podiumEntries.length === 2 ? 'grid-cols-2' : 'grid-cols-1 max-w-[200px] mx-auto'}`}>
                   {podiumEntries.map((e, i) => (
                     <AnonPodiumCard
@@ -237,7 +277,7 @@ export default function StudentLeaderboardPage() {
 function Spinner() {
   return (
     <div className="flex min-h-screen items-center justify-center">
-      <div className="h-8 w-8 animate-spin rounded-full border-2 border-slate-700 border-t-yellow-400" />
+      <div className="h-8 w-8 animate-spin rounded-full border-2 border-slate-700 border-t-orange-400" />
     </div>
   );
 }

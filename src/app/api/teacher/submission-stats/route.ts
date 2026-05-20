@@ -51,6 +51,10 @@ export async function GET(req: NextRequest) {
   const subjectId = url.searchParams.get('subject');
   const assignmentId = url.searchParams.get('assignmentId');
 
+  // Fetch active subjects for this teacher to filter out orphaned assignments
+  const subjectsSnap = await adminDb.collection('subjects').where('teacherId', '==', uid).get();
+  const activeSubjectIds = new Set(subjectsSnap.docs.map(d => d.id));
+
   // Fetch assignments by teacher
   let assignmentsQuery = adminDb.collection('assignments').where('teacherId', '==', uid);
   if (subjectId) {
@@ -58,11 +62,17 @@ export async function GET(req: NextRequest) {
   }
 
   const assignmentsSnap = await assignmentsQuery.get();
-  const allAssignments = assignmentsSnap.docs.map(d => ({
-    id: d.id,
-    title: (d.data().title as string) ?? '',
-    classIds: (d.data().classIds as string[]) ?? [],
-  }));
+  const allAssignments = assignmentsSnap.docs
+    .filter(d => {
+      const sid = d.data().subjectId as string | null;
+      // Only include assignments whose subjectId exists in active subjects
+      return sid && activeSubjectIds.has(sid);
+    })
+    .map(d => ({
+      id: d.id,
+      title: (d.data().title as string) ?? '',
+      classIds: (d.data().classIds as string[]) ?? [],
+    }));
 
   const targetAssignments = assignmentId
     ? allAssignments.filter(a => a.id === assignmentId)
