@@ -23,55 +23,81 @@ export interface AssignmentStat {
   notSubmittedNames: Array<{ uid: string; name: string; classId: string }>;
 }
 
+async function queryInChunks<T>(
+  collection: FirebaseFirestore.CollectionReference,
+  field: string,
+  values: string[],
+  extraFilters?: (ref: FirebaseFirestore.Query) => FirebaseFirestore.Query
+): Promise<FirebaseFirestore.QueryDocumentSnapshot[]> {
+  if (values.length === 0) return [];
+  const chunks: string[][] = [];
+  for (let i = 0; i < values.length; i += 10) chunks.push(values.slice(i, i + 10));
+
+  const results = await Promise.all(
+    chunks.map(chunk => {
+      let q: FirebaseFirestore.Query = collection.where(field, 'in', chunk);
+      if (extraFilters) q = extraFilters(q);
+      return q.get();
+    })
+  );
+  return results.flatMap(snap => snap.docs);
+}
+
 export async function GET(req: NextRequest) {
   const uid = await getTeacherUid();
   if (!uid) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
 
   const url = new URL(req.url);
   const subjectId = url.searchParams.get('subject');
-  const assignmentId = url.searchParams.get('assignmentId'); // single assignment mode
+  const assignmentId = url.searchParams.get('assignmentId');
 
   // Fetch assignments by teacher
   let assignmentsQuery = adminDb.collection('assignments').where('teacherId', '==', uid);
-  if (subjectId) assignmentsQuery = assignmentsQuery.where('subjectId', '==', subjectId) as typeof assignmentsQuery;
+  if (subjectId) {
+    assignmentsQuery = assignmentsQuery.where('subjectId', '==', subjectId) as typeof assignmentsQuery;
+  }
 
   const assignmentsSnap = await assignmentsQuery.get();
-  const assignments = assignmentsSnap.docs.map(d => ({
+  const allAssignments = assignmentsSnap.docs.map(d => ({
     id: d.id,
     title: (d.data().title as string) ?? '',
     classIds: (d.data().classIds as string[]) ?? [],
   }));
 
-  // Filter to single assignment if requested
   const targetAssignments = assignmentId
-    ? assignments.filter(a => a.id === assignmentId)
-    : assignments;
+    ? allAssignments.filter(a => a.id === assignmentId)
+    : allAssignments;
 
   if (targetAssignments.length === 0) return NextResponse.json([]);
 
-  // Collect all classIds across assignments
+  // Collect all unique classIds
   const allClassIds = [...new Set(targetAssignments.flatMap(a => a.classIds))];
 
-  // Fetch all students in those classes
-  const studentsSnap = await adminDb.collection('users')
-    .where('role', '==', 'student')
-    .where('classId', 'in', allClassIds.slice(0, 10)) // Firestore 'in' limit = 10
-    .get();
+  // Fetch students across all classes — chunked (Firestore 'in' limit = 10)
+  const studentDocs = await queryInChunks(
+    adminDb.collection('users') as unknown as FirebaseFirestore.CollectionReference,
+    'classId',
+    allClassIds,
+    q => q.where('role', '==', 'student')
+  );
 
-  const students = studentsSnap.docs.map(d => ({
+  const students = studentDocs.map(d => ({
     uid: d.id,
     name: (d.data().displayName as string) ?? '',
     classId: (d.data().classId as string) ?? '',
   }));
 
-  // Fetch all submissions for target assignments
-  const submissionsSnap = await adminDb.collection('submissions')
-    .where('assignmentId', 'in', targetAssignments.slice(0, 10).map(a => a.id))
-    .get();
+  // Fetch all submissions for target assignments — chunked
+  const assignmentIds = targetAssignments.map(a => a.id);
+  const submissionDocs = await queryInChunks(
+    adminDb.collection('submissions') as unknown as FirebaseFirestore.CollectionReference,
+    'assignmentId',
+    assignmentIds
+  );
 
   // Map: assignmentId → Set of studentIds who submitted
   const submittedMap = new Map<string, Set<string>>();
-  submissionsSnap.docs.forEach(d => {
+  submissionDocs.forEach(d => {
     const aid = d.data().assignmentId as string;
     const sid = d.data().studentId as string;
     if (!submittedMap.has(aid)) submittedMap.set(aid, new Set());
@@ -86,7 +112,7 @@ export async function GET(req: NextRequest) {
       assignmentId: a.id,
       title: a.title,
       totalStudents: classStudents.length,
-      submitted: submittedSet.size,
+      submitted: Math.min(submittedSet.size, classStudents.length),
       notSubmitted: notSubmitted.length,
       notSubmittedNames: notSubmitted.map(s => ({ uid: s.uid, name: s.name, classId: s.classId })),
     };
