@@ -135,10 +135,10 @@ export default function TeacherPage() {
             : '/api/teacher/submission-stats';
           fetch(statsUrl)
             .then(r => r.json())
-            .then((stats: Array<{ assignmentId: string; total: number; submitted: number; notSubmitted: number; notSubmittedNames: Array<{ uid: string; name: string; classId: string }> }>) => {
+            .then((stats: Array<{ assignmentId: string; totalStudents: number; submitted: number; notSubmitted: number; notSubmittedNames: Array<{ uid: string; name: string; classId: string }> }>) => {
               if (!Array.isArray(stats)) return;
               const m = new Map<string, { total: number; submitted: number; notSubmitted: Array<{ uid: string; name: string; classId: string }> }>();
-              stats.forEach(s => m.set(s.assignmentId, { total: s.total, submitted: s.submitted, notSubmitted: s.notSubmittedNames }));
+              stats.forEach(s => m.set(s.assignmentId, { total: s.totalStudents, submitted: s.submitted, notSubmitted: s.notSubmittedNames ?? [] }));
               setSubStats(m);
             })
             .catch(() => {});

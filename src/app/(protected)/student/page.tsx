@@ -286,7 +286,7 @@ export default function StudentPage() {
             <div className="grid gap-5 xl:grid-cols-[1fr_280px]">
 
               {/* ── LEFT: Assignment Sections ── */}
-              <div className="space-y-4 min-w-0">
+              <div className="space-y-4 min-w-0 xl:order-1 order-2">
 
                 {/* Pending */}
                 <section className="overflow-hidden rounded-2xl border border-slate-800/80 bg-slate-900">
@@ -400,7 +400,7 @@ export default function StudentPage() {
               </div>
 
               {/* ── RIGHT: Sidebar ── */}
-              <div className="space-y-4">
+              <div className="space-y-4 xl:order-2 order-1">
 
                 {/* Profile Card */}
                 <ProfileCard
