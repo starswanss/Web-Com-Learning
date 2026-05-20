@@ -32,7 +32,7 @@ export async function gradeSubmission(
   otherSubmissions: string[] = [],
   rubric?: string
 ): Promise<GradingResult> {
-  const model = genAI.getGenerativeModel({ model: 'gemini-2.5-flash' });
+  const model = genAI.getGenerativeModel({ model: 'gemini-1.5-pro' });
 
   const comparisonBlock =
     otherSubmissions.length > 0
@@ -101,7 +101,7 @@ export async function gradeSubmissionsBatch(
 ): Promise<BatchGradingResult[]> {
   if (submissions.length === 0) return [];
 
-  const model = genAI.getGenerativeModel({ model: 'gemini-2.5-flash' });
+  const model = genAI.getGenerativeModel({ model: 'gemini-1.5-pro' });
 
   const rubricBlock = rubric ? `\n\nCriteria from teacher:\n${rubric}` : '';
 

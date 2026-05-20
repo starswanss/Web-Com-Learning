@@ -4,6 +4,7 @@ import { cookies } from 'next/headers';
 import { GoogleGenerativeAI } from '@google/generative-ai';
 
 const genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY!);
+const DAILY_LIMIT = 30;
 
 async function getStudentUid(): Promise<string | null> {
   try {
@@ -15,10 +16,41 @@ async function getStudentUid(): Promise<string | null> {
   } catch { return null; }
 }
 
+function todayStr() {
+  return new Date().toISOString().slice(0, 10);
+}
+
+async function getUsage(uid: string): Promise<{ count: number; date: string }> {
+  const snap = await adminDb.collection('aiChatUsage').doc(uid).get();
+  if (!snap.exists) return { count: 0, date: todayStr() };
+  const data = snap.data()!;
+  if (data.date !== todayStr()) return { count: 0, date: todayStr() };
+  return { count: data.count ?? 0, date: data.date };
+}
+
+/* GET — return remaining quota for the student */
+export async function GET() {
+  const uid = await getStudentUid();
+  if (!uid) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+
+  const usage = await getUsage(uid);
+  const remaining = Math.max(0, DAILY_LIMIT - usage.count);
+  return NextResponse.json({ remaining, used: usage.count, limit: DAILY_LIMIT });
+}
+
 /* POST — chat with AI about an assignment */
 export async function POST(req: NextRequest) {
   const uid = await getStudentUid();
   if (!uid) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+
+  // Rate limit check
+  const usage = await getUsage(uid);
+  if (usage.count >= DAILY_LIMIT) {
+    return NextResponse.json(
+      { error: `คุณใช้โควต้าอาจารย์ AI ครบ ${DAILY_LIMIT} ครั้งแล้วในวันนี้ กรุณาลองใหม่พรุ่งนี้` },
+      { status: 429 }
+    );
+  }
 
   const { assignmentId, question, history } = await req.json() as {
     assignmentId: string;
@@ -63,9 +95,8 @@ ${blockText ? `\nเนื้อหา:\n${blockText}` : ''}
 - ถ้าถามนอกเรื่องใบงาน ให้บอกอ่อนๆ ว่าขอโฟกัสที่เนื้อหาบทเรียน
 - ตอบสั้นๆ 2-4 ประโยค เพียงพอให้เข้าใจ`;
 
-  const model = genAI.getGenerativeModel({ model: 'gemini-2.5-flash' });
+  const model = genAI.getGenerativeModel({ model: 'gemini-1.5-flash' });
 
-  // Build conversation history for context
   const historyParts = (history ?? []).slice(-6).map(h => ({
     role: h.role,
     parts: [{ text: h.text }],
@@ -82,7 +113,13 @@ ${blockText ? `\nเนื้อหา:\n${blockText}` : ''}
   try {
     const result = await chat.sendMessage(question.trim());
     const reply = result.response.text().trim();
-    return NextResponse.json({ reply });
+
+    // Increment usage counter
+    const newCount = usage.count + 1;
+    await adminDb.collection('aiChatUsage').doc(uid).set({ count: newCount, date: todayStr() });
+
+    const remaining = Math.max(0, DAILY_LIMIT - newCount);
+    return NextResponse.json({ reply, remaining });
   } catch (err) {
     console.error('[ai-chat] Gemini error:', err instanceof Error ? err.message : err);
     const msg = err instanceof Error && err.message.includes('429')

@@ -86,6 +86,7 @@ export default function SubmissionPage({ params }: { params: Promise<{ id: strin
   const [chatInput, setChatInput] = useState('');
   const [chatMessages, setChatMessages] = useState<Array<{ role: 'user' | 'model'; text: string }>>([]);
   const [chatSending, setChatSending] = useState(false);
+  const [chatRemaining, setChatRemaining] = useState<number | null>(null);
   const chatBottomRef = useRef<HTMLDivElement>(null);
 
   function blockPaste(e: React.ClipboardEvent) {
@@ -253,8 +254,21 @@ export default function SubmissionPage({ params }: { params: Promise<{ id: strin
     }
   }
 
+  async function openChat() {
+    setChatOpen(o => {
+      if (!o && chatRemaining === null) {
+        fetch(`/api/ai-chat`)
+          .then(r => r.json())
+          .then(d => { if (typeof d.remaining === 'number') setChatRemaining(d.remaining); })
+          .catch(() => {});
+      }
+      return !o;
+    });
+  }
+
   async function sendChat() {
     if (!chatInput.trim() || chatSending || !id) return;
+    if (chatRemaining !== null && chatRemaining <= 0) return;
     const question = chatInput.trim();
     setChatInput('');
     const userMsg = { role: 'user' as const, text: question };
@@ -267,7 +281,13 @@ export default function SubmissionPage({ params }: { params: Promise<{ id: strin
         body: JSON.stringify({ assignmentId: id, question, history: chatMessages.slice(-6) }),
       });
       const data = await res.json();
-      setChatMessages(prev => [...prev, { role: 'model', text: data.reply ?? 'ขออภัย ไม่สามารถตอบได้ในขณะนี้' }]);
+      if (res.status === 429) {
+        setChatMessages(prev => [...prev, { role: 'model', text: data.error ?? 'โควต้าหมดแล้ว' }]);
+        setChatRemaining(0);
+      } else {
+        setChatMessages(prev => [...prev, { role: 'model', text: data.reply ?? 'ขออภัย ไม่สามารถตอบได้ในขณะนี้' }]);
+        if (typeof data.remaining === 'number') setChatRemaining(data.remaining);
+      }
     } catch {
       setChatMessages(prev => [...prev, { role: 'model', text: 'เกิดข้อผิดพลาด กรุณาลองใหม่' }]);
     } finally {
@@ -503,6 +523,17 @@ export default function SubmissionPage({ params }: { params: Promise<{ id: strin
               <div className="flex items-center gap-2">
                 <span className="text-base">🤖</span>
                 <span className="text-sm font-semibold text-slate-200">อาจารย์ AI</span>
+                {chatRemaining !== null && (
+                  <span className={`rounded-full px-2 py-0.5 text-[10px] font-semibold ${
+                    chatRemaining === 0
+                      ? 'bg-red-950/60 border border-red-800 text-red-400'
+                      : chatRemaining <= 5
+                      ? 'bg-amber-950/60 border border-amber-800 text-amber-400'
+                      : 'bg-slate-800 border border-slate-700 text-slate-400'
+                  }`}>
+                    เหลือ {chatRemaining} ครั้ง
+                  </span>
+                )}
               </div>
               <button onClick={() => setChatOpen(false)} className="text-slate-500 hover:text-slate-300">✕</button>
             </div>
@@ -512,6 +543,7 @@ export default function SubmissionPage({ params }: { params: Promise<{ id: strin
                 <div className="flex flex-col items-center gap-2 py-6 text-center text-slate-500">
                   <span className="text-3xl">💬</span>
                   <p className="text-xs">ถามเกี่ยวกับใบงานนี้ได้เลย!</p>
+                  <p className="text-[10px] text-slate-600">สามารถถามได้ 30 ครั้งต่อวัน</p>
                 </div>
               )}
               {chatMessages.map((m, i) => (
@@ -540,26 +572,34 @@ export default function SubmissionPage({ params }: { params: Promise<{ id: strin
             </div>
             {/* Input */}
             <div className="border-t border-slate-800 p-2 flex gap-2">
-              <input
-                className="flex-1 rounded-xl border border-slate-700 bg-slate-800 px-3 py-2 text-sm text-slate-200 placeholder-slate-500 outline-none focus:border-blue-600"
-                placeholder="ถามอาจารย์ AI..."
-                value={chatInput}
-                onChange={e => setChatInput(e.target.value)}
-                onKeyDown={e => e.key === 'Enter' && !e.shiftKey && sendChat()}
-                disabled={chatSending}
-              />
-              <button
-                onClick={sendChat}
-                disabled={chatSending || !chatInput.trim()}
-                className="rounded-xl bg-blue-600 px-3 py-2 text-sm text-white transition hover:bg-blue-500 disabled:opacity-40"
-              >
-                ส่ง
-              </button>
+              {chatRemaining === 0 ? (
+                <p className="flex-1 rounded-xl border border-red-900/50 bg-red-950/30 px-3 py-2 text-xs text-red-400 text-center">
+                  โควต้าวันนี้หมดแล้ว กรุณาลองใหม่พรุ่งนี้
+                </p>
+              ) : (
+                <>
+                  <input
+                    className="flex-1 rounded-xl border border-slate-700 bg-slate-800 px-3 py-2 text-sm text-slate-200 placeholder-slate-500 outline-none focus:border-blue-600"
+                    placeholder="ถามอาจารย์ AI..."
+                    value={chatInput}
+                    onChange={e => setChatInput(e.target.value)}
+                    onKeyDown={e => e.key === 'Enter' && !e.shiftKey && sendChat()}
+                    disabled={chatSending}
+                  />
+                  <button
+                    onClick={sendChat}
+                    disabled={chatSending || !chatInput.trim()}
+                    className="rounded-xl bg-blue-600 px-3 py-2 text-sm text-white transition hover:bg-blue-500 disabled:opacity-40"
+                  >
+                    ส่ง
+                  </button>
+                </>
+              )}
             </div>
           </div>
         )}
         <button
-          onClick={() => setChatOpen(o => !o)}
+          onClick={openChat}
           className="flex h-12 w-12 items-center justify-center rounded-full bg-blue-600 text-xl shadow-lg transition hover:bg-blue-500 hover:scale-110 active:scale-95"
           title="ถามอาจารย์ AI"
         >
