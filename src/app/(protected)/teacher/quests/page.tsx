@@ -14,6 +14,8 @@ interface Quest {
   resetType: 'daily' | 'once';
   classIds: string[];
   isActive: boolean;
+  claimedCount: number;
+  totalStudents: number;
 }
 
 interface Subject {
@@ -110,7 +112,7 @@ export default function TeacherQuestsPage() {
         });
         const data = await res.json();
         setQuests((prev) => [
-          { id: data.id, title, description, xpReward, icon, resetType, classIds: selectedClassIds, isActive: true },
+          { id: data.id, title, description, xpReward, icon, resetType, classIds: selectedClassIds, isActive: true, claimedCount: 0, totalStudents: 0 },
           ...prev,
         ]);
       }
@@ -343,6 +345,24 @@ function QuestCard({
   onToggle: () => void;
   onDelete: () => void;
 }) {
+  const pct = quest.totalStudents > 0
+    ? Math.round((quest.claimedCount / quest.totalStudents) * 100)
+    : 0;
+
+  const claimColor = quest.totalStudents === 0
+    ? 'text-slate-500'
+    : quest.claimedCount >= quest.totalStudents
+      ? 'text-emerald-400'
+      : quest.claimedCount > 0
+        ? 'text-amber-400'
+        : 'text-slate-500';
+
+  const barColor = quest.claimedCount >= quest.totalStudents && quest.totalStudents > 0
+    ? 'bg-emerald-500'
+    : quest.claimedCount > 0
+      ? 'bg-amber-500'
+      : 'bg-slate-700';
+
   return (
     <div className={`group relative overflow-hidden rounded-2xl border transition-all ${
       quest.isActive
@@ -375,6 +395,24 @@ function QuestCard({
           }`}>
             {quest.isActive ? '● เปิด' : '○ ปิด'}
           </span>
+        </div>
+
+        {/* Acceptance progress */}
+        <div className="mt-3 rounded-xl border border-slate-800 bg-slate-800/40 px-3 py-2">
+          <div className="flex items-center justify-between mb-1.5">
+            <span className="text-[10px] text-slate-500">
+              {quest.resetType === 'daily' ? 'รับเควสวันนี้' : 'รับเควสแล้ว'}
+            </span>
+            <span className={`text-xs font-bold ${claimColor}`}>
+              {quest.claimedCount}/{quest.totalStudents} คน
+            </span>
+          </div>
+          <div className="h-1.5 w-full overflow-hidden rounded-full bg-slate-700">
+            <div
+              className={`h-full rounded-full transition-all duration-500 ${barColor}`}
+              style={{ width: `${pct}%` }}
+            />
+          </div>
         </div>
 
         {quest.classIds?.length > 0 && (

@@ -19,18 +19,99 @@ export async function GET() {
   const uid = await getTeacherUid();
   if (!uid) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
 
+  // No orderBy — avoids requiring a Firestore composite index; sort in JS instead
   const snap = await adminDb.collection('quests')
     .where('teacherId', '==', uid)
-    .orderBy('createdAt', 'desc')
     .get();
 
-  return NextResponse.json(
-    snap.docs.map((d) => ({
-      id: d.id,
-      ...d.data(),
-      createdAt: d.data().createdAt?.toDate?.() ?? new Date(),
-    }))
-  );
+  if (snap.empty) return NextResponse.json([]);
+
+  interface QuestRaw {
+    id: string;
+    title: string;
+    description: string;
+    xpReward: number;
+    icon: string;
+    resetType: 'daily' | 'once';
+    classIds: string[];
+    isActive: boolean;
+    createdAt: Date;
+  }
+
+  const quests: QuestRaw[] = snap.docs.map(d => ({
+    id: d.id,
+    title: (d.data().title as string) ?? '',
+    description: (d.data().description as string) ?? '',
+    xpReward: (d.data().xpReward as number) ?? 0,
+    icon: (d.data().icon as string) ?? '⭐',
+    resetType: ((d.data().resetType as string) === 'once' ? 'once' : 'daily'),
+    classIds: (d.data().classIds as string[]) ?? [],
+    isActive: (d.data().isActive as boolean) ?? true,
+    createdAt: d.data().createdAt?.toDate?.() ?? new Date(0),
+  }));
+
+  // Sort newest first
+  quests.sort((a, b) => b.createdAt.getTime() - a.createdAt.getTime());
+
+  const questIds = quests.map(q => q.id);
+  const allClassIds = [...new Set(quests.flatMap(q => q.classIds))];
+  const today = new Date().toISOString().split('T')[0];
+
+  // Fetch quest claims per quest (chunked, Firestore in-limit = 10)
+  // For daily quests: count unique students who claimed TODAY
+  // For once quests:  count unique students who ever claimed
+  const claimedByQuest = new Map<string, Set<string>>();
+
+  for (let i = 0; i < questIds.length; i += 10) {
+    const chunk = questIds.slice(i, i + 10);
+    const claimsSnap = await adminDb.collection('questClaims')
+      .where('questId', 'in', chunk)
+      .get();
+
+    claimsSnap.docs.forEach(d => {
+      const questId = d.data().questId as string;
+      const studentId = d.data().studentId as string;
+      const claimDate = d.data().claimDate as string;
+      const quest = quests.find(q => q.id === questId);
+      if (!quest) return;
+      if (quest.resetType === 'daily' && claimDate !== today) return;
+
+      if (!claimedByQuest.has(questId)) claimedByQuest.set(questId, new Set());
+      claimedByQuest.get(questId)!.add(studentId);
+    });
+  }
+
+  // Fetch student count per class
+  const studentsByClass = new Map<string, number>();
+  if (allClassIds.length > 0) {
+    for (let i = 0; i < allClassIds.length; i += 10) {
+      const chunk = allClassIds.slice(i, i + 10);
+      const studentsSnap = await adminDb.collection('users')
+        .where('role', '==', 'student')
+        .where('classId', 'in', chunk)
+        .get();
+      studentsSnap.docs.forEach(d => {
+        const classId = d.data().classId as string;
+        studentsByClass.set(classId, (studentsByClass.get(classId) ?? 0) + 1);
+      });
+    }
+  }
+
+  const result = quests.map(q => ({
+    id: q.id,
+    title: q.title,
+    description: q.description,
+    xpReward: q.xpReward,
+    icon: q.icon,
+    resetType: q.resetType,
+    classIds: q.classIds,
+    isActive: q.isActive,
+    createdAt: q.createdAt.toISOString(),
+    claimedCount: claimedByQuest.get(q.id)?.size ?? 0,
+    totalStudents: q.classIds.reduce((acc, cid) => acc + (studentsByClass.get(cid) ?? 0), 0),
+  }));
+
+  return NextResponse.json(result);
 }
 
 export async function POST(req: NextRequest) {
