@@ -81,14 +81,6 @@ export default function SubmissionPage({ params }: { params: Promise<{ id: strin
   const tabSwitchRef = useRef(0);
   const autoSubmitRef = useRef(false);
 
-  // AI chat
-  const [chatOpen, setChatOpen] = useState(false);
-  const [chatInput, setChatInput] = useState('');
-  const [chatMessages, setChatMessages] = useState<Array<{ role: 'user' | 'model'; text: string }>>([]);
-  const [chatSending, setChatSending] = useState(false);
-  const [chatRemaining, setChatRemaining] = useState<number | null>(null);
-  const chatBottomRef = useRef<HTMLDivElement>(null);
-
   function blockPaste(e: React.ClipboardEvent) {
     e.preventDefault();
     setPasteBlocked(true);
@@ -251,48 +243,6 @@ export default function SubmissionPage({ params }: { params: Promise<{ id: strin
     setQuizStarted(true);
     if (assignment?.timeLimit && assignment.timeLimit > 0) {
       setTimeLeft(assignment.timeLimit * 60);
-    }
-  }
-
-  async function openChat() {
-    setChatOpen(o => {
-      if (!o && chatRemaining === null) {
-        fetch(`/api/ai-chat`)
-          .then(r => r.json())
-          .then(d => { if (typeof d.remaining === 'number') setChatRemaining(d.remaining); })
-          .catch(() => {});
-      }
-      return !o;
-    });
-  }
-
-  async function sendChat() {
-    if (!chatInput.trim() || chatSending || !id) return;
-    if (chatRemaining !== null && chatRemaining <= 0) return;
-    const question = chatInput.trim();
-    setChatInput('');
-    const userMsg = { role: 'user' as const, text: question };
-    setChatMessages(prev => [...prev, userMsg]);
-    setChatSending(true);
-    try {
-      const res = await fetch('/api/ai-chat', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ assignmentId: id, question, history: chatMessages.slice(-6) }),
-      });
-      const data = await res.json();
-      if (res.status === 429) {
-        setChatMessages(prev => [...prev, { role: 'model', text: data.error ?? 'โควต้าหมดแล้ว' }]);
-        setChatRemaining(0);
-      } else {
-        setChatMessages(prev => [...prev, { role: 'model', text: data.reply ?? 'ขออภัย ไม่สามารถตอบได้ในขณะนี้' }]);
-        if (typeof data.remaining === 'number') setChatRemaining(data.remaining);
-      }
-    } catch {
-      setChatMessages(prev => [...prev, { role: 'model', text: 'เกิดข้อผิดพลาด กรุณาลองใหม่' }]);
-    } finally {
-      setChatSending(false);
-      setTimeout(() => chatBottomRef.current?.scrollIntoView({ behavior: 'smooth' }), 100);
     }
   }
 
@@ -514,98 +464,6 @@ export default function SubmissionPage({ params }: { params: Promise<{ id: strin
         )}
       </div>
 
-      {/* ── Floating AI Chat ── */}
-      <div className="fixed bottom-6 right-6 z-50 flex flex-col items-end gap-3">
-        {chatOpen && (
-          <div className="flex w-80 flex-col overflow-hidden rounded-2xl border border-slate-700 bg-slate-900 shadow-2xl" style={{ height: '420px' }}>
-            {/* Chat header */}
-            <div className="flex items-center justify-between border-b border-slate-800 bg-slate-950/80 px-4 py-2.5">
-              <div className="flex items-center gap-2">
-                <span className="text-base">🤖</span>
-                <span className="text-sm font-semibold text-slate-200">อาจารย์ AI</span>
-                {chatRemaining !== null && (
-                  <span className={`rounded-full px-2 py-0.5 text-[10px] font-semibold ${
-                    chatRemaining === 0
-                      ? 'bg-red-950/60 border border-red-800 text-red-400'
-                      : chatRemaining <= 5
-                      ? 'bg-amber-950/60 border border-amber-800 text-amber-400'
-                      : 'bg-slate-800 border border-slate-700 text-slate-400'
-                  }`}>
-                    เหลือ {chatRemaining} ครั้ง
-                  </span>
-                )}
-              </div>
-              <button onClick={() => setChatOpen(false)} className="text-slate-500 hover:text-slate-300">✕</button>
-            </div>
-            {/* Messages */}
-            <div className="flex-1 overflow-y-auto p-3 space-y-2">
-              {chatMessages.length === 0 && (
-                <div className="flex flex-col items-center gap-2 py-6 text-center text-slate-500">
-                  <span className="text-3xl">💬</span>
-                  <p className="text-xs">ถามเกี่ยวกับใบงานนี้ได้เลย!</p>
-                  <p className="text-[10px] text-slate-600">สามารถถามได้ 30 ครั้งต่อวัน</p>
-                </div>
-              )}
-              {chatMessages.map((m, i) => (
-                <div key={i} className={`flex ${m.role === 'user' ? 'justify-end' : 'justify-start'}`}>
-                  <div className={`max-w-[85%] rounded-2xl px-3 py-2 text-sm ${
-                    m.role === 'user'
-                      ? 'bg-blue-600 text-white rounded-br-sm'
-                      : 'bg-slate-800 text-slate-200 rounded-bl-sm'
-                  }`}>
-                    {m.text}
-                  </div>
-                </div>
-              ))}
-              {chatSending && (
-                <div className="flex justify-start">
-                  <div className="bg-slate-800 rounded-2xl rounded-bl-sm px-3 py-2">
-                    <div className="flex gap-1">
-                      <div className="h-1.5 w-1.5 animate-bounce rounded-full bg-slate-500" style={{ animationDelay: '0ms' }} />
-                      <div className="h-1.5 w-1.5 animate-bounce rounded-full bg-slate-500" style={{ animationDelay: '150ms' }} />
-                      <div className="h-1.5 w-1.5 animate-bounce rounded-full bg-slate-500" style={{ animationDelay: '300ms' }} />
-                    </div>
-                  </div>
-                </div>
-              )}
-              <div ref={chatBottomRef} />
-            </div>
-            {/* Input */}
-            <div className="border-t border-slate-800 p-2 flex gap-2">
-              {chatRemaining === 0 ? (
-                <p className="flex-1 rounded-xl border border-red-900/50 bg-red-950/30 px-3 py-2 text-xs text-red-400 text-center">
-                  โควต้าวันนี้หมดแล้ว กรุณาลองใหม่พรุ่งนี้
-                </p>
-              ) : (
-                <>
-                  <input
-                    className="flex-1 rounded-xl border border-slate-700 bg-slate-800 px-3 py-2 text-sm text-slate-200 placeholder-slate-500 outline-none focus:border-blue-600"
-                    placeholder="ถามอาจารย์ AI..."
-                    value={chatInput}
-                    onChange={e => setChatInput(e.target.value)}
-                    onKeyDown={e => e.key === 'Enter' && !e.shiftKey && sendChat()}
-                    disabled={chatSending}
-                  />
-                  <button
-                    onClick={sendChat}
-                    disabled={chatSending || !chatInput.trim()}
-                    className="rounded-xl bg-blue-600 px-3 py-2 text-sm text-white transition hover:bg-blue-500 disabled:opacity-40"
-                  >
-                    ส่ง
-                  </button>
-                </>
-              )}
-            </div>
-          </div>
-        )}
-        <button
-          onClick={openChat}
-          className="flex h-12 w-12 items-center justify-center rounded-full bg-blue-600 text-xl shadow-lg transition hover:bg-blue-500 hover:scale-110 active:scale-95"
-          title="ถามอาจารย์ AI"
-        >
-          {chatOpen ? '✕' : '🤖'}
-        </button>
-      </div>
     </div>
   );
 }
