@@ -1,7 +1,10 @@
 import Groq from 'groq-sdk';
 
-const groq = new Groq({ apiKey: process.env.GROQ_API_KEY });
 const MODEL = 'llama-3.3-70b-versatile';
+
+function getGroq() {
+  return new Groq({ apiKey: process.env.GROQ_API_KEY });
+}
 
 export interface GradingResult {
   score: number;
@@ -102,7 +105,7 @@ Scoring guide: 90-100 excellent, 70-89 good, 50-69 adequate, 30-49 incomplete, 0
 Short answers (<30 words) should score at most 40 unless the question is trivial.`;
 
   const completion = await withRetry(() =>
-    groq.chat.completions.create({
+    getGroq().chat.completions.create({
       model: MODEL,
       messages: [{ role: 'user', content: prompt }],
       temperature: 0.3,
@@ -161,7 +164,7 @@ Rules:
 - Grade each student independently`;
 
   const completion = await withRetry(() =>
-    groq.chat.completions.create({
+    getGroq().chat.completions.create({
       model: MODEL,
       messages: [{ role: 'user', content: prompt }],
       temperature: 0.3,
