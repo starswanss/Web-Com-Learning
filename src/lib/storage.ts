@@ -8,7 +8,7 @@ import {
 function driveViewUrl(fileId: string, mimeType: string): string {
   if (mimeType === 'application/pdf')
     return `https://drive.google.com/file/d/${fileId}/preview`;
-  return `https://drive.google.com/uc?export=view&id=${fileId}`;
+  return `https://drive.google.com/thumbnail?id=${fileId}&sz=w1600`;
 }
 
 export async function uploadToStorage(

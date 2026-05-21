@@ -27,6 +27,7 @@ const MAX_BYTES = 10 * 1024 * 1024; // 10 MB
 export async function POST(req: NextRequest) {
   const student = await getStudent();
   if (!student) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+  if (!student.classId) return NextResponse.json({ error: 'ไม่พบข้อมูลห้องเรียน' }, { status: 400 });
 
   const formData = await req.formData();
   const file = formData.get('file') as File | null;
@@ -50,7 +51,8 @@ export async function POST(req: NextRequest) {
     );
     return NextResponse.json({ url: result.url });
   } catch (err) {
-    console.error('[student/upload-image]', err);
-    return NextResponse.json({ error: 'อัปโหลดไม่สำเร็จ กรุณาลองใหม่' }, { status: 500 });
+    const msg = err instanceof Error ? err.message : String(err);
+    console.error('[student/upload-image]', msg);
+    return NextResponse.json({ error: `อัปโหลดไม่สำเร็จ: ${msg}` }, { status: 500 });
   }
 }
