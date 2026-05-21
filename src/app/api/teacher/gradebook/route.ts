@@ -32,7 +32,14 @@ export async function GET(req: NextRequest) {
     title: string;
     subjectId?: string;
     classIds: string[];
+    contentType?: string;
+    createdAt?: { _seconds?: number; seconds?: number };
   }>;
+
+  // Only show ใบงาน (worksheet) and แบบทดสอบ (quiz)
+  assignments = assignments.filter((a) =>
+    ['worksheet', 'quiz'].includes(a.contentType ?? 'worksheet')
+  );
 
   if (subjectId) {
     assignments = assignments.filter((a) => a.subjectId === subjectId);
@@ -42,8 +49,12 @@ export async function GET(req: NextRequest) {
     return NextResponse.json({ assignments: [], students: [] });
   }
 
-  // Sort assignments by title for consistent column order
-  assignments.sort((a, b) => a.title.localeCompare(b.title, 'th'));
+  // Sort by creation date ascending (oldest → newest = left → right)
+  assignments.sort((a, b) => {
+    const aT = a.createdAt?._seconds ?? a.createdAt?.seconds ?? 0;
+    const bT = b.createdAt?._seconds ?? b.createdAt?.seconds ?? 0;
+    return aT - bT;
+  });
 
   // 2. Collect all classIds across assignments
   const allClassIds = Array.from(

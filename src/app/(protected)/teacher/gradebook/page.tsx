@@ -180,18 +180,19 @@ export default function GradebookPage() {
                       {visibleAssignments.map((a) => {
                         const cell = student.submissions[a.id];
                         const style = cellStyle(cell);
+                        const cellBorder = cell
+                          ? cell.status === 'reviewed'
+                            ? (cell.score ?? 0) >= 80 ? 'border-emerald-800' : (cell.score ?? 0) >= 60 ? 'border-amber-800' : 'border-red-800'
+                            : cell.status === 'graded' ? 'border-blue-800'
+                            : 'border-amber-800'
+                          : '';
                         return (
                           <td key={a.id} className="px-1.5 py-1.5 text-center">
                             {cell ? (
                               <Link
-                                href={`/teacher/assignments/${a.id}/submissions`}
-                                className={`inline-flex h-8 w-14 items-center justify-center rounded-lg border font-semibold transition-all hover:brightness-125 ${style.bg} ${style.text} ${
-                                  cell.status === 'reviewed'
-                                    ? cell.score! >= 80 ? 'border-emerald-800' : cell.score! >= 60 ? 'border-amber-800' : 'border-red-800'
-                                    : cell.status === 'graded' ? 'border-blue-800'
-                                    : 'border-amber-800'
-                                }`}
-                                title={`${student.displayName} — ${a.title}`}
+                                href={`/teacher/assignments/${a.id}/submissions?sub=${cell.submissionId}`}
+                                className={`inline-flex h-8 w-14 items-center justify-center rounded-lg border font-semibold transition-all hover:brightness-125 ${style.bg} ${style.text} ${cellBorder}`}
+                                title={`${student.displayName} — ${a.title} (${style.label})`}
                               >
                                 {style.label}
                               </Link>

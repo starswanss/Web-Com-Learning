@@ -1,7 +1,7 @@
 'use client';
 
 import { useEffect, useState, use } from 'react';
-import { useRouter } from 'next/navigation';
+import { useRouter, useSearchParams } from 'next/navigation';
 import { useAuth } from '@/context/AuthContext';
 import Link from 'next/link';
 
@@ -75,6 +75,8 @@ export default function SubmissionsPage({ params }: { params: Promise<{ id: stri
   const { id } = use(params);
   const { profile, loading } = useAuth();
   const router = useRouter();
+  const searchParams = useSearchParams();
+  const autoSubId = searchParams.get('sub');
 
   const [assignment, setAssignment] = useState<Assignment | null>(null);
   const [submissions, setSubmissions] = useState<Submission[]>([]);
@@ -101,8 +103,18 @@ export default function SubmissionsPage({ params }: { params: Promise<{ id: stri
       .then((r) => r.json())
       .then((data) => {
         setAssignment(data.assignment ?? null);
-        setSubmissions(Array.isArray(data.submissions) ? data.submissions : []);
+        const subs: Submission[] = Array.isArray(data.submissions) ? data.submissions : [];
+        setSubmissions(subs);
         setClassStats(Array.isArray(data.classStats) ? data.classStats : []);
+        // Auto-open submission from ?sub= query param (e.g. coming from Gradebook)
+        if (autoSubId) {
+          const target = subs.find((s) => s.id === autoSubId);
+          if (target) {
+            setSelected(target);
+            setScore(target.score !== undefined ? String(target.score) : '');
+            setFeedback(target.feedback ?? '');
+          }
+        }
       })
       .finally(() => setFetching(false));
   }, [profile, id]);
