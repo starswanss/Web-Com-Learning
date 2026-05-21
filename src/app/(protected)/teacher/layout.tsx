@@ -5,27 +5,25 @@ import Link from 'next/link';
 import { useAuth } from '@/context/AuthContext';
 
 const NAV_LINKS = [
-  { href: '/teacher/overview',      icon: '📊', label: 'ภาพรวม' },
-  { href: '/teacher/students',      icon: '🎓', label: 'นักเรียน' },
-  { href: '/teacher/members',       icon: '👥', label: 'สมาชิก' },
-  { href: '/teacher/milestones',    icon: '🏁', label: 'Milestone' },
-  { href: '/teacher/quests',        icon: '⚡', label: 'เควส' },
-  { href: '/teacher/leaderboard',   icon: '🏆', label: 'Rank' },
-  { href: '/teacher/analytics',     icon: '📈', label: 'Analytics' },
-  { href: '/teacher/timetable',     icon: '🗓', label: 'ตารางสอน' },
-  { href: '/teacher/question-bank', icon: '❓', label: 'Q-Bank' },
-  { href: '/teacher/templates',     icon: '📋', label: 'Template' },
+  { href: '/teacher/overview',         icon: '📊', label: 'ภาพรวม' },
+  { href: '/teacher/students',         icon: '🎓', label: 'นักเรียน' },
+  { href: '/teacher/members',          icon: '👥', label: 'สมาชิก' },
+  { href: '/teacher/gradebook',        icon: '📒', label: 'Gradebook' },
+  { href: '/teacher/milestones',       icon: '🏁', label: 'Milestone' },
+  { href: '/teacher/quests',           icon: '⚡', label: 'เควส' },
+  { href: '/teacher/leaderboard',      icon: '🏆', label: 'Rank' },
+  { href: '/teacher/analytics',        icon: '📈', label: 'Analytics' },
   { href: '/teacher/export-report',    icon: '📤', label: 'Export' },
   { href: '/teacher/submission-stats', icon: '📋', label: 'การส่ง' },
   { href: '/teacher/level-settings',   icon: '🎚️', label: 'เลเวล' },
-  { href: '/teacher/admin',         icon: '⚙️', label: 'Admin' },
+  { href: '/teacher/admin',            icon: '⚙️', label: 'Admin' },
 ];
 
 const BOTTOM_SHORTCUTS = [
   { href: '/teacher/overview',    icon: '📊', label: 'ภาพรวม' },
   { href: '/teacher/members',     icon: '👥', label: 'สมาชิก' },
+  { href: '/teacher/gradebook',   icon: '📒', label: 'Gradebook' },
   { href: '/teacher/leaderboard', icon: '🏆', label: 'Rank' },
-  { href: '/teacher/timetable',   icon: '🗓', label: 'ตารางสอน' },
 ];
 
 export default function TeacherLayout({ children }: { children: React.ReactNode }) {

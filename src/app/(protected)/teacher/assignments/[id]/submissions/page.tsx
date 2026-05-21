@@ -272,53 +272,76 @@ export default function SubmissionsPage({ params }: { params: Promise<{ id: stri
         ) : (
           <div className="flex gap-4 h-[calc(100vh-112px)]">
             {/* Submission list */}
-            <div className="w-72 shrink-0 overflow-y-auto space-y-2 pr-1">
+            <div className="w-72 shrink-0 overflow-y-auto pr-1">
               {submissions.length === 0 ? (
                 <div className="rounded-xl border border-dashed border-slate-800 py-12 text-center">
                   <p className="text-sm text-slate-500">ยังไม่มีการส่งงาน</p>
                 </div>
               ) : (
-                submissions.map((sub) => (
-                  <div
-                    key={sub.id}
-                    className={`rounded-xl border transition-all ${
-                      selected?.id === sub.id ? 'border-blue-700 bg-blue-950/30' : 'border-slate-800 bg-slate-900'
-                    }`}
-                  >
-                    <button
-                      onClick={() => openSubmission(sub)}
-                      className="w-full p-3 text-left hover:bg-white/5 rounded-t-xl transition-colors"
-                    >
-                      <div className="flex items-start justify-between gap-2">
-                        <p className="text-sm font-medium text-slate-200 truncate">{sub.studentName}</p>
-                        <span className={`shrink-0 rounded-full border px-2 py-0.5 text-xs ${statusBadge(sub.status)}`}>
-                          {statusLabel(sub.status)}
-                        </span>
+                <>
+                  {/* รอตรวจ section */}
+                  {(() => {
+                    const pending = submissions.filter((s) => s.status === 'submitted');
+                    if (pending.length === 0) return null;
+                    return (
+                      <div className="mb-3">
+                        <div className="mb-2 flex items-center gap-2 px-1">
+                          <span className="text-[10px] font-bold uppercase tracking-wider text-amber-400">รอตรวจ</span>
+                          <span className="rounded-full bg-amber-950/60 border border-amber-800 px-2 py-0.5 text-[10px] font-bold text-amber-400">{pending.length}</span>
+                        </div>
+                        <div className="space-y-2">
+                          {pending.map((sub) => (
+                            <SubmissionCard
+                              key={sub.id}
+                              sub={sub}
+                              selected={selected}
+                              deleting={deleting}
+                              onOpen={openSubmission}
+                              onDelete={handleDeleteSubmission}
+                            />
+                          ))}
+                        </div>
                       </div>
-                      <p className="mt-0.5 text-xs text-slate-500">{sub.classId}</p>
-                      {typeof sub.score === 'number' && (
-                        <p className={`mt-1 text-xs font-semibold ${sub.score >= 60 ? 'text-emerald-400' : 'text-red-400'}`}>
-                          {sub.score}/100
-                        </p>
-                      )}
-                      {(sub.plagiarismSuspicion ?? 0) > 60 && (
-                        <p className="mt-1 text-xs text-amber-500">⚠ เสี่ยงคัดลอก {sub.plagiarismSuspicion}%</p>
-                      )}
-                      {(sub.tabSwitchCount ?? 0) > 0 && (
-                        <p className="mt-1 text-xs text-orange-400">🔍 เปลี่ยนแท็บ {sub.tabSwitchCount} ครั้ง</p>
-                      )}
-                    </button>
-                    <div className="border-t border-slate-800 px-3 py-1.5">
-                      <button
-                        onClick={() => handleDeleteSubmission(sub.id)}
-                        disabled={deleting === sub.id}
-                        className="text-xs text-red-500 hover:text-red-400 disabled:opacity-50 transition-colors"
-                      >
-                        {deleting === sub.id ? '…' : 'ลบงาน (ให้ส่งใหม่)'}
-                      </button>
+                    );
+                  })()}
+
+                  {/* Divider */}
+                  {submissions.some((s) => s.status === 'submitted') && submissions.some((s) => s.status !== 'submitted') && (
+                    <div className="my-3 flex items-center gap-2">
+                      <div className="h-px flex-1 bg-slate-800" />
+                      <span className="text-[10px] text-slate-600">ตรวจแล้ว</span>
+                      <div className="h-px flex-1 bg-slate-800" />
                     </div>
-                  </div>
-                ))
+                  )}
+
+                  {/* ตรวจแล้ว section */}
+                  {(() => {
+                    const done = submissions.filter((s) => s.status !== 'submitted');
+                    if (done.length === 0) return null;
+                    return (
+                      <div>
+                        {submissions.every((s) => s.status !== 'submitted') && (
+                          <div className="mb-2 flex items-center gap-2 px-1">
+                            <span className="text-[10px] font-bold uppercase tracking-wider text-emerald-400">ตรวจแล้ว</span>
+                            <span className="rounded-full bg-emerald-950/60 border border-emerald-800 px-2 py-0.5 text-[10px] font-bold text-emerald-400">{done.length}</span>
+                          </div>
+                        )}
+                        <div className="space-y-2">
+                          {done.map((sub) => (
+                            <SubmissionCard
+                              key={sub.id}
+                              sub={sub}
+                              selected={selected}
+                              deleting={deleting}
+                              onOpen={openSubmission}
+                              onDelete={handleDeleteSubmission}
+                            />
+                          ))}
+                        </div>
+                      </div>
+                    );
+                  })()}
+                </>
               )}
             </div>
 
@@ -427,6 +450,55 @@ export default function SubmissionsPage({ params }: { params: Promise<{ id: stri
           </div>
         )}
       </main>
+    </div>
+  );
+}
+
+function SubmissionCard({
+  sub, selected, deleting, onOpen, onDelete,
+}: {
+  sub: Submission;
+  selected: Submission | null;
+  deleting: string | null;
+  onOpen: (s: Submission) => void;
+  onDelete: (id: string) => void;
+}) {
+  return (
+    <div className={`rounded-xl border transition-all ${
+      selected?.id === sub.id ? 'border-blue-700 bg-blue-950/30' : 'border-slate-800 bg-slate-900'
+    }`}>
+      <button
+        onClick={() => onOpen(sub)}
+        className="w-full p-3 text-left hover:bg-white/5 rounded-t-xl transition-colors"
+      >
+        <div className="flex items-start justify-between gap-2">
+          <p className="text-sm font-medium text-slate-200 truncate">{sub.studentName}</p>
+          <span className={`shrink-0 rounded-full border px-2 py-0.5 text-xs ${statusBadge(sub.status)}`}>
+            {statusLabel(sub.status)}
+          </span>
+        </div>
+        <p className="mt-0.5 text-xs text-slate-500">{sub.classId}</p>
+        {typeof sub.score === 'number' && (
+          <p className={`mt-1 text-xs font-semibold ${sub.score >= 60 ? 'text-emerald-400' : 'text-red-400'}`}>
+            {sub.score}/100
+          </p>
+        )}
+        {(sub.plagiarismSuspicion ?? 0) > 60 && (
+          <p className="mt-1 text-xs text-amber-500">⚠ เสี่ยงคัดลอก {sub.plagiarismSuspicion}%</p>
+        )}
+        {(sub.tabSwitchCount ?? 0) > 0 && (
+          <p className="mt-1 text-xs text-orange-400">🔍 เปลี่ยนแท็บ {sub.tabSwitchCount} ครั้ง</p>
+        )}
+      </button>
+      <div className="border-t border-slate-800 px-3 py-1.5">
+        <button
+          onClick={() => onDelete(sub.id)}
+          disabled={deleting === sub.id}
+          className="text-xs text-red-500 hover:text-red-400 disabled:opacity-50 transition-colors"
+        >
+          {deleting === sub.id ? '…' : 'ลบงาน (ให้ส่งใหม่)'}
+        </button>
+      </div>
     </div>
   );
 }

@@ -187,16 +187,80 @@ export default function StudentLeaderboardPage() {
       <main className="mx-auto max-w-xl px-6 py-8">
         {/* My rank highlight card (if not in top 3) */}
         {myEntry && myEntry.rank > 3 && (
-          <div className="mb-6 rounded-2xl border border-blue-800/60 bg-blue-950/20 p-5 text-center">
-            <p className="mb-1 text-xs text-slate-500">อันดับของคุณ</p>
-            <p className="text-3xl font-black text-blue-300">#{myEntry.rank}</p>
-            <p className={`mt-1 text-2xl font-bold ${myEntry.avgScore !== null ? scoreColor(myEntry.avgScore) : 'text-slate-500'}`}>
-              {myEntry.totalScore} <span className="text-sm text-slate-500">คะแนนรวม</span>
+          <div className="mb-6 relative overflow-hidden rounded-3xl border border-blue-500/40 bg-gradient-to-br from-blue-950/70 via-slate-900/90 to-violet-950/70 p-6 text-center animate-rank-glow">
+            {/* Floating sparkle particles */}
+            <span className="absolute top-3 left-5 text-blue-400/50 text-sm animate-ember-rise select-none pointer-events-none" style={{ animationDelay: '0s', animationDuration: '2.4s' }}>✦</span>
+            <span className="absolute top-6 right-6 text-violet-400/50 text-xs animate-ember-rise select-none pointer-events-none" style={{ animationDelay: '0.9s', animationDuration: '3s' }}>◆</span>
+            <span className="absolute bottom-5 left-9 text-cyan-400/40 text-[10px] animate-ember-rise select-none pointer-events-none" style={{ animationDelay: '1.7s', animationDuration: '2.7s' }}>✦</span>
+            <span className="absolute bottom-4 right-10 text-blue-300/30 text-[10px] animate-ember-rise select-none pointer-events-none" style={{ animationDelay: '2.5s', animationDuration: '3.2s' }}>◆</span>
+
+            {/* Label */}
+            <p className="mb-3 text-[10px] font-bold uppercase tracking-widest text-blue-400/70">⚡ อันดับของคุณ ⚡</p>
+
+            {/* Orbiting dot around avatar */}
+            <div className="relative mb-3 flex justify-center">
+              <div className="relative inline-flex">
+                <div className="h-16 w-16 rounded-full border-2 border-blue-500/50 bg-gradient-to-br from-blue-900/70 to-violet-900/70 flex items-center justify-center text-3xl animate-rank-float shadow-lg shadow-blue-900/40">
+                  🎮
+                </div>
+                <span className="absolute top-0 left-0 w-full h-full flex items-center justify-center pointer-events-none">
+                  <span className="absolute animate-rank-orbit text-[8px] text-blue-400/80">●</span>
+                </span>
+              </div>
+            </div>
+
+            {/* Rank number — gradient text */}
+            <div className="mb-1 leading-none">
+              <span className="text-7xl font-black bg-gradient-to-b from-blue-300 to-violet-400 bg-clip-text text-transparent">
+                #{myEntry.rank}
+              </span>
+            </div>
+
+            {/* Name */}
+            <p className="text-sm font-semibold text-slate-200 mb-0.5">
+              {myName}
+              <span className="ml-2 rounded-full bg-blue-500/20 px-2 py-0.5 text-xs text-blue-400">← ฉัน</span>
             </p>
+            <p className="text-[11px] text-slate-500">จาก {entries.length} คน ในห้องเรียน</p>
+
+            {/* Divider */}
+            <div className="my-4 mx-8 h-px bg-gradient-to-r from-transparent via-blue-700/40 to-transparent" />
+
+            {/* Stats row */}
+            <div className="flex items-start justify-center gap-8">
+              <div className="text-center">
+                <p className="text-2xl font-black text-blue-300">{myEntry.totalScore}</p>
+                <p className="text-[10px] text-slate-500 mt-0.5">คะแนนรวม</p>
+              </div>
+              {myEntry.avgScore !== null && (
+                <div className="text-center">
+                  <p className={`text-2xl font-bold ${scoreColor(myEntry.avgScore)}`}>{myEntry.avgScore}</p>
+                  <p className="text-[10px] text-slate-500 mt-0.5">เฉลี่ย</p>
+                </div>
+              )}
+              <div className="text-center">
+                <p className="text-2xl font-bold text-slate-300">{myEntry.submittedCount}</p>
+                <p className="text-[10px] text-slate-500 mt-0.5">ชิ้นงาน</p>
+              </div>
+            </div>
+
+            {/* Bonus */}
             {myEntry.bonusPoints > 0 && (
-              <p className="text-xs text-yellow-400 mt-0.5">avg {myEntry.avgScore} + {myEntry.bonusPoints} bonus</p>
+              <p className="mt-3 text-xs text-yellow-400">🏅 ×{myEntry.medalCount} · +{myEntry.bonusPoints} bonus</p>
             )}
-            <p className="mt-1 text-xs text-slate-500">จาก {entries.length} คน · ส่งงาน {myEntry.submittedCount} ชิ้น</p>
+
+            {/* Gap to next rank */}
+            {(() => {
+              const above = entries[myEntry.rank - 2];
+              if (!above) return null;
+              const gap = above.totalScore - myEntry.totalScore;
+              if (gap <= 0) return null;
+              return (
+                <p className="mt-2 text-[11px] text-slate-500">
+                  อีก <span className="font-semibold text-blue-400">{gap}</span> คะแนน → ขึ้นอันดับ #{myEntry.rank - 1}
+                </p>
+              );
+            })()}
           </div>
         )}
 
