@@ -3,7 +3,6 @@ import { adminAuth, adminDb } from '@/lib/firebase/admin';
 import { cookies } from 'next/headers';
 import { FieldValue } from 'firebase-admin/firestore';
 import { uploadSubmissionFile } from '@/lib/storage';
-import { gradeSubmission, answersToText } from '@/lib/gemini';
 import { calcXpGain } from '@/lib/xp';
 
 async function getStudent() {
@@ -50,7 +49,6 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: 'Forbidden' }, { status: 403 });
   }
 
-  // Assignment must be open for students to submit
   if (assignment.isOpen === false) {
     return NextResponse.json({ error: 'Assignment is closed' }, { status: 423 });
   }
@@ -63,52 +61,15 @@ export async function POST(req: NextRequest) {
     .get();
   if (!existing.empty) return NextResponse.json({ error: 'Already submitted' }, { status: 409 });
 
-  // Run Drive upload and plagiarism context fetch in parallel
+  // Upload file if provided
   const fileBuffer = file ? Buffer.from(await file.arrayBuffer()) : null;
-
-  const [uploadResult, othersSnap] = await Promise.all([
-    fileBuffer
-      ? uploadSubmissionFile(student.classId, student.displayName, fileBuffer, file!.type, file!.name)
-          .catch((err) => { console.error('[submissions] upload failed:', err); return null; })
-      : Promise.resolve(null),
-    adminDb.collection('submissions').where('assignmentId', '==', assignmentId).limit(20).get(),
-  ]);
+  const uploadResult = fileBuffer
+    ? await uploadSubmissionFile(student.classId, student.displayName, fileBuffer, file!.type, file!.name)
+        .catch((err) => { console.error('[submissions] upload failed:', err); return null; })
+    : null;
 
   const driveWebViewLink = uploadResult?.url ?? null;
-  const otherContents = othersSnap.docs.map((d) => d.data().content as string).filter(Boolean);
-
-  let score: number | null = null;
-  let feedback: string | null = null;
-  let plagiarismSuspicion = 0;
-  let gradingSuccess = false;
-
-  // For block-form answers, convert to text for AI grading
-  const gradableContent = content.trim()
-    ? content
-    : answers && assignment.blocks
-    ? answersToText(assignment.blocks as Array<{ id: string; type: string; question?: string }>, answers)
-    : '';
-
-  if (gradableContent) {
-    try {
-      const grading = await gradeSubmission(
-        assignment.title as string,
-        assignment.description as string,
-        gradableContent,
-        otherContents,
-        assignment.rubric as string | undefined
-      );
-      score = grading.score;
-      feedback = grading.feedback;
-      plagiarismSuspicion = grading.plagiarismSuspicion;
-      gradingSuccess = true;
-    } catch (err) {
-      // AI grading failed — keep score=null, status='submitted', teacher grades manually
-      console.error('[AI grading failed]', err instanceof Error ? err.message : err);
-    }
-  }
-
-  const xpGain = calcXpGain(gradingSuccess ? score : null);
+  const xpGain = calcXpGain(null); // base XP for submitting; score-based XP added when teacher grades
 
   const [docRef] = await Promise.all([
     adminDb.collection('submissions').add({
@@ -119,20 +80,20 @@ export async function POST(req: NextRequest) {
       content: content || null,
       answers: answers ?? null,
       driveWebViewLink: driveWebViewLink ?? null,
-      score: score ?? null,
-      feedback: feedback ?? null,
-      plagiarismSuspicion,
+      score: null,
+      feedback: null,
+      plagiarismSuspicion: 0,
       tabSwitchCount,
       selfScore: selfScore ?? null,
-      status: gradingSuccess ? 'graded' : 'submitted',
+      status: 'submitted',
       xpAwarded: xpGain,
       submittedAt: FieldValue.serverTimestamp(),
-      gradedAt: gradingSuccess ? FieldValue.serverTimestamp() : null,
+      gradedAt: null,
     }),
     adminDb.collection('users').doc(student.uid).update({
       xp: FieldValue.increment(xpGain),
     }),
   ]);
 
-  return NextResponse.json({ id: docRef.id, score, feedback, graded: gradingSuccess, xpGain }, { status: 201 });
+  return NextResponse.json({ id: docRef.id, score: null, feedback: null, graded: false, xpGain }, { status: 201 });
 }
