@@ -1,26 +1,7 @@
-import { GoogleGenerativeAI } from '@google/generative-ai';
+import Groq from 'groq-sdk';
 
-const genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY!);
-
-function isRateLimit(err: unknown): boolean {
-  const msg = err instanceof Error ? err.message : String(err);
-  return msg.includes('429') || msg.includes('RESOURCE_EXHAUSTED') || msg.includes('quota');
-}
-
-async function withRetry<T>(fn: () => Promise<T>, retries = 2, delayMs = 15_000): Promise<T> {
-  for (let attempt = 0; attempt <= retries; attempt++) {
-    try {
-      return await fn();
-    } catch (err) {
-      if (isRateLimit(err) && attempt < retries) {
-        await new Promise((r) => setTimeout(r, delayMs));
-        continue;
-      }
-      throw err;
-    }
-  }
-  throw new Error('Max retries exceeded');
-}
+const groq = new Groq({ apiKey: process.env.GROQ_API_KEY });
+const MODEL = 'llama-3.3-70b-versatile';
 
 export interface GradingResult {
   score: number;
@@ -45,6 +26,37 @@ export interface BatchGradingResult {
   plagiarismSuspicion: number;
 }
 
+function isRateLimit(err: unknown): boolean {
+  const msg = err instanceof Error ? err.message : String(err);
+  return msg.includes('429') || msg.includes('rate_limit') || msg.includes('quota');
+}
+
+async function withRetry<T>(fn: () => Promise<T>, retries = 2, delayMs = 15_000): Promise<T> {
+  for (let attempt = 0; attempt <= retries; attempt++) {
+    try {
+      return await fn();
+    } catch (err) {
+      if (isRateLimit(err) && attempt < retries) {
+        await new Promise((r) => setTimeout(r, delayMs));
+        continue;
+      }
+      throw err;
+    }
+  }
+  throw new Error('Max retries exceeded');
+}
+
+function parseJson<T>(text: string, arrayFallback: boolean): T {
+  try {
+    return JSON.parse(text) as T;
+  } catch {
+    const pattern = arrayFallback ? /\[[\s\S]*\]/ : /\{[\s\S]*\}/;
+    const match = text.match(pattern);
+    if (match) return JSON.parse(match[0]) as T;
+    throw new Error('JSON parse failed');
+  }
+}
+
 export async function gradeSubmission(
   assignmentTitle: string,
   assignmentDescription: string,
@@ -52,8 +64,6 @@ export async function gradeSubmission(
   otherSubmissions: string[] = [],
   rubric?: string
 ): Promise<GradingResult> {
-  const model = genAI.getGenerativeModel({ model: 'gemini-1.5-flash' });
-
   const comparisonBlock =
     otherSubmissions.length > 0
       ? `\n\nCompare with these other submissions in the same class for plagiarism detection:\n${otherSubmissions
@@ -91,14 +101,19 @@ Rules:
 Scoring guide: 90-100 excellent, 70-89 good, 50-69 adequate, 30-49 incomplete, 0-29 very poor or copied.
 Short answers (<30 words) should score at most 40 unless the question is trivial.`;
 
-  const result = await withRetry(() => model.generateContent(prompt));
-  const text = result.response.text().trim();
+  const completion = await withRetry(() =>
+    groq.chat.completions.create({
+      model: MODEL,
+      messages: [{ role: 'user', content: prompt }],
+      temperature: 0.3,
+    })
+  );
+
+  const text = completion.choices[0].message.content?.trim() ?? '';
 
   try {
-    return JSON.parse(text) as GradingResult;
+    return parseJson<GradingResult>(text, false);
   } catch {
-    const match = text.match(/\{[\s\S]*\}/);
-    if (match) return JSON.parse(match[0]) as GradingResult;
     return {
       score: 50,
       feedback: 'ระบบตรวจงานอัตโนมัติพบข้อผิดพลาด กรุณารอครูตรวจสอบด้วยตนเอง',
@@ -109,9 +124,8 @@ Short answers (<30 words) should score at most 40 unless the question is trivial
 }
 
 /**
- * Grade multiple student submissions in a single Gemini request.
- * Chunks of up to 15 keep the prompt within safe token limits while
- * dramatically reducing API calls vs. grading one-by-one.
+ * Grade multiple student submissions in a single request.
+ * Chunks of up to 15 keep the prompt within safe token limits.
  */
 export async function gradeSubmissionsBatch(
   assignmentTitle: string,
@@ -120,8 +134,6 @@ export async function gradeSubmissionsBatch(
   rubric?: string
 ): Promise<BatchGradingResult[]> {
   if (submissions.length === 0) return [];
-
-  const model = genAI.getGenerativeModel({ model: 'gemini-1.5-flash' });
 
   const rubricBlock = rubric ? `\n\nCriteria from teacher:\n${rubric}` : '';
 
@@ -148,16 +160,21 @@ Rules:
 - Short answers (<30 words) score at most 40 unless the question is trivial
 - Grade each student independently`;
 
-  const result = await withRetry(() => model.generateContent(prompt));
-  const text = result.response.text().trim();
+  const completion = await withRetry(() =>
+    groq.chat.completions.create({
+      model: MODEL,
+      messages: [{ role: 'user', content: prompt }],
+      temperature: 0.3,
+    })
+  );
+
+  const text = completion.choices[0].message.content?.trim() ?? '';
 
   let parsed: Array<{ score: number; feedback: string; plagiarismSuspicion: number }>;
   try {
-    parsed = JSON.parse(text);
+    parsed = parseJson(text, true);
   } catch {
-    const match = text.match(/\[[\s\S]*\]/);
-    if (match) parsed = JSON.parse(match[0]);
-    else throw new Error('batch parse failed');
+    throw new Error('batch parse failed');
   }
 
   return submissions.map((s, i) => ({
@@ -174,7 +191,9 @@ export function answersToText(
   answers: Record<string, string | string[]>
 ): string {
   return blocks
-    .filter((b) => ['short-answer', 'long-answer', 'multiple-choice', 'checkbox', 'ordering'].includes(b.type))
+    .filter((b) =>
+      ['short-answer', 'long-answer', 'multiple-choice', 'checkbox', 'ordering'].includes(b.type)
+    )
     .map((b) => {
       const ans = answers[b.id];
       let ansText: string;
