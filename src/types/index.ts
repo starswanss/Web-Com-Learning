@@ -25,7 +25,8 @@ export type BlockType =
   | 'long-answer'
   | 'multiple-choice'
   | 'checkbox'
-  | 'ordering';
+  | 'ordering'
+  | 'image-upload';
 
 export type InfographicColor = 'blue' | 'green' | 'purple' | 'orange' | 'red' | 'slate';
 
@@ -40,11 +41,12 @@ export interface LongAnswerBlock    extends BaseBlock { type: 'long-answer';    
 export interface MultipleChoiceBlock extends BaseBlock { type: 'multiple-choice'; question: string; options: string[]; optionImages?: (string | null)[]; correctIndex?: number; required?: boolean }
 export interface CheckboxBlock      extends BaseBlock { type: 'checkbox';        question: string; options: string[]; optionImages?: (string | null)[]; correctIndexes?: number[]; required?: boolean }
 export interface OrderingBlock      extends BaseBlock { type: 'ordering';        question: string; items: string[]; required?: boolean }
+export interface ImageUploadBlock  extends BaseBlock { type: 'image-upload';    question: string; required?: boolean }
 
 export type FormBlock =
   | HeadingBlock | ParagraphBlock | ImageBlock | PdfBlock | InfographicBlock
   | ShortAnswerBlock | LongAnswerBlock
-  | MultipleChoiceBlock | CheckboxBlock | OrderingBlock;
+  | MultipleChoiceBlock | CheckboxBlock | OrderingBlock | ImageUploadBlock;
 
 // ── Content type ──────────────────────────────────────────────────────────────
 

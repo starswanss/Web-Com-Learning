@@ -529,17 +529,28 @@ function BlockAnswers({ assignment, answers }: { assignment: Assignment | null; 
     );
   }
   const questionBlocks = assignment.blocks.filter((b) =>
-    ['short-answer', 'long-answer', 'multiple-choice', 'checkbox'].includes(b.type)
+    ['short-answer', 'long-answer', 'multiple-choice', 'checkbox', 'ordering', 'image-upload'].includes(b.type)
   );
   return (
     <div className="space-y-5">
       {questionBlocks.map((block, i) => {
         const answer = answers[block.id];
+        const q = 'question' in block ? (block as { question: string }).question : block.id;
         return (
           <div key={block.id}>
-            <p className="text-xs font-medium text-slate-400 mb-1">ข้อ {i + 1}. {block.question}</p>
+            <p className="text-xs font-medium text-slate-400 mb-1">ข้อ {i + 1}. {q}</p>
             {answer === undefined ? (
               <p className="text-sm text-slate-600 italic">ไม่ได้ตอบ</p>
+            ) : block.type === 'image-upload' && typeof answer === 'string' && answer ? (
+              <div className="space-y-1">
+                {/* eslint-disable-next-line @next/next/no-img-element */}
+                <img src={answer} alt="คำตอบนักเรียน" className="max-h-64 rounded-xl border border-slate-700 object-contain bg-slate-800/30" />
+                <a href={answer} target="_blank" rel="noopener noreferrer" className="text-[10px] text-blue-400 hover:text-blue-300">
+                  เปิดภาพเต็ม ↗
+                </a>
+              </div>
+            ) : block.type === 'image-upload' ? (
+              <p className="text-sm text-slate-600 italic">ไม่ได้อัปโหลดรูป</p>
             ) : Array.isArray(answer) ? (
               <div className="flex flex-wrap gap-2">
                 {answer.map((a) => (

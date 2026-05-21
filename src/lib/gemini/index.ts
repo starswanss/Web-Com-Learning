@@ -196,6 +196,7 @@ export function answersToText(
   return blocks
     .filter((b) =>
       ['short-answer', 'long-answer', 'multiple-choice', 'checkbox', 'ordering'].includes(b.type)
+      // image-upload blocks are intentionally excluded — AI cannot grade images via text
     )
     .map((b) => {
       const ans = answers[b.id];

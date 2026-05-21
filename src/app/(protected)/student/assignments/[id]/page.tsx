@@ -735,9 +735,122 @@ function BlockRenderer({
         <OrderingBlockRenderer block={block} answers={answers} setAnswer={setAnswer} />
       );
 
+    case 'image-upload':
+      return (
+        <ImageUploadBlockRenderer block={block as Extract<FormBlock, { type: 'image-upload' }>} answers={answers} setAnswer={setAnswer} />
+      );
+
     default:
       return null;
   }
+}
+
+function ImageUploadBlockRenderer({
+  block, answers, setAnswer,
+}: {
+  block: Extract<FormBlock, { type: 'image-upload' }>;
+  answers: Record<string, string | string[]>;
+  setAnswer: (id: string, v: string | string[]) => void;
+}) {
+  const [uploading, setUploading] = useState(false);
+  const [uploadError, setUploadError] = useState<string | null>(null);
+  const fileRef = useRef<HTMLInputElement>(null);
+  const currentUrl = (answers[block.id] as string) ?? '';
+
+  async function handleFile(file: File) {
+    setUploading(true);
+    setUploadError(null);
+    try {
+      const fd = new FormData();
+      fd.append('file', file);
+      const res = await fetch('/api/student/upload-image', { method: 'POST', body: fd });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error ?? 'อัปโหลดไม่สำเร็จ');
+      setAnswer(block.id, data.url as string);
+    } catch (err) {
+      setUploadError(err instanceof Error ? err.message : 'อัปโหลดไม่สำเร็จ');
+    } finally {
+      setUploading(false);
+    }
+  }
+
+  function handlePaste(e: React.ClipboardEvent) {
+    const items = e.clipboardData?.items;
+    if (!items) return;
+    for (const item of Array.from(items)) {
+      if (item.type.startsWith('image/')) {
+        e.preventDefault();
+        const f = item.getAsFile();
+        if (f) handleFile(f);
+        break;
+      }
+    }
+  }
+
+  return (
+    <div onPaste={handlePaste}>
+      <label className="mb-2 block text-sm font-medium text-slate-300">
+        {block.question}
+        {block.required && <span className="ml-1 text-red-400">*</span>}
+      </label>
+
+      {currentUrl ? (
+        <div className="space-y-2">
+          {/* eslint-disable-next-line @next/next/no-img-element */}
+          <img
+            src={currentUrl}
+            alt="คำตอบที่อัปโหลด"
+            className="max-h-64 w-full rounded-xl border border-emerald-800/50 bg-slate-800/40 object-contain"
+          />
+          <div className="flex items-center justify-between">
+            <span className="text-xs text-emerald-400">✓ อัปโหลดสำเร็จ</span>
+            <button
+              type="button"
+              onClick={() => { setAnswer(block.id, ''); setUploadError(null); }}
+              className="text-xs text-slate-500 hover:text-red-400 transition-colors"
+            >
+              เปลี่ยนรูป
+            </button>
+          </div>
+        </div>
+      ) : (
+        <div
+          className={`flex cursor-pointer flex-col items-center justify-center gap-2 rounded-xl border border-dashed py-10 text-center transition-all ${
+            uploading
+              ? 'border-blue-700 bg-blue-950/20'
+              : 'border-slate-700 bg-slate-800/40 hover:border-slate-500'
+          }`}
+          onClick={() => !uploading && fileRef.current?.click()}
+        >
+          {uploading ? (
+            <>
+              <div className="h-7 w-7 animate-spin rounded-full border-2 border-slate-600 border-t-blue-400" />
+              <p className="text-xs text-slate-400">กำลังอัปโหลด...</p>
+            </>
+          ) : (
+            <>
+              <span className="text-4xl">📸</span>
+              <p className="text-sm font-medium text-slate-300">คลิกเพื่อเลือกรูปภาพ</p>
+              <p className="text-xs text-slate-500">
+                หรือ <span className="text-blue-400">วางจากคลิปบอร์ด (Ctrl+V)</span>
+              </p>
+              <p className="text-[10px] text-slate-600">JPG · PNG · GIF · WebP — สูงสุด 10 MB</p>
+            </>
+          )}
+        </div>
+      )}
+
+      {uploadError && <p className="mt-1.5 text-xs text-red-400">⚠ {uploadError}</p>}
+
+      <input
+        type="file"
+        accept="image/jpeg,image/png,image/gif,image/webp"
+        className="hidden"
+        ref={fileRef}
+        onChange={e => { const f = e.target.files?.[0]; e.target.value = ''; if (f) handleFile(f); }}
+      />
+    </div>
+  );
 }
 
 function OrderingBlockRenderer({
@@ -876,7 +989,7 @@ function AnswerReview({
   answers: Record<string, string | string[]>;
 }) {
   const questionBlocks = blocks.filter((b) =>
-    ['short-answer', 'long-answer', 'multiple-choice', 'checkbox', 'ordering'].includes(b.type)
+    ['short-answer', 'long-answer', 'multiple-choice', 'checkbox', 'ordering', 'image-upload'].includes(b.type)
   );
   if (questionBlocks.length === 0) return null;
 
@@ -892,6 +1005,11 @@ function AnswerReview({
             </p>
             {answer === undefined ? (
               <p className="text-sm text-slate-600 italic">ไม่ได้ตอบ</p>
+            ) : block.type === 'image-upload' && typeof answer === 'string' && answer ? (
+              // eslint-disable-next-line @next/next/no-img-element
+              <img src={answer} alt="คำตอบ" className="max-h-48 rounded-xl border border-slate-700 object-contain" />
+            ) : block.type === 'image-upload' ? (
+              <p className="text-sm text-slate-600 italic">ไม่ได้อัปโหลดรูป</p>
             ) : block.type === 'ordering' && Array.isArray(answer) ? (
               <div className="space-y-1">
                 {(answer as string[]).map((a, idx) => (

@@ -5,7 +5,7 @@ import type {
   FormBlock, BlockType, InfographicColor,
   HeadingBlock, ParagraphBlock, ImageBlock, PdfBlock, InfographicBlock,
   ShortAnswerBlock, LongAnswerBlock,
-  MultipleChoiceBlock, CheckboxBlock, OrderingBlock,
+  MultipleChoiceBlock, CheckboxBlock, OrderingBlock, ImageUploadBlock,
 } from '@/types';
 
 export { type FormBlock, type BlockType };
@@ -26,6 +26,7 @@ export function makeBlock(type: BlockType): FormBlock {
     case 'multiple-choice': return { id: uid(), type, question: '', options: ['', ''], optionImages: [null, null], required: false };
     case 'checkbox':        return { id: uid(), type, question: '', options: ['', ''], optionImages: [null, null], required: false };
     case 'ordering':        return { id: uid(), type, question: '', items: ['', '', ''], required: false };
+    case 'image-upload':   return { id: uid(), type, question: '', required: false };
   }
 }
 
@@ -52,6 +53,7 @@ export const BLOCK_LABELS: { type: BlockType; label: string; icon: string }[] = 
   { type: 'multiple-choice', label: 'ตัวเลือก',            icon: '◉'  },
   { type: 'checkbox',        label: 'ช่องกาเครื่องหมาย',  icon: '☑'  },
   { type: 'ordering',        label: 'เรียงลำดับ',          icon: '⇅'  },
+  { type: 'image-upload',   label: 'อัปโหลดภาพ',          icon: '📸'  },
 ];
 
 /* ── Auto-grow textarea helper ─────────────────────────────────── */
@@ -589,16 +591,36 @@ function OrderingEditor({ block, onChange }: { block: OrderingBlock; onChange: (
   );
 }
 
+/* ── Image Upload Block editor (teacher side) ──────────────────── */
+function ImageUploadBlockEditor({ block, onChange }: { block: ImageUploadBlock; onChange: (b: FormBlock) => void }) {
+  return (
+    <div>
+      <QuestionHeader
+        question={block.question}
+        required={block.required}
+        onQuestion={(v) => onChange({ ...block, question: v })}
+        onRequired={(v) => onChange({ ...block, required: v })}
+      />
+      <div className="rounded-xl border border-dashed border-slate-700 bg-slate-800/30 px-4 py-5 text-center select-none">
+        <p className="text-2xl mb-1.5">📸</p>
+        <p className="text-xs text-slate-400 font-medium">นักเรียนจะอัปโหลดรูปภาพที่นี่</p>
+        <p className="text-[10px] text-slate-600 mt-1">JPG · PNG · GIF · WebP — สูงสุด 10 MB</p>
+      </div>
+    </div>
+  );
+}
+
 /* ── Block editor dispatcher ────────────────────────────────────── */
 
 export function BlockEditor({ block, onChange }: { block: FormBlock; onChange: (b: FormBlock) => void }) {
   switch (block.type) {
-    case 'heading':     return <HeadingEditor block={block} onChange={onChange} />;
-    case 'paragraph':   return <ParagraphEditor block={block} onChange={onChange} />;
-    case 'image':       return <ImageEditor block={block} onChange={onChange} />;
-    case 'pdf':         return <PdfEditor block={block as PdfBlock} onChange={onChange} />;
-    case 'infographic': return <InfographicEditor block={block as InfographicBlock} onChange={onChange} />;
-    case 'ordering':    return <OrderingEditor block={block as OrderingBlock} onChange={onChange} />;
+    case 'heading':       return <HeadingEditor block={block} onChange={onChange} />;
+    case 'paragraph':     return <ParagraphEditor block={block} onChange={onChange} />;
+    case 'image':         return <ImageEditor block={block} onChange={onChange} />;
+    case 'pdf':           return <PdfEditor block={block as PdfBlock} onChange={onChange} />;
+    case 'infographic':   return <InfographicEditor block={block as InfographicBlock} onChange={onChange} />;
+    case 'ordering':      return <OrderingEditor block={block as OrderingBlock} onChange={onChange} />;
+    case 'image-upload':  return <ImageUploadBlockEditor block={block as ImageUploadBlock} onChange={onChange} />;
 
     case 'short-answer':
       return (
