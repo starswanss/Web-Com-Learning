@@ -177,10 +177,10 @@ export default function TeacherStudentsPage() {
 
             {/* Student list */}
             <div className="rounded-2xl border border-slate-800 overflow-hidden">
-              <div className="grid grid-cols-[1fr_auto_auto_auto_auto_auto] items-center gap-4 border-b border-slate-800 bg-slate-900 px-5 py-3 text-xs font-medium uppercase tracking-wider text-slate-500">
+              <div className="grid grid-cols-[minmax(0,1fr)_72px_88px_72px_84px_76px] items-center gap-3 border-b border-slate-800 bg-slate-900 px-5 py-3 text-xs font-medium uppercase tracking-wider text-slate-500">
                 <span>นักเรียน</span>
                 <span className="text-right">ส่งงาน</span>
-                <span className="text-right">คะแนนเฉลี่ย</span>
+                <span className="text-right">เฉลี่ย</span>
                 <span className="text-right hidden sm:block">แนวโน้ม</span>
                 <span className="text-right hidden sm:block">เปลี่ยนแท็บ</span>
                 <span className="text-right hidden sm:block">ผู้ปกครอง</span>
@@ -188,7 +188,7 @@ export default function TeacherStudentsPage() {
               {filtered.map((s) => (
                 <div
                   key={s.studentId}
-                  className="grid grid-cols-[1fr_auto_auto_auto_auto_auto] items-center gap-4 border-b border-slate-800 bg-slate-950 px-5 py-3.5 last:border-0 hover:bg-slate-900 transition-colors"
+                  className="grid grid-cols-[minmax(0,1fr)_72px_88px_72px_84px_76px] items-center gap-3 border-b border-slate-800 bg-slate-950 px-5 py-3.5 last:border-0 hover:bg-slate-900 transition-colors"
                 >
                   <div className="min-w-0">
                     <p className="text-sm font-medium text-slate-200 truncate">{s.studentName}</p>

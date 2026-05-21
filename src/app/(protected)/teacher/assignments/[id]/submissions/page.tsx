@@ -78,6 +78,7 @@ export default function SubmissionsPage({ params }: { params: Promise<{ id: stri
 
   const [assignment, setAssignment] = useState<Assignment | null>(null);
   const [submissions, setSubmissions] = useState<Submission[]>([]);
+  const [classStats, setClassStats] = useState<{ classId: string; submitted: number; total: number }[]>([]);
   const [fetching, setFetching] = useState(true);
   const [selected, setSelected] = useState<Submission | null>(null);
   const [score, setScore] = useState('');
@@ -101,6 +102,7 @@ export default function SubmissionsPage({ params }: { params: Promise<{ id: stri
       .then((data) => {
         setAssignment(data.assignment ?? null);
         setSubmissions(Array.isArray(data.submissions) ? data.submissions : []);
+        setClassStats(Array.isArray(data.classStats) ? data.classStats : []);
       })
       .finally(() => setFetching(false));
   }, [profile, id]);
@@ -240,6 +242,29 @@ export default function SubmissionsPage({ params }: { params: Promise<{ id: stri
       </header>
 
       <main className="mx-auto max-w-6xl px-4 py-6">
+        {/* Per-class submission mini cards */}
+        {!fetching && classStats.length > 0 && (
+          <div className="mb-4 flex flex-wrap gap-2">
+            {classStats.map((cs) => {
+              const pct = cs.total > 0 ? Math.round((cs.submitted / cs.total) * 100) : 0;
+              const color = pct >= 100 ? 'border-emerald-800 bg-emerald-950/40 text-emerald-400'
+                : pct >= 50 ? 'border-amber-800 bg-amber-950/40 text-amber-400'
+                : 'border-red-900 bg-red-950/40 text-red-400';
+              return (
+                <div key={cs.classId} className={`flex items-center gap-2 rounded-xl border px-3 py-2 ${color}`}>
+                  <span className="text-xs font-bold">{cs.classId}</span>
+                  <span className="text-xs opacity-80">
+                    ส่ง {cs.submitted}{cs.total > 0 ? `/${cs.total}` : ''} คน
+                  </span>
+                  {cs.total > 0 && cs.submitted < cs.total && (
+                    <span className="text-[10px] opacity-60">ค้าง {cs.total - cs.submitted}</span>
+                  )}
+                </div>
+              );
+            })}
+          </div>
+        )}
+
         {fetching ? (
           <div className="flex items-center justify-center py-20">
             <div className="h-6 w-6 animate-spin rounded-full border-2 border-slate-700 border-t-slate-300" />

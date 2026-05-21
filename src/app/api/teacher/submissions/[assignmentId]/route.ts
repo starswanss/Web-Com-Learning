@@ -34,10 +34,42 @@ export async function GET(
     return NextResponse.json({ error: 'Not found' }, { status: 404 });
   }
 
+  const assignmentData = assignmentSnap.data()!;
+  const classIds: string[] = assignmentData.classIds ?? [];
   const submissions = submissionsSnap.docs.map((d) => ({ id: d.id, ...d.data() }));
 
+  // Count submissions per class
+  const submittedPerClass = new Map<string, number>();
+  submissions.forEach((s) => {
+    const cid = (s as { classId?: string }).classId ?? '';
+    if (cid) submittedPerClass.set(cid, (submittedPerClass.get(cid) ?? 0) + 1);
+  });
+
+  // Get total enrolled students per class from users collection
+  const totalPerClass = new Map<string, number>();
+  const CHUNK = 10;
+  for (let i = 0; i < classIds.length; i += CHUNK) {
+    const chunk = classIds.slice(i, i + CHUNK);
+    const usersSnap = await adminDb
+      .collection('users')
+      .where('classId', 'in', chunk)
+      .where('role', '==', 'student')
+      .get();
+    usersSnap.docs.forEach((d) => {
+      const cid = d.data().classId as string;
+      totalPerClass.set(cid, (totalPerClass.get(cid) ?? 0) + 1);
+    });
+  }
+
+  const classStats = classIds.map((cid) => ({
+    classId: cid,
+    submitted: submittedPerClass.get(cid) ?? 0,
+    total: totalPerClass.get(cid) ?? 0,
+  }));
+
   return NextResponse.json({
-    assignment: { id: assignmentId, ...assignmentSnap.data() },
+    assignment: { id: assignmentId, ...assignmentData },
     submissions,
+    classStats,
   });
 }

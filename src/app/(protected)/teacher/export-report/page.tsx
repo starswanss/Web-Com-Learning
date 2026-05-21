@@ -7,7 +7,8 @@ import Link from 'next/link';
 
 interface StudentRow {
   uid: string;
-  displayName: string;
+  studentName: string;
+  email: string;
   classId: string;
   submitted: number;
   graded: number;
@@ -112,6 +113,7 @@ export default function ExportReportPage() {
                   <tr className="border-b border-slate-800 bg-slate-900 print:border-gray-300 print:bg-gray-50">
                     <th className="px-4 py-3 text-left text-xs font-semibold text-slate-400 print:text-gray-600">#</th>
                     <th className="px-4 py-3 text-left text-xs font-semibold text-slate-400 print:text-gray-600">ชื่อ</th>
+                    <th className="px-4 py-3 text-left text-xs font-semibold text-slate-400 print:text-gray-600">อีเมล</th>
                     <th className="px-4 py-3 text-left text-xs font-semibold text-slate-400 print:text-gray-600">ห้อง</th>
                     <th className="px-4 py-3 text-center text-xs font-semibold text-slate-400 print:text-gray-600">ส่งงาน</th>
                     <th className="px-4 py-3 text-center text-xs font-semibold text-slate-400 print:text-gray-600">ตรวจแล้ว</th>
@@ -123,7 +125,8 @@ export default function ExportReportPage() {
                   {filtered.map((s, i) => (
                     <tr key={s.uid} className="bg-slate-900 hover:bg-slate-800 transition-colors print:bg-white print:hover:bg-white">
                       <td className="px-4 py-3 text-slate-500 print:text-gray-400">{i + 1}</td>
-                      <td className="px-4 py-3 font-medium text-slate-100 print:text-gray-900">{s.displayName}</td>
+                      <td className="px-4 py-3 font-medium text-slate-100 print:text-gray-900">{s.studentName || s.email || '—'}</td>
+                      <td className="px-4 py-3 text-xs text-slate-400 print:text-gray-600">{s.email || '—'}</td>
                       <td className="px-4 py-3 text-slate-400 print:text-gray-600">{s.classId}</td>
                       <td className="px-4 py-3 text-center text-slate-300 print:text-gray-700">{s.submitted}</td>
                       <td className="px-4 py-3 text-center text-slate-300 print:text-gray-700">{s.graded}</td>

@@ -42,6 +42,7 @@ export default function TeacherOverviewPage() {
   const [fetching, setFetching] = useState(true);
   const [subject, setSubject] = useState<{ id: string; name: string } | null>(null);
   const [typeFilter, setTypeFilter] = useState<ContentType | 'all'>('all');
+  const [pendingOnly, setPendingOnly] = useState(false);
 
   useEffect(() => {
     if (profile?.role !== 'teacher') return;
@@ -57,10 +58,12 @@ export default function TeacherOverviewPage() {
 
   if (loading || !profile) return <Spinner />;
 
-  const filtered = typeFilter === 'all' ? assignments : assignments.filter((a) => a.contentType === typeFilter);
-  const totalSubmissions = filtered.reduce((a, b) => a + b.totalSubmissions, 0);
-  const pendingGrade = filtered.reduce((a, b) => a + b.submittedCount, 0);
-  const reviewed = filtered.reduce((a, b) => a + b.reviewedCount, 0);
+  const byType = typeFilter === 'all' ? assignments : assignments.filter((a) => a.contentType === typeFilter);
+  const filtered = pendingOnly ? byType.filter((a) => a.submittedCount + a.gradedCount > 0) : byType;
+  const totalSubmissions = byType.reduce((a, b) => a + b.totalSubmissions, 0);
+  const pendingGrade = byType.reduce((a, b) => a + b.submittedCount, 0);
+  const reviewed = byType.reduce((a, b) => a + b.reviewedCount, 0);
+  const pendingCount = byType.filter((a) => a.submittedCount + a.gradedCount > 0).length;
 
   return (
     <div className="min-h-screen bg-slate-950">
@@ -97,6 +100,31 @@ export default function TeacherOverviewPage() {
             <p className="text-2xl font-bold text-emerald-400">{reviewed}</p>
             <p className="mt-1 text-xs text-slate-500">ครูตรวจแล้ว · {totalSubmissions} รวม</p>
           </div>
+        </div>
+
+        {/* Pending toggle */}
+        <div className="mb-4 flex gap-2">
+          <button
+            onClick={() => setPendingOnly(false)}
+            className={`rounded-xl border px-4 py-1.5 text-xs font-medium transition-all ${
+              !pendingOnly ? 'border-blue-500 bg-blue-500/10 text-blue-400' : 'border-slate-700 text-slate-400 hover:border-slate-600'
+            }`}
+          >
+            ทั้งหมด
+          </button>
+          <button
+            onClick={() => setPendingOnly(true)}
+            className={`flex items-center gap-1.5 rounded-xl border px-4 py-1.5 text-xs font-medium transition-all ${
+              pendingOnly ? 'border-amber-500 bg-amber-500/10 text-amber-400' : 'border-slate-700 text-slate-400 hover:border-slate-600'
+            }`}
+          >
+            รอตรวจ
+            {pendingCount > 0 && (
+              <span className="rounded-full bg-amber-500 px-1.5 py-0.5 text-[10px] font-bold text-white leading-none">
+                {pendingCount}
+              </span>
+            )}
+          </button>
         </div>
 
         {/* Type filter */}

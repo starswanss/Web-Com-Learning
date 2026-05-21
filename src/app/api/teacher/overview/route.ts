@@ -32,23 +32,25 @@ export async function GET(req: NextRequest) {
 
   const assignmentIds = assignmentsSnap.docs.map((d) => d.id);
 
-  // Batch query submissions (Firestore 'in' limit: 30)
-  const submissionsSnap = await adminDb
-    .collection('submissions')
-    .where('assignmentId', 'in', assignmentIds.slice(0, 30))
-    .get();
-
-  // Count by status per assignment
+  // Firestore 'in' limit is 30 — chunk and merge
   const countMap = new Map<string, { submitted: number; graded: number; reviewed: number }>();
-  submissionsSnap.docs.forEach((d) => {
-    const data = d.data();
-    const aId = data.assignmentId as string;
-    if (!countMap.has(aId)) countMap.set(aId, { submitted: 0, graded: 0, reviewed: 0 });
-    const c = countMap.get(aId)!;
-    if (data.status === 'submitted') c.submitted++;
-    else if (data.status === 'graded') c.graded++;
-    else if (data.status === 'reviewed') c.reviewed++;
-  });
+  const CHUNK = 30;
+  for (let i = 0; i < assignmentIds.length; i += CHUNK) {
+    const chunk = assignmentIds.slice(i, i + CHUNK);
+    const snap = await adminDb
+      .collection('submissions')
+      .where('assignmentId', 'in', chunk)
+      .get();
+    snap.docs.forEach((d) => {
+      const data = d.data();
+      const aId = data.assignmentId as string;
+      if (!countMap.has(aId)) countMap.set(aId, { submitted: 0, graded: 0, reviewed: 0 });
+      const c = countMap.get(aId)!;
+      if (data.status === 'submitted') c.submitted++;
+      else if (data.status === 'graded') c.graded++;
+      else if (data.status === 'reviewed') c.reviewed++;
+    });
+  }
 
   const result = assignmentsSnap.docs.map((d) => {
     const data = d.data();

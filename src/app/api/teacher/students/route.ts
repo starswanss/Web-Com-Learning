@@ -23,7 +23,6 @@ export async function GET(req: NextRequest) {
   const { searchParams } = new URL(req.url);
   const subjectId = searchParams.get('subject');
 
-  // Get teacher's assignments (filtered by subject if provided)
   const base = adminDb.collection('assignments').where('teacherId', '==', uid);
   const assignmentsSnap = subjectId
     ? await base.where('subjectId', '==', subjectId).get()
@@ -33,14 +32,12 @@ export async function GET(req: NextRequest) {
 
   const assignmentIds = assignmentsSnap.docs.map((d) => d.id);
 
-  // Collect all classIds covered by these assignments
   const allClassIds = new Set<string>();
   assignmentsSnap.docs.forEach((d) => {
     const cids = d.data().classIds as string[] | undefined;
     if (cids) cids.forEach((c) => allClassIds.add(c));
   });
 
-  // Count assignments per classId
   const assignmentsPerClass = new Map<string, number>();
   assignmentsSnap.docs.forEach((d) => {
     const cids = d.data().classIds as string[] | undefined;
@@ -48,13 +45,7 @@ export async function GET(req: NextRequest) {
     cids.forEach((c) => assignmentsPerClass.set(c, (assignmentsPerClass.get(c) ?? 0) + 1));
   });
 
-  // Get all submissions for these assignments (Firestore 'in' supports up to 30)
-  const submissionsSnap = await adminDb
-    .collection('submissions')
-    .where('assignmentId', 'in', assignmentIds.slice(0, 30))
-    .get();
-
-  // Aggregate by student
+  // Chunk submissions query (Firestore 'in' limit: 30)
   const studentMap = new Map<string, {
     studentId: string;
     studentName: string;
@@ -64,24 +55,48 @@ export async function GET(req: NextRequest) {
     tabSwitchTotal: number;
   }>();
 
-  submissionsSnap.docs.forEach((d) => {
-    const data = d.data();
-    const sid = data.studentId as string;
-    if (!studentMap.has(sid)) {
-      studentMap.set(sid, {
-        studentId: sid,
-        studentName: data.studentName as string,
-        classId: data.classId as string,
-        scores: [],
-        submittedCount: 0,
-        tabSwitchTotal: 0,
-      });
-    }
-    const entry = studentMap.get(sid)!;
-    entry.submittedCount += 1;
-    if (typeof data.score === 'number') entry.scores.push(data.score);
-    if (typeof data.tabSwitchCount === 'number') entry.tabSwitchTotal += data.tabSwitchCount;
-  });
+  const CHUNK = 30;
+  for (let i = 0; i < assignmentIds.length; i += CHUNK) {
+    const chunk = assignmentIds.slice(i, i + CHUNK);
+    const snap = await adminDb
+      .collection('submissions')
+      .where('assignmentId', 'in', chunk)
+      .get();
+
+    snap.docs.forEach((d) => {
+      const data = d.data();
+      const sid = data.studentId as string;
+      if (!studentMap.has(sid)) {
+        studentMap.set(sid, {
+          studentId: sid,
+          studentName: data.studentName as string,
+          classId: data.classId as string,
+          scores: [],
+          submittedCount: 0,
+          tabSwitchTotal: 0,
+        });
+      }
+      const entry = studentMap.get(sid)!;
+      entry.submittedCount += 1;
+      if (typeof data.score === 'number') entry.scores.push(data.score);
+      if (typeof data.tabSwitchCount === 'number') entry.tabSwitchTotal += data.tabSwitchCount;
+    });
+  }
+
+  // Lookup email from users collection for each studentId
+  const studentIds = Array.from(studentMap.keys());
+  const emailMap = new Map<string, string>();
+  for (let i = 0; i < studentIds.length; i += CHUNK) {
+    const chunk = studentIds.slice(i, i + CHUNK);
+    const usersSnap = await adminDb
+      .collection('users')
+      .where('__name__', 'in', chunk)
+      .get();
+    usersSnap.docs.forEach((d) => {
+      const email = (d.data().email as string) ?? '';
+      if (email) emailMap.set(d.id, email);
+    });
+  }
 
   const result = Array.from(studentMap.values()).map((s) => {
     const totalForClass = assignmentsPerClass.get(s.classId) ?? assignmentIds.length;
@@ -91,16 +106,21 @@ export async function GET(req: NextRequest) {
     return {
       studentId: s.studentId,
       studentName: s.studentName,
+      email: emailMap.get(s.studentId) ?? '',
       classId: s.classId,
       submittedCount: s.submittedCount,
       totalAssignments: totalForClass,
       avgScore,
       tabSwitchTotal: s.tabSwitchTotal,
       scores: s.scores,
+      // aliases for export-report compatibility
+      uid: s.studentId,
+      displayName: s.studentName,
+      submitted: s.submittedCount,
+      graded: s.scores.length,
     };
   });
 
-  // Sort by classId then studentName
   result.sort((a, b) => a.classId.localeCompare(b.classId) || a.studentName.localeCompare(b.studentName));
 
   return NextResponse.json(result);
