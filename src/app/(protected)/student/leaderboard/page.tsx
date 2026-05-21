@@ -13,6 +13,9 @@ interface LeaderboardEntry {
   totalScore: number;
   submittedCount: number;
   isMe: boolean;
+  level: number;
+  levelIcon: string;
+  levelTitle: string;
 }
 
 function scoreColor(score: number) {
@@ -135,6 +138,11 @@ function AnonPodiumCard({ entry, size, myName }: { entry: LeaderboardEntry; size
           <p className="mt-1 text-[11px] text-yellow-500">🏅 ×{entry.medalCount}</p>
         )}
         <p className="mt-2 text-[10px] text-slate-600">ส่งงาน {entry.submittedCount} ชิ้น</p>
+        <div className="mt-2 inline-flex items-center gap-1 rounded-full border border-slate-700/60 bg-slate-800/60 px-2.5 py-0.5">
+          <span className="text-sm">{entry.levelIcon}</span>
+          <span className="text-[10px] font-semibold text-slate-300">Lv.{entry.level}</span>
+          <span className="text-[10px] text-slate-500">{entry.levelTitle}</span>
+        </div>
       </div>
       <div className={`mt-0 w-full rounded-b-xl ${cfg.pedestal}`} />
     </div>
@@ -226,6 +234,13 @@ export default function StudentLeaderboardPage() {
             {/* Divider */}
             <div className="my-4 mx-8 h-px bg-gradient-to-r from-transparent via-blue-700/40 to-transparent" />
 
+            {/* Level badge */}
+            <div className="mb-3 inline-flex items-center gap-1.5 rounded-full border border-blue-700/50 bg-blue-950/40 px-3 py-1">
+              <span className="text-base">{myEntry.levelIcon}</span>
+              <span className="text-xs font-bold text-blue-300">Lv.{myEntry.level}</span>
+              <span className="text-xs text-slate-400">{myEntry.levelTitle}</span>
+            </div>
+
             {/* Stats row */}
             <div className="flex items-start justify-center gap-8">
               <div className="text-center">
@@ -311,7 +326,11 @@ export default function StudentLeaderboardPage() {
                           {e.isMe ? myName : `อันดับที่ ${e.rank}`}
                           {e.isMe && <span className="ml-2 rounded-full bg-blue-500/20 px-2 py-0.5 text-xs text-blue-400">ฉัน</span>}
                         </p>
-                        <p className="text-xs text-slate-500">ส่งงาน {e.submittedCount} ชิ้น</p>
+                        <div className="flex items-center gap-2">
+                          <p className="text-xs text-slate-500">ส่งงาน {e.submittedCount} ชิ้น</p>
+                          <span className="text-xs text-slate-600">·</span>
+                          <span className="text-xs text-slate-400">{e.levelIcon} Lv.{e.level} {e.levelTitle}</span>
+                        </div>
                       </div>
                       {e.medalCount > 0 && (
                         <span className="text-xs text-yellow-500">🏅 ×{e.medalCount}</span>

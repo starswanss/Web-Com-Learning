@@ -22,12 +22,28 @@ interface Submission {
   reviewedAt?: { _seconds: number };
 }
 
+interface AssignmentBlock {
+  id: string;
+  type: string;
+  text?: string;
+  question?: string;
+  options?: string[];
+  url?: string;
+  caption?: string;
+  height?: number;
+  title?: string;
+  body?: string;
+  icon?: string;
+  color?: string;
+}
+
 interface Assignment {
   id: string;
   title: string;
   description: string;
+  contentType?: string;
   dueDate?: { _seconds: number };
-  blocks?: Array<{ id: string; type: string; text?: string; question?: string; options?: string[] }>;
+  blocks?: AssignmentBlock[];
 }
 
 function scoreColor(score: number) {
@@ -453,6 +469,8 @@ export default function SubmissionsPage({ params }: { params: Promise<{ id: stri
                     </button>
                   </div>
                 </div>
+              ) : assignment?.contentType === 'knowledge' ? (
+                <KnowledgePreview assignment={assignment} />
               ) : (
                 <div className="flex h-full items-center justify-center rounded-2xl border border-dashed border-slate-800">
                   <p className="text-sm text-slate-500">เลือกนักเรียนเพื่อดูงาน</p>
@@ -528,7 +546,7 @@ function BlockAnswers({ assignment, answers }: { assignment: Assignment | null; 
       </div>
     );
   }
-  const questionBlocks = assignment.blocks.filter((b) =>
+  const questionBlocks = (assignment.blocks as AssignmentBlock[]).filter((b) =>
     ['short-answer', 'long-answer', 'multiple-choice', 'checkbox', 'ordering', 'image-upload'].includes(b.type)
   );
   return (
@@ -562,6 +580,63 @@ function BlockAnswers({ assignment, answers }: { assignment: Assignment | null; 
             )}
           </div>
         );
+      })}
+    </div>
+  );
+}
+
+const INFOGRAPHIC_COLORS: Record<string, string> = {
+  blue:   'border-blue-700/60 bg-blue-950/30',
+  green:  'border-emerald-700/60 bg-emerald-950/30',
+  yellow: 'border-amber-700/60 bg-amber-950/30',
+  red:    'border-red-700/60 bg-red-950/30',
+  purple: 'border-violet-700/60 bg-violet-950/30',
+};
+
+function KnowledgePreview({ assignment }: { assignment: Assignment }) {
+  const blocks = assignment.blocks ?? [];
+  if (blocks.length === 0) {
+    return (
+      <div className="flex h-full items-center justify-center rounded-2xl border border-dashed border-emerald-900">
+        <p className="text-sm text-slate-500">ไม่มีเนื้อหาในใบความรู้นี้</p>
+      </div>
+    );
+  }
+  return (
+    <div className="rounded-2xl border border-emerald-900/50 bg-slate-900 p-5 overflow-y-auto space-y-4">
+      <p className="text-xs font-semibold uppercase tracking-wider text-emerald-500">📖 เนื้อหาใบความรู้</p>
+      {blocks.map((block) => {
+        switch (block.type) {
+          case 'heading':
+            return <h3 key={block.id} className="text-base font-bold text-slate-100">{block.text}</h3>;
+          case 'paragraph':
+            return <p key={block.id} className="whitespace-pre-wrap text-sm text-slate-300 leading-relaxed">{block.text}</p>;
+          case 'image':
+            return block.url ? (
+              <div key={block.id}>
+                {/* eslint-disable-next-line @next/next/no-img-element */}
+                <img src={block.url} alt={block.caption ?? ''} className="max-h-80 w-full rounded-xl border border-slate-700 object-contain bg-slate-800/30" />
+                {block.caption && <p className="mt-1 text-center text-xs text-slate-500">{block.caption}</p>}
+              </div>
+            ) : null;
+          case 'pdf':
+            return block.url ? (
+              <div key={block.id}>
+                <iframe src={block.url} className="w-full rounded-xl border border-slate-700" style={{ height: block.height ?? 500 }} />
+                {block.caption && <p className="mt-1 text-center text-xs text-slate-500">{block.caption}</p>}
+              </div>
+            ) : null;
+          case 'infographic':
+            return (
+              <div key={block.id} className={`rounded-xl border p-4 ${INFOGRAPHIC_COLORS[block.color ?? 'blue'] ?? INFOGRAPHIC_COLORS.blue}`}>
+                <p className="mb-1 text-lg">{block.icon}</p>
+                <p className="font-semibold text-slate-100">{block.title}</p>
+                <p className="mt-1 text-sm text-slate-300 whitespace-pre-wrap">{block.body}</p>
+              </div>
+            );
+          default:
+            return null;
+        }
       })}
     </div>
   );

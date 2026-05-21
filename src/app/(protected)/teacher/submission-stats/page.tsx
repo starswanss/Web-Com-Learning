@@ -35,6 +35,7 @@ export default function SubmissionStatsPage() {
   const [fetching, setFetching] = useState(false);
   const [expandedId, setExpandedId] = useState<string | null>(null);
   const [search, setSearch] = useState('');
+  const [classFilter, setClassFilter] = useState<string>('');
 
   useEffect(() => {
     if (!loading && profile?.role !== 'teacher') router.push('/dashboard');
@@ -83,9 +84,14 @@ export default function SubmissionStatsPage() {
     );
   }
 
-  const filtered = search.trim()
-    ? stats.filter(s => s.title.toLowerCase().includes(search.toLowerCase()))
-    : stats;
+  // All distinct classIds from notSubmitted lists across all stats
+  const allClassIds = Array.from(
+    new Set(stats.flatMap(s => s.notSubmittedNames.map(n => n.classId)))
+  ).sort();
+
+  const filtered = stats.filter(s =>
+    (!search.trim() || s.title.toLowerCase().includes(search.toLowerCase()))
+  );
 
   const totalAssignments = filtered.length;
   const fullySubmitted = filtered.filter(s => s.totalStudents > 0 && s.submitted >= s.totalStudents).length;
@@ -132,6 +138,17 @@ export default function SubmissionStatsPage() {
             <option value="">ทุกวิชา</option>
             {subjects.map(s => (
               <option key={s.id} value={s.id}>{s.name}</option>
+            ))}
+          </select>
+
+          <select
+            value={classFilter}
+            onChange={e => setClassFilter(e.target.value)}
+            className="rounded-xl border border-slate-700 bg-slate-900 px-3 py-2 text-sm text-slate-200 focus:outline-none focus:ring-1 focus:ring-blue-600"
+          >
+            <option value="">ทุกห้อง</option>
+            {allClassIds.map(c => (
+              <option key={c} value={c}>{c}</option>
             ))}
           </select>
 
@@ -212,25 +229,37 @@ export default function SubmissionStatsPage() {
                     </div>
                   </div>
 
-                  {/* Expandable: missing students */}
-                  {isExpanded && stat.notSubmittedNames.length > 0 && (
-                    <div className="border-t border-slate-800/50 bg-slate-950/50 px-4 py-3">
-                      <p className="mb-2 text-[11px] font-semibold text-slate-400">
-                        ยังไม่ส่ง · {stat.notSubmittedNames.length} คน
-                      </p>
-                      <div className="flex flex-wrap gap-1.5">
-                        {stat.notSubmittedNames.map(s => (
-                          <span
-                            key={s.uid}
-                            className="rounded-lg border border-slate-700 bg-slate-800 px-2 py-1 text-[11px] text-slate-300"
-                          >
-                            {s.name}
-                            <span className="ml-1 text-slate-500">{s.classId}</span>
-                          </span>
+                  {/* Expandable: missing students grouped by class */}
+                  {isExpanded && stat.notSubmittedNames.length > 0 && (() => {
+                    const displayList = classFilter
+                      ? stat.notSubmittedNames.filter(s => s.classId === classFilter)
+                      : stat.notSubmittedNames;
+                    if (displayList.length === 0) return (
+                      <div className="border-t border-slate-800/50 bg-slate-950/50 px-4 py-3">
+                        <p className="text-[11px] text-slate-500">ไม่มีนักเรียนค้างในห้อง {classFilter}</p>
+                      </div>
+                    );
+                    const grouped = displayList.reduce<Record<string, NotSubmittedStudent[]>>((acc, s) => {
+                      (acc[s.classId] ??= []).push(s);
+                      return acc;
+                    }, {});
+                    return (
+                      <div className="border-t border-slate-800/50 bg-slate-950/50 px-4 py-3 space-y-3">
+                        {Object.entries(grouped).sort(([a], [b]) => a.localeCompare(b)).map(([cid, students]) => (
+                          <div key={cid}>
+                            <p className="mb-1.5 text-[10px] font-bold text-slate-500">ห้อง {cid} · {students.length} คน</p>
+                            <div className="flex flex-wrap gap-1.5">
+                              {students.map(s => (
+                                <span key={s.uid} className="rounded-lg border border-slate-700 bg-slate-800 px-2 py-1 text-[11px] text-slate-300">
+                                  {s.name}
+                                </span>
+                              ))}
+                            </div>
+                          </div>
                         ))}
                       </div>
-                    </div>
-                  )}
+                    );
+                  })()}
 
                   {isExpanded && stat.notSubmittedNames.length === 0 && (
                     <div className="border-t border-slate-800/50 bg-slate-950/50 px-4 py-3">

@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { adminAuth, adminDb } from '@/lib/firebase/admin';
 import { cookies } from 'next/headers';
 import { FieldValue } from 'firebase-admin/firestore';
-import { gradeSubmissionsBatch, answersToText } from '@/lib/gemini';
+import { gradeSubmissionsBatch, gradeSubmission, answersToText } from '@/lib/gemini';
 
 async function getTeacherUid(): Promise<string | null> {
   try {
@@ -62,10 +62,11 @@ export async function POST(
   let graded = 0;
   let errors = 0;
 
-  // Send up to 15 students per Gemini request instead of 1-per-student
-  const CHUNK_SIZE = 15;
+  const CHUNK_SIZE = 5;
   for (let i = 0; i < gradableItems.length; i += CHUNK_SIZE) {
     const chunk = gradableItems.slice(i, i + CHUNK_SIZE);
+    let batchOk = false;
+
     try {
       const results = await gradeSubmissionsBatch(
         assignment.title as string,
@@ -73,7 +74,6 @@ export async function POST(
         chunk,
         assignment.rubric as string | undefined
       );
-
       await Promise.all(
         results.map((r) =>
           adminDb.collection('submissions').doc(r.id).update({
@@ -86,13 +86,40 @@ export async function POST(
         )
       );
       graded += results.length;
+      batchOk = true;
     } catch (err) {
-      console.error('[batch-grade] Gemini chunk error:', err instanceof Error ? err.message : err);
-      errors += chunk.length;
+      console.error('[batch-grade] chunk batch failed, falling back to per-student:', err instanceof Error ? err.message : err);
     }
-    // Avoid RPM rate limit between chunks
+
+    // Fallback: grade individually if batch failed
+    if (!batchOk) {
+      for (const item of chunk) {
+        try {
+          const r = await gradeSubmission(
+            assignment.title as string,
+            assignment.description as string,
+            item.content,
+            [],
+            assignment.rubric as string | undefined
+          );
+          await adminDb.collection('submissions').doc(item.id).update({
+            score: r.score,
+            feedback: r.feedback,
+            plagiarismSuspicion: r.plagiarismSuspicion,
+            status: 'graded',
+            gradedAt: FieldValue.serverTimestamp(),
+          });
+          graded += 1;
+        } catch (indivErr) {
+          console.error('[batch-grade] individual fallback failed:', item.id, indivErr instanceof Error ? indivErr.message : indivErr);
+          errors += 1;
+        }
+        await new Promise((r) => setTimeout(r, 3_000));
+      }
+    }
+
     if (i + CHUNK_SIZE < gradableItems.length) {
-      await new Promise((r) => setTimeout(r, 5_000));
+      await new Promise((r) => setTimeout(r, 8_000));
     }
   }
 

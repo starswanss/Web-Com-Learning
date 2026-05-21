@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { adminAuth, adminDb } from '@/lib/firebase/admin';
 import { cookies } from 'next/headers';
+import { calcLevel, DEFAULT_SETTINGS, LevelSettings } from '@/lib/xp';
 
 async function getStudentInfo(): Promise<{ uid: string; classId: string } | null> {
   try {
@@ -94,5 +95,21 @@ export async function GET(req: NextRequest) {
 
   result.sort((a, b) => b.totalScore - a.totalScore || b.submittedCount - a.submittedCount);
 
-  return NextResponse.json(result.map((s, i) => ({ ...s, rank: i + 1 })));
+  // Fetch XP + level settings in parallel
+  const [settingsSnap, ...userSnaps] = await Promise.all([
+    adminDb.doc('levelSettings/global').get(),
+    ...result.map((r) => adminDb.collection('users').doc(r.studentId).get()),
+  ]);
+  const levelSettings: LevelSettings = settingsSnap.exists
+    ? { ...DEFAULT_SETTINGS, ...(settingsSnap.data() as Partial<LevelSettings>) }
+    : DEFAULT_SETTINGS;
+  const xpMap = new Map<string, number>();
+  userSnaps.forEach((snap) => {
+    if (snap.exists) xpMap.set(snap.id, (snap.data()?.xp as number) ?? 0);
+  });
+
+  return NextResponse.json(result.map((s, i) => {
+    const lvl = calcLevel(xpMap.get(s.studentId) ?? 0, levelSettings);
+    return { ...s, rank: i + 1, level: lvl.level, levelIcon: lvl.icon, levelTitle: lvl.title };
+  }));
 }
