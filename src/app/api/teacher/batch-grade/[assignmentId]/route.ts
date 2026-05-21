@@ -90,6 +90,10 @@ export async function POST(
       console.error('[batch-grade] Gemini chunk error:', err instanceof Error ? err.message : err);
       errors += chunk.length;
     }
+    // Avoid RPM rate limit between chunks
+    if (i + CHUNK_SIZE < gradableItems.length) {
+      await new Promise((r) => setTimeout(r, 5_000));
+    }
   }
 
   return NextResponse.json({ graded, errors, skipped: allDocs.length - toGrade.length });

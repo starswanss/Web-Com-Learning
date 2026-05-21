@@ -2,6 +2,26 @@ import { GoogleGenerativeAI } from '@google/generative-ai';
 
 const genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY!);
 
+function isRateLimit(err: unknown): boolean {
+  const msg = err instanceof Error ? err.message : String(err);
+  return msg.includes('429') || msg.includes('RESOURCE_EXHAUSTED') || msg.includes('quota');
+}
+
+async function withRetry<T>(fn: () => Promise<T>, retries = 2, delayMs = 15_000): Promise<T> {
+  for (let attempt = 0; attempt <= retries; attempt++) {
+    try {
+      return await fn();
+    } catch (err) {
+      if (isRateLimit(err) && attempt < retries) {
+        await new Promise((r) => setTimeout(r, delayMs));
+        continue;
+      }
+      throw err;
+    }
+  }
+  throw new Error('Max retries exceeded');
+}
+
 export interface GradingResult {
   score: number;
   feedback: string;
@@ -32,7 +52,7 @@ export async function gradeSubmission(
   otherSubmissions: string[] = [],
   rubric?: string
 ): Promise<GradingResult> {
-  const model = genAI.getGenerativeModel({ model: 'gemini-2.0-flash' });
+  const model = genAI.getGenerativeModel({ model: 'gemini-1.5-flash' });
 
   const comparisonBlock =
     otherSubmissions.length > 0
@@ -71,7 +91,7 @@ Rules:
 Scoring guide: 90-100 excellent, 70-89 good, 50-69 adequate, 30-49 incomplete, 0-29 very poor or copied.
 Short answers (<30 words) should score at most 40 unless the question is trivial.`;
 
-  const result = await model.generateContent(prompt);
+  const result = await withRetry(() => model.generateContent(prompt));
   const text = result.response.text().trim();
 
   try {
@@ -101,7 +121,7 @@ export async function gradeSubmissionsBatch(
 ): Promise<BatchGradingResult[]> {
   if (submissions.length === 0) return [];
 
-  const model = genAI.getGenerativeModel({ model: 'gemini-2.0-flash' });
+  const model = genAI.getGenerativeModel({ model: 'gemini-1.5-flash' });
 
   const rubricBlock = rubric ? `\n\nCriteria from teacher:\n${rubric}` : '';
 
@@ -128,7 +148,7 @@ Rules:
 - Short answers (<30 words) score at most 40 unless the question is trivial
 - Grade each student independently`;
 
-  const result = await model.generateContent(prompt);
+  const result = await withRetry(() => model.generateContent(prompt));
   const text = result.response.text().trim();
 
   let parsed: Array<{ score: number; feedback: string; plagiarismSuspicion: number }>;
