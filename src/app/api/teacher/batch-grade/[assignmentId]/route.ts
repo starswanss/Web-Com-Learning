@@ -39,8 +39,9 @@ export async function POST(
   const assignment = assignmentSnap.data()!;
   const allDocs = submissionsSnap.docs;
 
-  // Only grade submissions that haven't been teacher-reviewed yet
-  const toGrade = allDocs.filter((d) => d.data().status !== 'reviewed');
+  // Only grade submissions that are still pending (submitted = waiting for review)
+  // Skip 'graded' (AI already done) and 'reviewed' (teacher finalized)
+  const toGrade = allDocs.filter((d) => d.data().status === 'submitted');
 
   // Build gradable items — convert block answers to text where needed
   const gradableItems: Array<{ id: string; content: string }> = [];

@@ -24,9 +24,10 @@ export async function GET(req: NextRequest) {
   const subjectId = searchParams.get('subject');
 
   const base = adminDb.collection('assignments').where('teacherId', '==', uid);
+  // Avoid orderBy to eliminate composite index requirement — sort in JS below
   const assignmentsSnap = subjectId
-    ? await base.where('subjectId', '==', subjectId).orderBy('createdAt', 'desc').get()
-    : await base.orderBy('createdAt', 'desc').get();
+    ? await base.where('subjectId', '==', subjectId).get()
+    : await base.get();
 
   if (assignmentsSnap.empty) return NextResponse.json([]);
 
@@ -63,12 +64,15 @@ export async function GET(req: NextRequest) {
       dueDate: data.dueDate ?? null,
       classIds: data.classIds ?? [],
       driveWebViewLink: data.driveWebViewLink ?? null,
+      createdAt: (data.createdAt?.toMillis?.() ?? 0) as number,
       submittedCount: counts.submitted,
       gradedCount: counts.graded,
       reviewedCount: counts.reviewed,
       totalSubmissions: counts.submitted + counts.graded + counts.reviewed,
     };
   });
+
+  result.sort((a, b) => b.createdAt - a.createdAt);
 
   return NextResponse.json(result);
 }

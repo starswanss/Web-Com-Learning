@@ -105,6 +105,7 @@ export default function SubmissionsPage({ params }: { params: Promise<{ id: stri
   const [saveError, setSaveError] = useState<string | null>(null);
   const [quickGrading, setQuickGrading] = useState(false);
   const [batchGrading, setBatchGrading] = useState(false);
+  const [autoGrading, setAutoGrading] = useState(false);
   const [approving, setApproving] = useState(false);
   const [batchResult, setBatchResult] = useState<string | null>(null);
   const [deleting, setDeleting] = useState<string | null>(null);
@@ -207,6 +208,23 @@ export default function SubmissionsPage({ params }: { params: Promise<{ id: stri
     }
   }
 
+  async function handleAutoGrade() {
+    setAutoGrading(true); setBatchResult(null);
+    try {
+      const res = await fetch(`/api/teacher/auto-grade/${id}`, { method: 'POST' });
+      const data = await res.json();
+      if (!res.ok) { setBatchResult(`ตรวจเฉลยไม่สำเร็จ: ${data.error ?? 'กรุณาลองใหม่'}`); return; }
+      setBatchResult(`ตรวจเฉลยสำเร็จ ${data.graded} คน${data.errors ? ` · ผิดพลาด ${data.errors}` : ''}`);
+      const reload = await fetch(`/api/teacher/submissions/${id}`).then((r) => r.json());
+      setSubmissions(Array.isArray(reload.submissions) ? reload.submissions : []);
+      if (selected) {
+        const refreshed = reload.submissions?.find((s: Submission) => s.id === selected.id);
+        if (refreshed) { setSelected(refreshed); setScore(String(refreshed.score ?? '')); setFeedback(refreshed.feedback ?? ''); }
+      }
+    } catch { setBatchResult('ตรวจเฉลยไม่สำเร็จ: ไม่สามารถเชื่อมต่อได้'); }
+    finally { setAutoGrading(false); }
+  }
+
   async function handleBatchGrade() {
     setBatchGrading(true); setBatchResult(null);
     try {
@@ -244,6 +262,15 @@ export default function SubmissionsPage({ params }: { params: Promise<{ id: stri
             {batchResult && (
               <span className="text-xs text-emerald-400">{batchResult}</span>
             )}
+            {assignment?.contentType === 'quiz' && (
+              <button
+                onClick={handleAutoGrade}
+                disabled={autoGrading || pendingCount === 0}
+                className="rounded-lg border border-teal-700 bg-teal-950/40 px-3 py-1.5 text-xs text-teal-300 transition-all hover:border-teal-500 disabled:opacity-40"
+              >
+                {autoGrading ? 'กำลังตรวจเฉลย…' : `✅ ตรวจเฉลย (${pendingCount})`}
+              </button>
+            )}
             <button
               onClick={handleApproveAll}
               disabled={approving || submissions.filter((s) => s.status === 'graded').length === 0}
@@ -253,10 +280,10 @@ export default function SubmissionsPage({ params }: { params: Promise<{ id: stri
             </button>
             <button
               onClick={handleBatchGrade}
-              disabled={batchGrading || submissions.length === 0}
+              disabled={batchGrading || pendingCount === 0}
               className="rounded-lg border border-purple-700 bg-purple-950/40 px-3 py-1.5 text-xs text-purple-300 transition-all hover:border-purple-500 disabled:opacity-40"
             >
-              {batchGrading ? 'กำลังตรวจ…' : `ตรวจ AI ทั้งหมด (${pendingCount > 0 ? pendingCount : submissions.length})`}
+              {batchGrading ? 'กำลังตรวจ…' : `ตรวจ AI (${pendingCount} รอตรวจ)`}
             </button>
             <button
               onClick={() => exportCSV(assignment, submissions)}

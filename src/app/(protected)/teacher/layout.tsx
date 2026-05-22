@@ -1,6 +1,6 @@
 'use client';
 
-import { useState } from 'react';
+import { useState, useEffect, useRef, useCallback } from 'react';
 import Link from 'next/link';
 import { useAuth } from '@/context/AuthContext';
 import { usePathname } from 'next/navigation';
@@ -26,6 +26,140 @@ const BOTTOM_SHORTCUTS = [
   { href: '/teacher/gradebook',   icon: '📒', label: 'Gradebook' },
   { href: '/teacher/leaderboard', icon: '🏆', label: 'Rank' },
 ];
+
+interface ClassNote {
+  classId: string;
+  week: number;
+  topic: string;
+  note: string;
+}
+
+function ClassNotesPanel() {
+  const [open, setOpen] = useState(false);
+  const [classes, setClasses] = useState<string[]>([]);
+  const [selectedClass, setSelectedClass] = useState('');
+  const [notes, setNotes] = useState<Record<string, ClassNote>>({});
+  const [saving, setSaving] = useState(false);
+  const saveTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  // Load classes from assignments and existing notes
+  useEffect(() => {
+    if (!open) return;
+    Promise.all([
+      fetch('/api/assignments').then(r => r.json()),
+      fetch('/api/teacher/class-notes').then(r => r.json()),
+    ]).then(([assignments, rawNotes]) => {
+      const classSet = new Set<string>();
+      if (Array.isArray(assignments)) {
+        assignments.forEach((a: { classIds?: string[] }) => a.classIds?.forEach(c => classSet.add(c)));
+      }
+      const classArr = Array.from(classSet).sort();
+      setClasses(classArr);
+      if (classArr.length > 0 && !selectedClass) setSelectedClass(classArr[0]);
+
+      if (Array.isArray(rawNotes)) {
+        const map: Record<string, ClassNote> = {};
+        rawNotes.forEach((n: ClassNote & { classId: string }) => { map[n.classId] = n; });
+        setNotes(map);
+      }
+    }).catch(() => {});
+  }, [open]);
+
+  const current: ClassNote = notes[selectedClass] ?? { classId: selectedClass, week: 1, topic: '', note: '' };
+
+  const autoSave = useCallback((updated: ClassNote) => {
+    if (saveTimer.current) clearTimeout(saveTimer.current);
+    saveTimer.current = setTimeout(async () => {
+      setSaving(true);
+      try {
+        await fetch('/api/teacher/class-notes', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(updated),
+        });
+      } finally { setSaving(false); }
+    }, 800);
+  }, []);
+
+  function update(field: keyof ClassNote, value: string | number) {
+    const updated = { ...current, classId: selectedClass, [field]: value };
+    setNotes(prev => ({ ...prev, [selectedClass]: updated }));
+    autoSave(updated);
+  }
+
+  return (
+    <div className="border-t border-slate-800 shrink-0">
+      <button
+        onClick={() => setOpen(v => !v)}
+        className="flex w-full items-center justify-between px-3 py-2.5 text-sm text-slate-400 hover:text-slate-200 transition-colors"
+      >
+        <span className="flex items-center gap-2">
+          <span className="w-5 text-center text-base">📝</span>
+          <span>โน้ตห้องเรียน</span>
+        </span>
+        <span className="text-xs text-slate-600">{open ? '▲' : '▼'}</span>
+      </button>
+
+      {open && (
+        <div className="px-3 pb-3 space-y-2">
+          {classes.length === 0 ? (
+            <p className="text-[11px] text-slate-600 text-center py-2">ยังไม่มีห้องในระบบ</p>
+          ) : (
+            <>
+              {/* Class tabs */}
+              <div className="flex flex-wrap gap-1">
+                {classes.map(c => (
+                  <button
+                    key={c}
+                    onClick={() => setSelectedClass(c)}
+                    className={`rounded-lg px-2 py-0.5 text-[11px] font-semibold transition-all ${
+                      selectedClass === c
+                        ? 'bg-blue-600 text-white'
+                        : 'bg-slate-800 text-slate-400 hover:bg-slate-700'
+                    }`}
+                  >
+                    {c}
+                  </button>
+                ))}
+              </div>
+
+              {selectedClass && (
+                <div className="space-y-1.5">
+                  <div className="flex items-center gap-2">
+                    <label className="text-[10px] text-slate-500 shrink-0">สัปดาห์ที่</label>
+                    <input
+                      type="number"
+                      min={1}
+                      max={52}
+                      value={current.week}
+                      onChange={e => update('week', Number(e.target.value))}
+                      className="w-14 rounded-lg border border-slate-700 bg-slate-800 px-2 py-1 text-xs text-slate-200 focus:outline-none focus:ring-1 focus:ring-blue-600"
+                    />
+                    {saving && <span className="text-[10px] text-slate-600">บันทึก…</span>}
+                  </div>
+                  <input
+                    type="text"
+                    placeholder="หัวข้อที่สอน"
+                    value={current.topic}
+                    onChange={e => update('topic', e.target.value)}
+                    className="w-full rounded-lg border border-slate-700 bg-slate-800 px-2 py-1.5 text-xs text-slate-200 placeholder:text-slate-600 focus:outline-none focus:ring-1 focus:ring-blue-600"
+                  />
+                  <textarea
+                    placeholder="บันทึกเพิ่มเติม…"
+                    value={current.note}
+                    onChange={e => update('note', e.target.value)}
+                    rows={3}
+                    className="w-full resize-none rounded-lg border border-slate-700 bg-slate-800 px-2 py-1.5 text-xs text-slate-200 placeholder:text-slate-600 focus:outline-none focus:ring-1 focus:ring-blue-600"
+                  />
+                </div>
+              )}
+            </>
+          )}
+        </div>
+      )}
+    </div>
+  );
+}
 
 export default function TeacherLayout({ children }: { children: React.ReactNode }) {
   const { signOut } = useAuth();
@@ -62,6 +196,9 @@ export default function TeacherLayout({ children }: { children: React.ReactNode 
             );
           })}
         </nav>
+
+        {/* Class Notes panel */}
+        <ClassNotesPanel />
 
         {/* Sign out */}
         <div className="px-2 py-3 border-t border-slate-800 shrink-0">
