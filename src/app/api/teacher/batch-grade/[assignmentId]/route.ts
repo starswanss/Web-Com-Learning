@@ -64,10 +64,16 @@ export async function POST(
   let errors = 0;
 
   const CHUNK_SIZE = 5;
-  for (let i = 0; i < gradableItems.length; i += CHUNK_SIZE) {
-    const chunk = gradableItems.slice(i, i + CHUNK_SIZE);
-    let batchOk = false;
+  const CONCURRENCY = 2;   // chunks processed in parallel per round
+  const ROUND_DELAY = 2_000; // ms between rounds
 
+  // Split into chunks of CHUNK_SIZE
+  const chunks: typeof gradableItems[] = [];
+  for (let i = 0; i < gradableItems.length; i += CHUNK_SIZE) {
+    chunks.push(gradableItems.slice(i, i + CHUNK_SIZE));
+  }
+
+  async function processChunk(chunk: typeof gradableItems) {
     try {
       const results = await gradeSubmissionsBatch(
         assignment.title as string,
@@ -87,13 +93,9 @@ export async function POST(
         )
       );
       graded += results.length;
-      batchOk = true;
     } catch (err) {
-      console.error('[batch-grade] chunk batch failed, falling back to per-student:', err instanceof Error ? err.message : err);
-    }
-
-    // Fallback: grade individually if batch failed
-    if (!batchOk) {
+      console.error('[batch-grade] batch failed, falling back per-student:', err instanceof Error ? err.message : err);
+      // Fallback: grade one by one
       for (const item of chunk) {
         try {
           const r = await gradeSubmission(
@@ -118,9 +120,14 @@ export async function POST(
         await new Promise((r) => setTimeout(r, 3_000));
       }
     }
+  }
 
-    if (i + CHUNK_SIZE < gradableItems.length) {
-      await new Promise((r) => setTimeout(r, 8_000));
+  // Process in rounds of CONCURRENCY chunks in parallel
+  for (let r = 0; r < chunks.length; r += CONCURRENCY) {
+    const round = chunks.slice(r, r + CONCURRENCY);
+    await Promise.all(round.map(processChunk));
+    if (r + CONCURRENCY < chunks.length) {
+      await new Promise((res) => setTimeout(res, ROUND_DELAY));
     }
   }
 
