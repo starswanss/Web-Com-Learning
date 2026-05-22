@@ -39,10 +39,23 @@ export async function POST(
 
   const batch = adminDb.batch();
   snap.docs.forEach((doc) => {
+    const sub = doc.data();
+    const score = (sub.score as number) ?? 0;
+    const previousXp = (sub.xpAwarded as number) ?? 0;
+    const newXp = score * 10;
+    const xpDelta = newXp - previousXp;
+
     batch.update(doc.ref, {
       status: 'reviewed',
       reviewedAt: FieldValue.serverTimestamp(),
+      xpAwarded: newXp,
     });
+
+    if (xpDelta !== 0 && sub.studentId) {
+      batch.update(adminDb.collection('users').doc(sub.studentId as string), {
+        xp: FieldValue.increment(xpDelta),
+      });
+    }
   });
   await batch.commit();
 

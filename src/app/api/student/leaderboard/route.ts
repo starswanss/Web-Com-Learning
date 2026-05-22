@@ -55,6 +55,19 @@ export async function GET(req: NextRequest) {
     if (typeof data.score === 'number') entry.scores.push(data.score);
   });
 
+  // Include all students in the class even if they have no submissions yet
+  const classStudentsSnap = await adminDb
+    .collection('users')
+    .where('classId', '==', student.classId)
+    .get();
+  classStudentsSnap.docs.forEach((doc) => {
+    if (doc.data().role !== 'student') return;
+    const sid = doc.id;
+    if (!studentMap.has(sid)) {
+      studentMap.set(sid, { scores: [], submittedCount: 0, isMe: sid === student.uid });
+    }
+  });
+
   /* ── Bonus points ── */
   const studentIds = Array.from(studentMap.keys());
   const bonusMap = new Map<string, { total: number; medalCount: number }>();

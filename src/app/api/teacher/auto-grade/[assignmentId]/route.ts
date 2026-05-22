@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { adminAuth, adminDb } from '@/lib/firebase/admin';
 import { cookies } from 'next/headers';
-import { FieldValue } from 'firebase-admin/firestore';
+import { FieldValue, WriteBatch } from 'firebase-admin/firestore';
 
 async function getTeacherUid(): Promise<string | null> {
   try {
@@ -22,20 +22,27 @@ interface Block {
   correctIndex?: number;
   correctIndexes?: number[];
   items?: string[];
+  trueFalseItems?: Array<{ statement: string; correctAnswer: boolean }>;
+  leftItems?: string[];
+  rightItems?: string[];
+  correctPairs?: number[];
+  correctAnswers?: string[];
 }
 
 function scoreSubmission(blocks: Block[], answers: Record<string, string | string[]>): {
   score: number;
   gradable: number;
-  correct: number;
 } {
   const gradableBlocks = blocks.filter((b) =>
     (b.type === 'multiple-choice' && typeof b.correctIndex === 'number') ||
     (b.type === 'checkbox' && Array.isArray(b.correctIndexes) && b.correctIndexes.length > 0) ||
-    (b.type === 'ordering' && Array.isArray(b.items) && b.items.length > 0)
+    (b.type === 'ordering' && Array.isArray(b.items) && b.items.length > 0) ||
+    (b.type === 'true-false' && Array.isArray(b.trueFalseItems) && b.trueFalseItems.length > 0) ||
+    (b.type === 'matching' && Array.isArray(b.leftItems) && b.leftItems.length > 0) ||
+    (b.type === 'fill-blank' && Array.isArray(b.correctAnswers) && b.correctAnswers.length > 0)
   );
 
-  if (gradableBlocks.length === 0) return { score: 0, gradable: 0, correct: 0 };
+  if (gradableBlocks.length === 0) return { score: 0, gradable: 0 };
 
   let correct = 0;
 
@@ -62,11 +69,40 @@ function scoreSubmission(blocks: Block[], answers: Record<string, string | strin
         studentOrder.length === block.items.length &&
         block.items.every((item, i) => item === studentOrder[i]);
       if (matches) correct++;
+
+    } else if (block.type === 'true-false' && Array.isArray(block.trueFalseItems)) {
+      const items = block.trueFalseItems;
+      const studentArr = Array.isArray(answer) ? answer : [];
+      let itemCorrect = 0;
+      for (let j = 0; j < items.length; j++) {
+        const expected = items[j].correctAnswer ? 'true' : 'false';
+        if (studentArr[j] === expected) itemCorrect++;
+      }
+      correct += items.length > 0 ? itemCorrect / items.length : 0;
+
+    } else if (block.type === 'matching' && Array.isArray(block.leftItems) && Array.isArray(block.correctPairs)) {
+      const studentArr = Array.isArray(answer) ? answer : [];
+      let pairCorrect = 0;
+      for (let j = 0; j < block.leftItems.length; j++) {
+        const correctRight = block.rightItems?.[block.correctPairs[j] ?? -1];
+        if (correctRight !== undefined && studentArr[j] === correctRight) pairCorrect++;
+      }
+      correct += block.leftItems.length > 0 ? pairCorrect / block.leftItems.length : 0;
+
+    } else if (block.type === 'fill-blank' && Array.isArray(block.correctAnswers)) {
+      const studentArr = Array.isArray(answer) ? answer : [];
+      let blankCorrect = 0;
+      for (let j = 0; j < block.correctAnswers.length; j++) {
+        const expected = block.correctAnswers[j]?.trim().toLowerCase();
+        const given = (studentArr[j] ?? '').trim().toLowerCase();
+        if (expected && given === expected) blankCorrect++;
+      }
+      correct += block.correctAnswers.length > 0 ? blankCorrect / block.correctAnswers.length : 0;
     }
   }
 
   const score = Math.round((correct / gradableBlocks.length) * 100);
-  return { score, gradable: gradableBlocks.length, correct };
+  return { score, gradable: gradableBlocks.length };
 }
 
 export async function POST(
@@ -94,7 +130,10 @@ export async function POST(
   const gradableBlocks = blocks.filter((b) =>
     (b.type === 'multiple-choice' && typeof b.correctIndex === 'number') ||
     (b.type === 'checkbox' && Array.isArray(b.correctIndexes) && b.correctIndexes.length > 0) ||
-    (b.type === 'ordering' && Array.isArray(b.items) && b.items.length > 0)
+    (b.type === 'ordering' && Array.isArray(b.items) && b.items.length > 0) ||
+    (b.type === 'true-false' && Array.isArray(b.trueFalseItems) && b.trueFalseItems.length > 0) ||
+    (b.type === 'matching' && Array.isArray(b.leftItems) && b.leftItems.length > 0) ||
+    (b.type === 'fill-blank' && Array.isArray(b.correctAnswers) && b.correctAnswers.length > 0)
   );
 
   if (gradableBlocks.length === 0) {
@@ -104,26 +143,53 @@ export async function POST(
   let graded = 0;
   let errors = 0;
 
-  await Promise.all(
-    submissionsSnap.docs.map(async (doc) => {
-      try {
-        const answers = (doc.data().answers ?? {}) as Record<string, string | string[]>;
-        const { score, correct, gradable } = scoreSubmission(blocks, answers);
-        const feedback = `ตรวจโดยระบบเฉลยอัตโนมัติ: ตอบถูก ${correct}/${gradable} ข้อ (${score} คะแนน)`;
-        await doc.ref.update({
-          score,
-          feedback,
-          plagiarismSuspicion: 0,
-          status: 'reviewed',
-          gradedAt: FieldValue.serverTimestamp(),
-          autoGraded: true,
+  const BATCH_LIMIT = 499;
+  let batch: WriteBatch = adminDb.batch();
+  let opCount = 0;
+
+  async function commitIfNeeded() {
+    if (opCount >= BATCH_LIMIT) {
+      await batch.commit();
+      batch = adminDb.batch();
+      opCount = 0;
+    }
+  }
+
+  for (const doc of submissionsSnap.docs) {
+    try {
+      const sub = doc.data();
+      const answers = (sub.answers ?? {}) as Record<string, string | string[]>;
+      const { score, gradable } = scoreSubmission(blocks, answers);
+      const feedback = `ตรวจโดยระบบเฉลยอัตโนมัติ: ${score} คะแนน (จาก ${gradable} ข้อที่มีเฉลย)`;
+      const previousXp = (sub.xpAwarded as number) ?? 0;
+      const newXp = score * 10;
+      const xpDelta = newXp - previousXp;
+
+      batch.update(doc.ref, {
+        score,
+        feedback,
+        plagiarismSuspicion: 0,
+        status: 'reviewed',
+        gradedAt: FieldValue.serverTimestamp(),
+        autoGraded: true,
+        xpAwarded: newXp,
+      });
+      opCount++;
+
+      if (xpDelta !== 0 && sub.studentId) {
+        await commitIfNeeded();
+        batch.update(adminDb.collection('users').doc(sub.studentId as string), {
+          xp: FieldValue.increment(xpDelta),
         });
-        graded++;
-      } catch {
-        errors++;
+        opCount++;
       }
-    })
-  );
+      graded++;
+    } catch {
+      errors++;
+    }
+  }
+
+  if (opCount > 0) await batch.commit();
 
   return NextResponse.json({ graded, errors, skipped: 0 });
 }

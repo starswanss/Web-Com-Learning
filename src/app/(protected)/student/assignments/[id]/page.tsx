@@ -740,6 +740,106 @@ function BlockRenderer({
         <ImageUploadBlockRenderer block={block as Extract<FormBlock, { type: 'image-upload' }>} answers={answers} setAnswer={setAnswer} />
       );
 
+    case 'true-false': {
+      const tfBlock = block as Extract<FormBlock, { type: 'true-false' }>;
+      const tfAnswers = (answers[block.id] as string[]) ?? [];
+      return (
+        <div>
+          <p className="mb-3 text-sm font-medium text-slate-300">
+            {tfBlock.question}
+            {tfBlock.required && <span className="ml-1 text-red-400">*</span>}
+          </p>
+          <div className="space-y-2">
+            {tfBlock.items.map((item, i) => (
+              <div key={i} className="flex items-center justify-between rounded-xl border border-slate-700 bg-slate-800 px-4 py-3 gap-3">
+                <span className="text-sm text-slate-300 flex-1">{item.statement}</span>
+                <div className="flex gap-2 shrink-0">
+                  <button type="button"
+                    onClick={() => { const n = [...tfAnswers]; n[i] = 'true'; setAnswer(block.id, n); }}
+                    className={`rounded-lg border px-3 py-1.5 text-xs font-semibold transition-all ${
+                      tfAnswers[i] === 'true'
+                        ? 'border-emerald-600 bg-emerald-950/60 text-emerald-300'
+                        : 'border-slate-600 text-slate-400 hover:border-emerald-700'
+                    }`}>ถูก</button>
+                  <button type="button"
+                    onClick={() => { const n = [...tfAnswers]; n[i] = 'false'; setAnswer(block.id, n); }}
+                    className={`rounded-lg border px-3 py-1.5 text-xs font-semibold transition-all ${
+                      tfAnswers[i] === 'false'
+                        ? 'border-red-600 bg-red-950/60 text-red-300'
+                        : 'border-slate-600 text-slate-400 hover:border-red-700'
+                    }`}>ผิด</button>
+                </div>
+              </div>
+            ))}
+          </div>
+        </div>
+      );
+    }
+
+    case 'matching': {
+      const mBlock = block as Extract<FormBlock, { type: 'matching' }>;
+      const mAnswers = (answers[block.id] as string[]) ?? [];
+      return (
+        <div>
+          <p className="mb-3 text-sm font-medium text-slate-300">
+            {mBlock.question}
+            {mBlock.required && <span className="ml-1 text-red-400">*</span>}
+          </p>
+          <div className="space-y-2">
+            {mBlock.leftItems.map((leftItem, i) => (
+              <div key={i} className="flex items-center gap-3">
+                <div className="flex-1 rounded-xl border border-slate-700 bg-slate-800 px-3 py-2.5 text-sm text-slate-300">
+                  {leftItem}
+                </div>
+                <span className="text-slate-600 text-sm shrink-0">→</span>
+                <select
+                  value={mAnswers[i] ?? ''}
+                  onChange={e => { const n = [...mAnswers]; n[i] = e.target.value; setAnswer(block.id, n); }}
+                  className="flex-1 rounded-xl border border-slate-700 bg-slate-800 px-3 py-2.5 text-sm text-slate-300 focus:outline-none focus:border-blue-600"
+                >
+                  <option value="">-- เลือก --</option>
+                  {mBlock.rightItems.map((rightItem, j) => (
+                    <option key={j} value={rightItem}>{rightItem}</option>
+                  ))}
+                </select>
+              </div>
+            ))}
+          </div>
+        </div>
+      );
+    }
+
+    case 'fill-blank': {
+      const fbBlock = block as Extract<FormBlock, { type: 'fill-blank' }>;
+      const fbAnswers = (answers[block.id] as string[]) ?? [];
+      const parts = fbBlock.question.split('___');
+      return (
+        <div>
+          <p className="mb-3 text-sm font-medium text-slate-300">
+            {fbBlock.required && <span className="mr-1 text-red-400">*</span>}
+            เติมคำในช่องว่าง
+          </p>
+          <div className="text-sm text-slate-300 flex flex-wrap items-center gap-y-2 gap-x-1">
+            {parts.map((part, i) => (
+              <span key={i} className="contents">
+                <span className="whitespace-pre-wrap">{part}</span>
+                {i < parts.length - 1 && (
+                  <input
+                    type="text"
+                    value={fbAnswers[i] ?? ''}
+                    onChange={e => { const n = [...fbAnswers]; n[i] = e.target.value; setAnswer(block.id, n); }}
+                    className="inline-block border-b-2 border-blue-500 bg-transparent px-1 text-blue-300 placeholder:text-slate-600 focus:outline-none"
+                    style={{ minWidth: '80px', maxWidth: '160px' }}
+                    placeholder={`ช่อง ${i + 1}`}
+                  />
+                )}
+              </span>
+            ))}
+          </div>
+        </div>
+      );
+    }
+
     default:
       return null;
   }
@@ -989,7 +1089,7 @@ function AnswerReview({
   answers: Record<string, string | string[]>;
 }) {
   const questionBlocks = blocks.filter((b) =>
-    ['short-answer', 'long-answer', 'multiple-choice', 'checkbox', 'ordering', 'image-upload'].includes(b.type)
+    ['short-answer', 'long-answer', 'multiple-choice', 'checkbox', 'ordering', 'image-upload', 'true-false', 'matching', 'fill-blank'].includes(b.type)
   );
   if (questionBlocks.length === 0) return null;
 
@@ -1010,7 +1110,50 @@ function AnswerReview({
               <img src={answer} alt="คำตอบ" className="max-h-48 rounded-xl border border-slate-700 object-contain" />
             ) : block.type === 'image-upload' ? (
               <p className="text-sm text-slate-600 italic">ไม่ได้อัปโหลดรูป</p>
-            ) : block.type === 'ordering' && Array.isArray(answer) ? (
+            ) : block.type === 'true-false' && Array.isArray(answer) ? (() => {
+              const tfBlock = block as Extract<FormBlock, { type: 'true-false' }>;
+              return (
+                <div className="space-y-1">
+                  {tfBlock.items.map((item, j) => (
+                    <div key={j} className="flex items-center justify-between text-sm">
+                      <span className="text-slate-400">{item.statement}</span>
+                      <span className={`ml-2 text-xs font-semibold shrink-0 ${
+                        answer[j] === 'true' ? 'text-emerald-400' : answer[j] === 'false' ? 'text-red-400' : 'text-slate-600'
+                      }`}>{answer[j] === 'true' ? 'ถูก' : answer[j] === 'false' ? 'ผิด' : '—'}</span>
+                    </div>
+                  ))}
+                </div>
+              );
+            })() : block.type === 'matching' && Array.isArray(answer) ? (() => {
+              const mBlock = block as Extract<FormBlock, { type: 'matching' }>;
+              return (
+                <div className="space-y-1">
+                  {mBlock.leftItems.map((left, j) => (
+                    <div key={j} className="flex items-center gap-2 text-sm text-slate-300">
+                      <span>{left}</span>
+                      <span className="text-slate-600">→</span>
+                      <span>{(answer as string[])[j] ?? '—'}</span>
+                    </div>
+                  ))}
+                </div>
+              );
+            })() : block.type === 'fill-blank' ? (() => {
+              const fbBlock = block as Extract<FormBlock, { type: 'fill-blank' }>;
+              const fbAns = Array.isArray(answer) ? answer : [];
+              const parts = fbBlock.question.split('___');
+              return (
+                <p className="text-sm text-slate-300 flex flex-wrap items-baseline gap-x-0.5">
+                  {parts.map((part, j) => (
+                    <span key={j} className="contents">
+                      <span className="whitespace-pre-wrap">{part}</span>
+                      {j < parts.length - 1 && (
+                        <span className="border-b border-slate-500 text-blue-300 px-1">[{fbAns[j] ?? '—'}]</span>
+                      )}
+                    </span>
+                  ))}
+                </p>
+              );
+            })() : block.type === 'ordering' && Array.isArray(answer) ? (
               <div className="space-y-1">
                 {(answer as string[]).map((a, idx) => (
                   <div key={idx} className="flex items-center gap-2 text-sm text-slate-300">

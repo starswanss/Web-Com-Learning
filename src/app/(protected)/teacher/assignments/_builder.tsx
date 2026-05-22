@@ -6,6 +6,7 @@ import type {
   HeadingBlock, ParagraphBlock, ImageBlock, PdfBlock, InfographicBlock,
   ShortAnswerBlock, LongAnswerBlock,
   MultipleChoiceBlock, CheckboxBlock, OrderingBlock, ImageUploadBlock,
+  TrueFalseBlock, TrueFalseItem, MatchingBlock, FillBlankBlock,
 } from '@/types';
 
 export { type FormBlock, type BlockType };
@@ -27,6 +28,9 @@ export function makeBlock(type: BlockType): FormBlock {
     case 'checkbox':        return { id: uid(), type, question: '', options: ['', ''], optionImages: [null, null], required: false };
     case 'ordering':        return { id: uid(), type, question: '', items: ['', '', ''], required: false };
     case 'image-upload':   return { id: uid(), type, question: '', required: false };
+    case 'true-false':     return { id: uid(), type, question: '', items: [{ statement: '', correctAnswer: true }, { statement: '', correctAnswer: false }], required: false };
+    case 'matching':       return { id: uid(), type, question: '', leftItems: ['', ''], rightItems: ['', ''], correctPairs: [0, 1], required: false };
+    case 'fill-blank':     return { id: uid(), type, question: '___ คือ ___', correctAnswers: ['', ''], required: false };
   }
 }
 
@@ -54,6 +58,9 @@ export const BLOCK_LABELS: { type: BlockType; label: string; icon: string }[] = 
   { type: 'checkbox',        label: 'ช่องกาเครื่องหมาย',  icon: '☑'  },
   { type: 'ordering',        label: 'เรียงลำดับ',          icon: '⇅'  },
   { type: 'image-upload',   label: 'อัปโหลดภาพ',          icon: '📸'  },
+  { type: 'true-false',    label: 'ถูก/ผิด',             icon: '✓✗' },
+  { type: 'matching',      label: 'จับคู่',               icon: '⟷'  },
+  { type: 'fill-blank',    label: 'เติมคำ',               icon: '_'   },
 ];
 
 /* ── Auto-grow textarea helper ─────────────────────────────────── */
@@ -610,6 +617,169 @@ function ImageUploadBlockEditor({ block, onChange }: { block: ImageUploadBlock; 
   );
 }
 
+/* ── True/False editor ─────────────────────────────────────────── */
+function TrueFalseEditor({ block, onChange }: { block: TrueFalseBlock; onChange: (b: FormBlock) => void }) {
+  function updateItem(i: number, field: keyof TrueFalseItem, value: string | boolean) {
+    const next = block.items.map((item, j) => j === i ? { ...item, [field]: value } : item);
+    onChange({ ...block, items: next });
+  }
+  function addItem() {
+    onChange({ ...block, items: [...block.items, { statement: '', correctAnswer: true }] });
+  }
+  function removeItem(i: number) {
+    if (block.items.length <= 1) return;
+    onChange({ ...block, items: block.items.filter((_, j) => j !== i) });
+  }
+
+  return (
+    <div>
+      <QuestionHeader question={block.question} required={block.required}
+        onQuestion={v => onChange({ ...block, question: v })}
+        onRequired={v => onChange({ ...block, required: v })} />
+      <p className="mb-2 text-[10px] text-slate-500">ตั้งว่าแต่ละข้อความ "ถูก" หรือ "ผิด" เพื่อกำหนดเฉลย</p>
+      <div className="space-y-2">
+        {block.items.map((item, i) => (
+          <div key={i} className={`flex items-center gap-2 rounded-xl border p-2 transition-all ${
+            item.correctAnswer ? 'border-emerald-800/60 bg-emerald-950/20' : 'border-red-900/60 bg-red-950/20'
+          }`}>
+            <input
+              value={item.statement}
+              onChange={e => updateItem(i, 'statement', e.target.value)}
+              placeholder={`ข้อความที่ ${i + 1}...`}
+              className="input flex-1 text-sm"
+            />
+            <button type="button"
+              onClick={() => updateItem(i, 'correctAnswer', !item.correctAnswer)}
+              className={`shrink-0 rounded-lg border px-3 py-1.5 text-xs font-semibold transition-all ${
+                item.correctAnswer
+                  ? 'border-emerald-600 bg-emerald-950/60 text-emerald-300'
+                  : 'border-red-700 bg-red-950/60 text-red-300'
+              }`}>
+              {item.correctAnswer ? 'ถูก ✓' : 'ผิด ✗'}
+            </button>
+            {block.items.length > 1 && (
+              <button type="button" onClick={() => removeItem(i)}
+                className="shrink-0 text-slate-600 hover:text-red-400 text-sm">×</button>
+            )}
+          </div>
+        ))}
+      </div>
+      <button type="button" onClick={addItem} className="mt-2 text-xs text-blue-400 hover:text-blue-300 transition-colors">
+        + เพิ่มข้อความ
+      </button>
+    </div>
+  );
+}
+
+/* ── Matching editor ────────────────────────────────────────────── */
+function MatchingEditor({ block, onChange }: { block: MatchingBlock; onChange: (b: FormBlock) => void }) {
+  function updateLeft(i: number, v: string) {
+    const next = [...block.leftItems]; next[i] = v;
+    onChange({ ...block, leftItems: next });
+  }
+  function updateRight(i: number, v: string) {
+    const next = [...block.rightItems]; next[i] = v;
+    onChange({ ...block, rightItems: next });
+  }
+  function addRow() {
+    const nextLeft = [...block.leftItems, ''];
+    const nextRight = [...block.rightItems, ''];
+    const nextPairs = [...block.correctPairs, block.rightItems.length];
+    onChange({ ...block, leftItems: nextLeft, rightItems: nextRight, correctPairs: nextPairs });
+  }
+  function removeRow(i: number) {
+    if (block.leftItems.length <= 2) return;
+    const nextLeft = block.leftItems.filter((_, j) => j !== i);
+    const nextRight = block.rightItems.filter((_, j) => j !== i);
+    const nextPairs = block.correctPairs.filter((_, j) => j !== i).map(p => p > i ? p - 1 : p);
+    onChange({ ...block, leftItems: nextLeft, rightItems: nextRight, correctPairs: nextPairs });
+  }
+  function updatePair(leftIdx: number, rightIdx: number) {
+    const next = [...block.correctPairs]; next[leftIdx] = rightIdx;
+    onChange({ ...block, correctPairs: next });
+  }
+
+  return (
+    <div>
+      <QuestionHeader question={block.question} required={block.required}
+        onQuestion={v => onChange({ ...block, question: v })}
+        onRequired={v => onChange({ ...block, required: v })} />
+      <p className="mb-2 text-[10px] text-slate-500">คอลัมน์ซ้าย = คำถาม, คอลัมน์ขวา = คำตอบ · เลือกคู่ที่ถูกต้องด้วยลูกศร</p>
+      <div className="space-y-2">
+        {block.leftItems.map((left, i) => (
+          <div key={i} className="flex items-center gap-2">
+            <span className="shrink-0 w-5 text-center text-xs text-slate-500">{i + 1}</span>
+            <input value={left} onChange={e => updateLeft(i, e.target.value)}
+              placeholder={`ด้านซ้าย ${i + 1}`} className="input flex-1 text-sm" />
+            <span className="text-slate-600 text-sm shrink-0">→</span>
+            <select
+              value={block.correctPairs[i] ?? 0}
+              onChange={e => updatePair(i, Number(e.target.value))}
+              className="flex-1 rounded-xl border border-slate-700 bg-slate-900 px-2 py-1.5 text-xs text-slate-300 focus:outline-none focus:border-blue-600"
+            >
+              {block.rightItems.map((_, j) => (
+                <option key={j} value={j}>{block.rightItems[j] || `ด้านขวา ${j + 1}`}</option>
+              ))}
+            </select>
+            <input value={block.rightItems[i] ?? ''} onChange={e => updateRight(i, e.target.value)}
+              placeholder={`ด้านขวา ${i + 1}`} className="input flex-1 text-sm" />
+            {block.leftItems.length > 2 && (
+              <button type="button" onClick={() => removeRow(i)}
+                className="shrink-0 text-slate-600 hover:text-red-400 text-sm">×</button>
+            )}
+          </div>
+        ))}
+      </div>
+      <button type="button" onClick={addRow} className="mt-2 text-xs text-blue-400 hover:text-blue-300 transition-colors">
+        + เพิ่มคู่
+      </button>
+    </div>
+  );
+}
+
+/* ── Fill-blank editor ──────────────────────────────────────────── */
+function FillBlankEditor({ block, onChange }: { block: FillBlankBlock; onChange: (b: FormBlock) => void }) {
+  const blankCount = (block.question.match(/___/g) ?? []).length;
+  const answers = block.correctAnswers;
+
+  function syncAnswers(question: string) {
+    const count = (question.match(/___/g) ?? []).length;
+    const next = Array.from({ length: count }, (_, i) => answers[i] ?? '');
+    onChange({ ...block, question, correctAnswers: next });
+  }
+
+  function updateAnswer(i: number, v: string) {
+    const next = [...answers]; next[i] = v;
+    onChange({ ...block, correctAnswers: next });
+  }
+
+  return (
+    <div>
+      <QuestionHeader question={block.question} required={block.required}
+        onQuestion={syncAnswers}
+        onRequired={v => onChange({ ...block, required: v })} />
+      <p className="mb-2 text-[10px] text-slate-500">
+        ใช้ <span className="font-mono text-amber-400">___</span> (3 ขีด) เพื่อระบุช่องว่าง · ตรวจพบ {blankCount} ช่อง
+      </p>
+      {blankCount > 0 && (
+        <div className="space-y-1.5">
+          {Array.from({ length: blankCount }, (_, i) => (
+            <div key={i} className="flex items-center gap-2">
+              <span className="shrink-0 text-[10px] text-slate-500 w-14">ช่องที่ {i + 1}:</span>
+              <input
+                value={answers[i] ?? ''}
+                onChange={e => updateAnswer(i, e.target.value)}
+                placeholder="เฉลย..."
+                className="input flex-1 text-sm"
+              />
+            </div>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
 /* ── Block editor dispatcher ────────────────────────────────────── */
 
 export function BlockEditor({ block, onChange }: { block: FormBlock; onChange: (b: FormBlock) => void }) {
@@ -681,6 +851,15 @@ export function BlockEditor({ block, onChange }: { block: FormBlock; onChange: (
         </div>
       );
     }
+
+    case 'true-false':
+      return <TrueFalseEditor block={block as TrueFalseBlock} onChange={onChange} />;
+
+    case 'matching':
+      return <MatchingEditor block={block as MatchingBlock} onChange={onChange} />;
+
+    case 'fill-blank':
+      return <FillBlankEditor block={block as FillBlankBlock} onChange={onChange} />;
   }
 }
 

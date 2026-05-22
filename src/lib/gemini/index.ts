@@ -190,12 +190,12 @@ Rules:
 
 /** Convert block-based answers to readable text for AI grading */
 export function answersToText(
-  blocks: Array<{ id: string; type: string; question?: string }>,
+  blocks: Array<{ id: string; type: string; question?: string; [key: string]: unknown }>,
   answers: Record<string, string | string[]>
 ): string {
   return blocks
     .filter((b) =>
-      ['short-answer', 'long-answer', 'multiple-choice', 'checkbox', 'ordering'].includes(b.type)
+      ['short-answer', 'long-answer', 'multiple-choice', 'checkbox', 'ordering', 'true-false', 'matching', 'fill-blank'].includes(b.type)
       // image-upload blocks are intentionally excluded — AI cannot grade images via text
     )
     .map((b) => {
@@ -203,6 +203,18 @@ export function answersToText(
       let ansText: string;
       if (b.type === 'ordering' && Array.isArray(ans)) {
         ansText = ans.map((item, i) => `${i + 1}. ${item}`).join(' → ');
+      } else if (b.type === 'true-false' && Array.isArray(ans)) {
+        const items = (b.items as Array<{ statement: string; correctAnswer: boolean }> | undefined) ?? [];
+        ansText = items.map((item, i) =>
+          `"${item.statement}": ${ans[i] === 'true' ? 'ถูก' : ans[i] === 'false' ? 'ผิด' : '(ไม่ได้ตอบ)'}`
+        ).join('; ');
+      } else if (b.type === 'matching' && Array.isArray(ans)) {
+        const leftItems = (b.leftItems as string[] | undefined) ?? [];
+        ansText = leftItems.map((left, i) => `"${left}" → "${(ans as string[])[i] ?? '(ไม่ได้ตอบ)'}"`).join('; ');
+      } else if (b.type === 'fill-blank') {
+        const parts = (b.question ?? '').split('___');
+        const fbAns = Array.isArray(ans) ? ans : [];
+        ansText = parts.map((part, i) => i < parts.length - 1 ? `${part}[${fbAns[i] ?? '—'}]` : part).join('');
       } else {
         ansText = Array.isArray(ans) ? ans.join(', ') : (ans ?? '(ไม่ได้ตอบ)');
       }

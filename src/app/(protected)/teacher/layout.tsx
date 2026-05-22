@@ -40,6 +40,7 @@ function ClassNotesPanel() {
   const [selectedClass, setSelectedClass] = useState('');
   const [notes, setNotes] = useState<Record<string, ClassNote>>({});
   const [saving, setSaving] = useState(false);
+  const [saveError, setSaveError] = useState(false);
   const saveTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   // Load classes from assignments and existing notes
@@ -71,13 +72,19 @@ function ClassNotesPanel() {
     if (saveTimer.current) clearTimeout(saveTimer.current);
     saveTimer.current = setTimeout(async () => {
       setSaving(true);
+      setSaveError(false);
       try {
-        await fetch('/api/teacher/class-notes', {
+        const res = await fetch('/api/teacher/class-notes', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify(updated),
         });
-      } finally { setSaving(false); }
+        if (!res.ok) setSaveError(true);
+      } catch {
+        setSaveError(true);
+      } finally {
+        setSaving(false);
+      }
     }, 800);
   }, []);
 
@@ -136,6 +143,7 @@ function ClassNotesPanel() {
                       className="w-14 rounded-lg border border-slate-700 bg-slate-800 px-2 py-1 text-xs text-slate-200 focus:outline-none focus:ring-1 focus:ring-blue-600"
                     />
                     {saving && <span className="text-[10px] text-slate-600">บันทึก…</span>}
+                    {!saving && saveError && <span className="text-[10px] text-red-500">บันทึกไม่สำเร็จ</span>}
                   </div>
                   <input
                     type="text"

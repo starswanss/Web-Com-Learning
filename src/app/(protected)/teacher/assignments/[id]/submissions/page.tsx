@@ -574,7 +574,7 @@ function BlockAnswers({ assignment, answers }: { assignment: Assignment | null; 
     );
   }
   const questionBlocks = (assignment.blocks as AssignmentBlock[]).filter((b) =>
-    ['short-answer', 'long-answer', 'multiple-choice', 'checkbox', 'ordering', 'image-upload'].includes(b.type)
+    ['short-answer', 'long-answer', 'multiple-choice', 'checkbox', 'ordering', 'image-upload', 'true-false', 'matching', 'fill-blank'].includes(b.type)
   );
   return (
     <div className="space-y-5">
@@ -596,6 +596,51 @@ function BlockAnswers({ assignment, answers }: { assignment: Assignment | null; 
               </div>
             ) : block.type === 'image-upload' ? (
               <p className="text-sm text-slate-600 italic">ไม่ได้อัปโหลดรูป</p>
+            ) : block.type === 'true-false' && Array.isArray(answer) ? (
+              <div className="space-y-1">
+                {((block as AssignmentBlock & { items?: Array<{ statement: string; correctAnswer: boolean }> }).items ?? []).map((item, j) => (
+                  <div key={j} className="flex items-center justify-between text-sm">
+                    <span className="text-slate-400">{item.statement}</span>
+                    <span className={`ml-2 text-xs font-semibold shrink-0 ${
+                      answer[j] === 'true' ? 'text-emerald-400' : answer[j] === 'false' ? 'text-red-400' : 'text-slate-600'
+                    }`}>{answer[j] === 'true' ? 'ถูก' : answer[j] === 'false' ? 'ผิด' : '—'}</span>
+                  </div>
+                ))}
+              </div>
+            ) : block.type === 'matching' && Array.isArray(answer) ? (
+              <div className="space-y-1">
+                {((block as AssignmentBlock & { leftItems?: string[] }).leftItems ?? []).map((left, j) => (
+                  <div key={j} className="flex items-center gap-2 text-sm text-slate-300">
+                    <span>{left}</span>
+                    <span className="text-slate-600">→</span>
+                    <span>{answer[j] ?? '—'}</span>
+                  </div>
+                ))}
+              </div>
+            ) : block.type === 'fill-blank' ? (() => {
+              const fbAns = Array.isArray(answer) ? answer : [];
+              const parts = q.split('___');
+              return (
+                <p className="text-sm text-slate-300 flex flex-wrap items-baseline gap-x-0.5">
+                  {parts.map((part, j) => (
+                    <span key={j} className="contents">
+                      <span className="whitespace-pre-wrap">{part}</span>
+                      {j < parts.length - 1 && (
+                        <span className="border-b border-slate-500 text-blue-300 px-1">[{fbAns[j] ?? '—'}]</span>
+                      )}
+                    </span>
+                  ))}
+                </p>
+              );
+            })() : block.type === 'ordering' && Array.isArray(answer) ? (
+              <div className="space-y-1">
+                {answer.map((a, idx) => (
+                  <div key={idx} className="flex items-center gap-2 text-sm text-slate-300">
+                    <span className="flex h-5 w-5 shrink-0 items-center justify-center rounded-full bg-slate-700 text-[10px] font-bold text-slate-400">{idx + 1}</span>
+                    {a}
+                  </div>
+                ))}
+              </div>
             ) : Array.isArray(answer) ? (
               <div className="flex flex-wrap gap-2">
                 {answer.map((a) => (

@@ -43,7 +43,9 @@ export async function POST(req: NextRequest) {
 
   if (!classId) return NextResponse.json({ error: 'classId required' }, { status: 400 });
 
-  const docId = `${uid}_${classId}`;
+  // Firestore doc IDs cannot contain '/' — replace with '-'
+  const safeClassId = classId.replace(/\//g, '-');
+  const docId = `${uid}_${safeClassId}`;
   await adminDb.collection('classNotes').doc(docId).set({
     teacherId: uid,
     classId,

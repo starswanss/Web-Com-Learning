@@ -26,7 +26,10 @@ export type BlockType =
   | 'multiple-choice'
   | 'checkbox'
   | 'ordering'
-  | 'image-upload';
+  | 'image-upload'
+  | 'true-false'
+  | 'matching'
+  | 'fill-blank';
 
 export type InfographicColor = 'blue' | 'green' | 'purple' | 'orange' | 'red' | 'slate';
 
@@ -42,11 +45,16 @@ export interface MultipleChoiceBlock extends BaseBlock { type: 'multiple-choice'
 export interface CheckboxBlock      extends BaseBlock { type: 'checkbox';        question: string; options: string[]; optionImages?: (string | null)[]; correctIndexes?: number[]; required?: boolean }
 export interface OrderingBlock      extends BaseBlock { type: 'ordering';        question: string; items: string[]; required?: boolean }
 export interface ImageUploadBlock  extends BaseBlock { type: 'image-upload';    question: string; required?: boolean }
+export interface TrueFalseItem { statement: string; correctAnswer: boolean }
+export interface TrueFalseBlock extends BaseBlock { type: 'true-false'; question: string; items: TrueFalseItem[]; required?: boolean }
+export interface MatchingBlock  extends BaseBlock { type: 'matching';    question: string; leftItems: string[]; rightItems: string[]; correctPairs: number[]; required?: boolean }
+export interface FillBlankBlock extends BaseBlock { type: 'fill-blank';  question: string; correctAnswers: string[]; required?: boolean }
 
 export type FormBlock =
   | HeadingBlock | ParagraphBlock | ImageBlock | PdfBlock | InfographicBlock
   | ShortAnswerBlock | LongAnswerBlock
-  | MultipleChoiceBlock | CheckboxBlock | OrderingBlock | ImageUploadBlock;
+  | MultipleChoiceBlock | CheckboxBlock | OrderingBlock | ImageUploadBlock
+  | TrueFalseBlock | MatchingBlock | FillBlankBlock;
 
 // ── Content type ──────────────────────────────────────────────────────────────
 

@@ -74,12 +74,15 @@ export async function GET() {
       avgScore: data.count > 0 ? Math.round(data.totalScore / data.count) : 0,
     }));
 
-  const assignmentStats = Object.entries(perAssignment).map(([id, data]) => ({
-    id,
-    title: assignmentTitles[id] ?? id,
-    submitted: data.submitted,
-    avgScore: Math.round(data.avgScore),
-  }));
+  const currentAssignmentIds = new Set(assignmentIds);
+  const assignmentStats = Object.entries(perAssignment)
+    .filter(([id]) => currentAssignmentIds.has(id))
+    .map(([id, data]) => ({
+      id,
+      title: assignmentTitles[id] ?? id,
+      submitted: data.submitted,
+      avgScore: Math.round(data.avgScore),
+    }));
 
   // Score distribution histogram: buckets 0-9, 10-19, …, 90-100
   const scoreDistribution = Array.from({ length: 10 }, (_, i) => ({
