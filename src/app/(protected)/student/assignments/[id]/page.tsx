@@ -74,6 +74,7 @@ export default function SubmissionPage({ params }: { params: Promise<{ id: strin
   const [selfScore, setSelfScore] = useState(70);
   const [quizStarted, setQuizStarted] = useState(false);
   const [autoSaved, setAutoSaved] = useState(false);
+  const [lastSavedAt, setLastSavedAt] = useState<Date | null>(null);
   const [draftRestored, setDraftRestored] = useState(false);
   const [xpGain, setXpGain] = useState<number | null>(null);
   const autoSaveTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -143,11 +144,25 @@ export default function SubmissionPage({ params }: { params: Promise<{ id: strin
       const hasContent = content.trim().length > 0;
       if (!hasAnswers && !hasContent) return;
       localStorage.setItem(`lms_draft_${id}`, JSON.stringify({ answers, content }));
+      setLastSavedAt(new Date());
       setAutoSaved(true);
       setTimeout(() => setAutoSaved(false), 2000);
     }, 1500);
     return () => { if (autoSaveTimerRef.current) clearTimeout(autoSaveTimerRef.current); };
   }, [answers, content, id, submission]);
+
+  // Warn before closing if there are unsaved draft answers
+  useEffect(() => {
+    if (submission) return;
+    const hasAnswers = Object.keys(answers).length > 0;
+    const hasContent = content.trim().length > 0;
+    if (!hasAnswers && !hasContent) return;
+    function handleBeforeUnload(e: BeforeUnloadEvent) {
+      e.preventDefault();
+    }
+    window.addEventListener('beforeunload', handleBeforeUnload);
+    return () => window.removeEventListener('beforeunload', handleBeforeUnload);
+  }, [answers, content, submission]);
 
   // Countdown timer + auto-submit
   useEffect(() => {
@@ -447,10 +462,14 @@ export default function SubmissionPage({ params }: { params: Promise<{ id: strin
             </div>
 
             {/* Auto-save indicator */}
-            <div className={`flex items-center justify-end gap-1.5 text-[11px] transition-opacity duration-500 ${autoSaved ? 'opacity-100' : 'opacity-0'}`}>
-              <span className="h-1.5 w-1.5 rounded-full bg-emerald-500" />
-              <span className="text-emerald-500">บันทึกอัตโนมัติแล้ว</span>
-            </div>
+            {lastSavedAt && (
+              <div className="flex items-center justify-end gap-1.5 text-[11px]">
+                <span className={`h-1.5 w-1.5 rounded-full transition-colors duration-300 ${autoSaved ? 'bg-emerald-400' : 'bg-slate-600'}`} />
+                <span className={`transition-colors duration-300 ${autoSaved ? 'text-emerald-400' : 'text-slate-600'}`}>
+                  {autoSaved ? 'บันทึกอัตโนมัติแล้ว' : `บันทึกล่าสุด ${lastSavedAt.toLocaleTimeString('th-TH', { hour: '2-digit', minute: '2-digit' })}`}
+                </span>
+              </div>
+            )}
 
             <button
               id="submit-btn"

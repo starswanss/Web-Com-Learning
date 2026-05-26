@@ -62,7 +62,7 @@ function statusBadge(status: string) {
 
 function statusLabel(status: string) {
   if (status === 'reviewed')  return 'ตรวจแล้ว';
-  if (status === 'graded')    return 'AI ตรวจแล้ว';
+  if (status === 'graded')    return 'รอบันทึกคะแนน';
   if (status === 'submitted') return 'รอตรวจ';
   return 'ยังไม่ส่ง';
 }
@@ -245,7 +245,9 @@ export default function SubmissionsPage({ params }: { params: Promise<{ id: stri
 
   if (loading || !profile) return <Spinner />;
 
-  const pendingCount = submissions.filter((s) => s.status === 'submitted').length;
+  const pendingCount  = submissions.filter((s) => s.status === 'submitted').length;
+  const gradedCount   = submissions.filter((s) => s.status === 'graded').length;
+  const reviewedCount = submissions.filter((s) => s.status === 'reviewed').length;
 
   return (
     <div className="min-h-screen bg-slate-950">
@@ -256,7 +258,12 @@ export default function SubmissionsPage({ params }: { params: Promise<{ id: stri
             <h1 className="truncate text-base font-semibold text-slate-100">
               {assignment ? assignment.title : 'กำลังโหลด…'}
             </h1>
-            <p className="text-xs text-slate-500">ตรวจงาน — {submissions.length} การส่ง · รอตรวจ {pendingCount}</p>
+            <p className="text-xs text-slate-500">
+              ตรวจงาน — {submissions.length} การส่ง
+              {pendingCount > 0 && ` · รอตรวจ ${pendingCount}`}
+              {gradedCount > 0 && ` · รอบันทึก ${gradedCount}`}
+              {reviewedCount > 0 && ` · ตรวจแล้ว ${reviewedCount}`}
+            </p>
           </div>
           <div className="flex items-center gap-2 shrink-0 flex-wrap">
             {batchResult && (
@@ -333,70 +340,40 @@ export default function SubmissionsPage({ params }: { params: Promise<{ id: stri
                   <p className="text-sm text-slate-500">ยังไม่มีการส่งงาน</p>
                 </div>
               ) : (
-                <>
-                  {/* รอตรวจ section */}
-                  {(() => {
-                    const pending = submissions.filter((s) => s.status === 'submitted');
-                    if (pending.length === 0) return null;
-                    return (
-                      <div className="mb-3">
-                        <div className="mb-2 flex items-center gap-2 px-1">
-                          <span className="text-[10px] font-bold uppercase tracking-wider text-amber-400">รอตรวจ</span>
-                          <span className="rounded-full bg-amber-950/60 border border-amber-800 px-2 py-0.5 text-[10px] font-bold text-amber-400">{pending.length}</span>
-                        </div>
-                        <div className="space-y-2">
-                          {pending.map((sub) => (
-                            <SubmissionCard
-                              key={sub.id}
-                              sub={sub}
-                              selected={selected}
-                              deleting={deleting}
-                              onOpen={openSubmission}
-                              onDelete={handleDeleteSubmission}
-                            />
-                          ))}
-                        </div>
-                      </div>
-                    );
-                  })()}
+                <div className="space-y-4">
+                  {/* รอตรวจ */}
+                  <SubmissionGroup
+                    label="รอตรวจ"
+                    color="amber"
+                    items={submissions.filter((s) => s.status === 'submitted')}
+                    selected={selected}
+                    deleting={deleting}
+                    onOpen={openSubmission}
+                    onDelete={handleDeleteSubmission}
+                  />
 
-                  {/* Divider */}
-                  {submissions.some((s) => s.status === 'submitted') && submissions.some((s) => s.status !== 'submitted') && (
-                    <div className="my-3 flex items-center gap-2">
-                      <div className="h-px flex-1 bg-slate-800" />
-                      <span className="text-[10px] text-slate-600">ตรวจแล้ว</span>
-                      <div className="h-px flex-1 bg-slate-800" />
-                    </div>
-                  )}
+                  {/* รอบันทึกคะแนน */}
+                  <SubmissionGroup
+                    label="รอบันทึกคะแนน"
+                    color="blue"
+                    items={submissions.filter((s) => s.status === 'graded')}
+                    selected={selected}
+                    deleting={deleting}
+                    onOpen={openSubmission}
+                    onDelete={handleDeleteSubmission}
+                  />
 
-                  {/* ตรวจแล้ว section */}
-                  {(() => {
-                    const done = submissions.filter((s) => s.status !== 'submitted');
-                    if (done.length === 0) return null;
-                    return (
-                      <div>
-                        {submissions.every((s) => s.status !== 'submitted') && (
-                          <div className="mb-2 flex items-center gap-2 px-1">
-                            <span className="text-[10px] font-bold uppercase tracking-wider text-emerald-400">ตรวจแล้ว</span>
-                            <span className="rounded-full bg-emerald-950/60 border border-emerald-800 px-2 py-0.5 text-[10px] font-bold text-emerald-400">{done.length}</span>
-                          </div>
-                        )}
-                        <div className="space-y-2">
-                          {done.map((sub) => (
-                            <SubmissionCard
-                              key={sub.id}
-                              sub={sub}
-                              selected={selected}
-                              deleting={deleting}
-                              onOpen={openSubmission}
-                              onDelete={handleDeleteSubmission}
-                            />
-                          ))}
-                        </div>
-                      </div>
-                    );
-                  })()}
-                </>
+                  {/* ตรวจแล้ว */}
+                  <SubmissionGroup
+                    label="ตรวจแล้ว"
+                    color="emerald"
+                    items={submissions.filter((s) => s.status === 'reviewed')}
+                    selected={selected}
+                    deleting={deleting}
+                    onOpen={openSubmission}
+                    onDelete={handleDeleteSubmission}
+                  />
+                </div>
               )}
             </div>
 
@@ -464,11 +441,21 @@ export default function SubmissionsPage({ params }: { params: Promise<{ id: stri
                     )}
                   </div>
 
-                  {/* AI score display */}
-                  {typeof selected.score === 'number' && selected.status !== 'reviewed' && (
+                  {/* AI score display (graded = waiting for teacher to finalize) */}
+                  {typeof selected.score === 'number' && selected.status === 'graded' && (
                     <div className={`rounded-2xl border p-5 ${scoreColor(selected.score)}`}>
                       <div className="flex items-center justify-between">
-                        <p className="text-sm font-medium">คะแนน AI (ก่อนปรับ)</p>
+                        <p className="text-sm font-medium">คะแนน AI — รอบันทึกคะแนน</p>
+                        <span className="text-xl font-bold">{selected.score}/100</span>
+                      </div>
+                      {selected.feedback && <p className="mt-2 text-sm opacity-80">{selected.feedback}</p>}
+                    </div>
+                  )}
+                  {/* Reviewed score display */}
+                  {typeof selected.score === 'number' && selected.status === 'reviewed' && (
+                    <div className={`rounded-2xl border p-5 ${scoreColor(selected.score)}`}>
+                      <div className="flex items-center justify-between">
+                        <p className="text-sm font-medium">คะแนนที่บันทึกแล้ว</p>
                         <span className="text-xl font-bold">{selected.score}/100</span>
                       </div>
                       {selected.feedback && <p className="mt-2 text-sm opacity-80">{selected.feedback}</p>}
@@ -507,6 +494,47 @@ export default function SubmissionsPage({ params }: { params: Promise<{ id: stri
           </div>
         )}
       </main>
+    </div>
+  );
+}
+
+const GROUP_COLORS: Record<string, { label: string; count: string; divider: string }> = {
+  amber:   { label: 'text-amber-400',   count: 'bg-amber-950/60 border-amber-800 text-amber-400',   divider: 'bg-amber-800/40' },
+  blue:    { label: 'text-blue-400',    count: 'bg-blue-950/60 border-blue-800 text-blue-400',       divider: 'bg-blue-800/40' },
+  emerald: { label: 'text-emerald-400', count: 'bg-emerald-950/60 border-emerald-800 text-emerald-400', divider: 'bg-emerald-800/40' },
+};
+
+function SubmissionGroup({
+  label, color, items, selected, deleting, onOpen, onDelete,
+}: {
+  label: string;
+  color: string;
+  items: Submission[];
+  selected: Submission | null;
+  deleting: string | null;
+  onOpen: (s: Submission) => void;
+  onDelete: (id: string) => void;
+}) {
+  if (items.length === 0) return null;
+  const c = GROUP_COLORS[color] ?? GROUP_COLORS.amber;
+  return (
+    <div>
+      <div className={`mb-2 flex items-center gap-2 px-1 pb-1.5 border-b ${c.divider}`}>
+        <span className={`text-[10px] font-bold uppercase tracking-wider ${c.label}`}>{label}</span>
+        <span className={`rounded-full border px-2 py-0.5 text-[10px] font-bold ${c.count}`}>{items.length}</span>
+      </div>
+      <div className="space-y-2">
+        {items.map((sub) => (
+          <SubmissionCard
+            key={sub.id}
+            sub={sub}
+            selected={selected}
+            deleting={deleting}
+            onOpen={onOpen}
+            onDelete={onDelete}
+          />
+        ))}
+      </div>
     </div>
   );
 }

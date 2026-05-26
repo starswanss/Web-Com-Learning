@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { useAuth } from '@/context/AuthContext';
 import Image from 'next/image';
@@ -63,10 +63,11 @@ const DAY_NAMES_TH   = ['อา','จ','อ','พ','พฤ','ศ','ส'];
 
 /* ═══════════════════════════ MAIN PAGE ═══════════════════════════ */
 export default function StudentPage() {
-  const { user, profile, loading, signOut } = useAuth();
+  const { user, profile, loading, signOut, refreshProfile } = useAuth();
   const { toggle: toggleTheme, isLight } = useTheme();
   const router = useRouter();
 
+  const xpRefreshedRef = useRef(false);
   const [assignments, setAssignments] = useState<AssignmentWithSubmission[]>([]);
   const [fetching, setFetching] = useState(true);
   const [subject, setSubject] = useState<{ id: string; name: string } | null>(null);
@@ -79,6 +80,14 @@ export default function StudentPage() {
   useEffect(() => {
     if (!loading && profile?.role !== 'student') router.push('/dashboard');
   }, [loading, profile, router]);
+
+  // Refresh profile once per page visit to get latest XP from Firestore
+  useEffect(() => {
+    if (profile?.role === 'student' && !xpRefreshedRef.current) {
+      xpRefreshedRef.current = true;
+      refreshProfile();
+    }
+  }, [profile, refreshProfile]);
 
   useEffect(() => {
     if (profile?.role !== 'student') return;
