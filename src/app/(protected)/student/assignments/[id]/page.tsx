@@ -88,6 +88,12 @@ export default function SubmissionPage({ params }: { params: Promise<{ id: strin
     setTimeout(() => setPasteBlocked(false), 2500);
   }
 
+  function blockDrop(e: React.DragEvent) {
+    e.preventDefault();
+    setPasteBlocked(true);
+    setTimeout(() => setPasteBlocked(false), 2500);
+  }
+
   useEffect(() => {
     if (!loading && profile?.role !== 'student') router.push('/dashboard');
   }, [loading, profile, router]);
@@ -397,6 +403,7 @@ export default function SubmissionPage({ params }: { params: Promise<{ id: strin
                 setAnswer={setAnswer}
                 toggleCheckbox={toggleCheckbox}
                 onPaste={blockPaste}
+                onDrop={blockDrop}
               />
             ) : (
               /* Legacy plain-text form */
@@ -406,6 +413,8 @@ export default function SubmissionPage({ params }: { params: Promise<{ id: strin
                   value={content}
                   onChange={(e) => setContent(e.target.value)}
                   onPaste={blockPaste}
+                  onDrop={blockDrop}
+                  onDragOver={(e) => e.preventDefault()}
                   rows={8}
                   placeholder="พิมพ์คำตอบที่นี่..."
                   className="input resize-none"
@@ -495,12 +504,14 @@ function BlockForm({
   setAnswer,
   toggleCheckbox,
   onPaste,
+  onDrop,
 }: {
   blocks: FormBlock[];
   answers: Record<string, string | string[]>;
   setAnswer: (id: string, v: string | string[]) => void;
   toggleCheckbox: (id: string, option: string) => void;
   onPaste: (e: React.ClipboardEvent) => void;
+  onDrop: (e: React.DragEvent) => void;
 }) {
   const grouped = groupBlocks(blocks);
   return (
@@ -511,14 +522,14 @@ function BlockForm({
             <div key={idx} className="grid grid-cols-2 gap-4">
               {item.map((block) => (
                 <BlockRenderer key={block.id} block={block} answers={answers}
-                  setAnswer={setAnswer} toggleCheckbox={toggleCheckbox} onPaste={onPaste} />
+                  setAnswer={setAnswer} toggleCheckbox={toggleCheckbox} onPaste={onPaste} onDrop={onDrop} />
               ))}
             </div>
           );
         }
         return (
           <BlockRenderer key={item.id} block={item} answers={answers}
-            setAnswer={setAnswer} toggleCheckbox={toggleCheckbox} onPaste={onPaste} />
+            setAnswer={setAnswer} toggleCheckbox={toggleCheckbox} onPaste={onPaste} onDrop={onDrop} />
         );
       })}
     </div>
@@ -531,12 +542,14 @@ function BlockRenderer({
   setAnswer,
   toggleCheckbox,
   onPaste,
+  onDrop,
 }: {
   block: FormBlock;
   answers: Record<string, string | string[]>;
   setAnswer: (id: string, v: string | string[]) => void;
   toggleCheckbox: (id: string, option: string) => void;
   onPaste: (e: React.ClipboardEvent) => void;
+  onDrop: (e: React.DragEvent) => void;
 }) {
   switch (block.type) {
     case 'heading':
@@ -624,6 +637,8 @@ function BlockRenderer({
             value={(answers[block.id] as string) ?? ''}
             onChange={(e) => setAnswer(block.id, e.target.value)}
             onPaste={onPaste}
+            onDrop={onDrop}
+            onDragOver={(e) => e.preventDefault()}
             placeholder="คำตอบสั้น..."
             className="input"
           />
@@ -641,6 +656,8 @@ function BlockRenderer({
             value={(answers[block.id] as string) ?? ''}
             onChange={(e) => setAnswer(block.id, e.target.value)}
             onPaste={onPaste}
+            onDrop={onDrop}
+            onDragOver={(e) => e.preventDefault()}
             rows={5}
             placeholder="คำตอบยาว..."
             className="input resize-none"
@@ -847,6 +864,9 @@ function BlockRenderer({
                     type="text"
                     value={fbAnswers[i] ?? ''}
                     onChange={e => { const n = [...fbAnswers]; n[i] = e.target.value; setAnswer(block.id, n); }}
+                    onPaste={onPaste}
+                    onDrop={onDrop}
+                    onDragOver={(e) => e.preventDefault()}
                     className="inline-block border-b-2 border-blue-500 bg-transparent px-1 text-blue-300 placeholder:text-slate-600 focus:outline-none"
                     style={{ minWidth: '80px', maxWidth: '160px' }}
                     placeholder={`ช่อง ${i + 1}`}
