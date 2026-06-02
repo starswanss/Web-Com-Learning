@@ -16,6 +16,22 @@ interface Assignment {
   timeLimit?: number;
   contentType?: string;
   isOpen?: boolean;
+  isGroupWork?: boolean;
+}
+
+interface GroupMember { uid: string; displayName: string; photoURL?: string }
+interface MyGroup {
+  id: string;
+  name: string;
+  memberIds: string[];
+  members: GroupMember[];
+}
+interface GroupSub {
+  id: string;
+  status: 'submitted' | 'reviewed';
+  score?: number;
+  feedback?: string;
+  submittedAt?: { _seconds: number };
 }
 
 interface Submission {
@@ -62,8 +78,7 @@ export default function SubmissionPage({ params }: { params: Promise<{ id: strin
   // Answers keyed by block id
   const [answers, setAnswers] = useState<Record<string, string | string[]>>({});
   const [content, setContent] = useState('');
-  const [file, setFile] = useState<File | null>(null);
-  const [filePreview, setFilePreview] = useState<string | null>(null);
+  const [attachedImageUrl, setAttachedImageUrl] = useState<string | null>(null);
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [result, setResult] = useState<{ score: number; feedback: string } | null>(null);
@@ -81,6 +96,8 @@ export default function SubmissionPage({ params }: { params: Promise<{ id: strin
   const hasLeftRef = useRef(false);
   const tabSwitchRef = useRef(0);
   const autoSubmitRef = useRef(false);
+  const [myGroup, setMyGroup] = useState<MyGroup | null | undefined>(undefined);
+  const [groupSubmission, setGroupSubmission] = useState<GroupSub | null>(null);
 
   function blockPaste(e: React.ClipboardEvent) {
     e.preventDefault();
@@ -140,6 +157,18 @@ export default function SubmissionPage({ params }: { params: Promise<{ id: strin
       .then((r) => r.json())
       .then((data: Assignment) => { setAssignment(data ?? null); });
   }, [id]);
+
+  // Fetch group info for group assignments
+  useEffect(() => {
+    if (!assignment?.isGroupWork) return;
+    fetch(`/api/student/my-group?assignmentId=${id}`)
+      .then(r => r.json())
+      .then(data => {
+        setMyGroup(data?.group ?? null);
+        setGroupSubmission(data?.submission ?? null);
+      })
+      .catch(() => setMyGroup(null));
+  }, [assignment?.isGroupWork, id]);
 
   // Auto-save answers + content to localStorage (debounced 1.5 s)
   useEffect(() => {
@@ -204,6 +233,40 @@ export default function SubmissionPage({ params }: { params: Promise<{ id: strin
     e.preventDefault();
     setError(null);
 
+    if (assignment?.isGroupWork) {
+      if (!myGroup) return setError('ยังไม่มีกลุ่ม — รอครูจัดกลุ่มก่อน');
+      const gbHasBlocks = (assignment?.blocks?.length ?? 0) > 0;
+      if (gbHasBlocks) {
+        const requiredMissing = (assignment!.blocks ?? []).some((b) => {
+          if (!('required' in b) || !b.required) return false;
+          const ans = answers[b.id];
+          return !ans || (Array.isArray(ans) ? ans.length === 0 : ans.trim() === '');
+        });
+        if (requiredMissing) return setError('กรุณาตอบคำถามที่จำเป็นให้ครบ');
+      } else {
+        if (!content.trim()) return setError('กรุณาพิมพ์คำตอบ');
+      }
+      setSubmitting(true);
+      try {
+        const fd = new FormData();
+        fd.append('assignmentId', id);
+        if (gbHasBlocks) fd.append('answers', JSON.stringify(answers));
+        else fd.append('content', content);
+        if (attachedImageUrl) fd.append('fileUrl', attachedImageUrl);
+        const res = await fetch('/api/group-submissions', { method: 'POST', body: fd });
+        if (res.status === 409) { setError('กลุ่มของคุณส่งงานนี้ไปแล้ว'); return; }
+        if (!res.ok) throw new Error();
+        const data = await res.json();
+        localStorage.removeItem(`lms_draft_${id}`);
+        setGroupSubmission({ id: data.id, status: 'submitted' });
+      } catch {
+        setError('เกิดข้อผิดพลาด กรุณาลองใหม่');
+      } finally {
+        setSubmitting(false);
+      }
+      return;
+    }
+
     const hasBlocks = (assignment?.blocks?.length ?? 0) > 0;
 
     if (hasBlocks) {
@@ -215,7 +278,7 @@ export default function SubmissionPage({ params }: { params: Promise<{ id: strin
       });
       if (requiredMissing) return setError('กรุณาตอบคำถามที่จำเป็นให้ครบ');
     } else {
-      if (!content.trim() && !file) return setError('กรุณาพิมพ์คำตอบหรืออัปโหลดไฟล์');
+      if (!content.trim() && !attachedImageUrl) return setError('กรุณาพิมพ์คำตอบหรืออัปโหลดรูปภาพ');
     }
 
     setSubmitting(true);
@@ -229,7 +292,7 @@ export default function SubmissionPage({ params }: { params: Promise<{ id: strin
       } else {
         fd.append('content', content);
       }
-      if (file) fd.append('file', file);
+      if (attachedImageUrl) fd.append('fileUrl', attachedImageUrl);
 
       const res = await fetch('/api/submissions', { method: 'POST', body: fd });
       if (res.status === 409) return setError('คุณส่งงานนี้ไปแล้ว');
@@ -351,8 +414,23 @@ export default function SubmissionPage({ params }: { params: Promise<{ id: strin
           <QuizRulesScreen assignment={assignment} onStart={startQuiz} />
         ) : submission ? (
           <SubmissionView submission={submission} assignment={assignment} />
+        ) : assignment?.isGroupWork && myGroup === undefined ? (
+          <div className="flex justify-center py-12">
+            <div className="h-6 w-6 animate-spin rounded-full border-2 border-slate-700 border-t-slate-300" />
+          </div>
+        ) : assignment?.isGroupWork && myGroup === null ? (
+          <div className="rounded-2xl border border-amber-800/60 bg-amber-950/30 p-8 text-center">
+            <p className="text-4xl mb-3">👥</p>
+            <p className="text-sm font-semibold text-amber-300">ยังไม่ได้รับมอบหมายกลุ่ม</p>
+            <p className="mt-1.5 text-xs text-amber-600">รอครูจัดกลุ่มก่อนจึงจะส่งงานได้</p>
+          </div>
+        ) : assignment?.isGroupWork && groupSubmission ? (
+          <GroupSubmissionView submission={groupSubmission} group={myGroup!} assignment={assignment} />
         ) : (
           <form onSubmit={handleSubmit} className="space-y-5">
+            {assignment?.isGroupWork && myGroup && (
+              <GroupInfoPanel group={myGroup} />
+            )}
             {/* Countdown timer */}
             {timeLeft !== null && (
               <div className={`rounded-xl border px-4 py-2.5 text-center text-sm font-semibold ${
@@ -422,19 +500,9 @@ export default function SubmissionPage({ params }: { params: Promise<{ id: strin
               </div>
             )}
 
-            <ImageUploadBox
-              file={file}
-              preview={filePreview}
-              onFile={(f) => {
-                setFile(f);
-                if (f) {
-                  const reader = new FileReader();
-                  reader.onload = e => setFilePreview(e.target?.result as string);
-                  reader.readAsDataURL(f);
-                } else {
-                  setFilePreview(null);
-                }
-              }}
+            <DriveImageAttachment
+              url={attachedImageUrl}
+              onUrl={setAttachedImageUrl}
             />
 
             {error && (
@@ -1089,14 +1157,23 @@ function SubmissionView({
           <p className="whitespace-pre-wrap text-sm text-slate-300">{s.content || '—'}</p>
         )}
         {s.driveWebViewLink && (
-          <a
-            href={s.driveWebViewLink}
-            target="_blank"
-            rel="noopener noreferrer"
-            className="mt-3 inline-flex items-center gap-1 text-xs text-blue-400 hover:text-blue-300"
-          >
-            📎 ดูไฟล์ที่แนบ
-          </a>
+          <div className="mt-4 space-y-2">
+            <p className="text-xs font-medium text-slate-500">รูปภาพที่แนบ</p>
+            {/* eslint-disable-next-line @next/next/no-img-element */}
+            <img
+              src={s.driveWebViewLink}
+              alt="รูปที่แนบ"
+              className="max-h-64 w-full rounded-xl border border-slate-700 object-contain"
+            />
+            <a
+              href={s.driveWebViewLink}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="inline-flex items-center gap-1 text-xs text-blue-400 hover:text-blue-300"
+            >
+              ↗ เปิดใน Drive
+            </a>
+          </div>
         )}
       </div>
 
@@ -1417,56 +1494,159 @@ function QuizRulesScreen({
   );
 }
 
-function ImageUploadBox({
-  file, preview, onFile,
+function DriveImageAttachment({
+  url,
+  onUrl,
 }: {
-  file: File | null;
-  preview: string | null;
-  onFile: (f: File | null) => void;
+  url: string | null;
+  onUrl: (url: string | null) => void;
 }) {
+  const [uploading, setUploading] = useState(false);
+  const [uploadError, setUploadError] = useState<string | null>(null);
   const fileRef = useRef<HTMLInputElement>(null);
 
-  function handlePaste(e: React.ClipboardEvent) {
-    const items = e.clipboardData?.items;
-    if (!items) return;
-    for (const item of Array.from(items)) {
-      if (item.type.startsWith('image/')) {
-        e.preventDefault();
-        const f = item.getAsFile();
-        if (f) onFile(f);
-        break;
-      }
+  async function handleFile(file: File) {
+    setUploading(true);
+    setUploadError(null);
+    try {
+      const fd = new FormData();
+      fd.append('file', file);
+      const res = await fetch('/api/student/upload-image', { method: 'POST', body: fd });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error ?? 'อัปโหลดไม่สำเร็จ');
+      onUrl(data.url as string);
+    } catch (err) {
+      setUploadError(err instanceof Error ? err.message : 'อัปโหลดไม่สำเร็จ');
+    } finally {
+      setUploading(false);
     }
   }
 
   return (
-    <div className="space-y-2" onPaste={handlePaste}>
-      <label className="mb-1 block text-sm font-medium text-slate-300">แนบรูปภาพ (ถ้ามี)</label>
-      {preview ? (
-        <div className="relative">
+    <div className="space-y-2">
+      <label className="mb-1 block text-sm font-medium text-slate-300">
+        แนบรูปภาพ (ถ้ามี)
+        <span className="ml-2 text-[10px] font-normal text-slate-500">อัปโหลดไปยัง Google Drive ทันที</span>
+      </label>
+      {url ? (
+        <div className="space-y-2">
           {/* eslint-disable-next-line @next/next/no-img-element */}
-          <img src={preview} alt="preview" className="max-h-48 w-full rounded-xl border border-slate-700 object-contain" />
-          <button
-            type="button"
-            onClick={() => onFile(null)}
-            className="absolute right-2 top-2 flex h-6 w-6 items-center justify-center rounded-full bg-slate-900/80 text-xs text-red-400 hover:text-red-300 border border-slate-700"
-          >✕</button>
-          <p className="mt-1 truncate text-xs text-slate-500">{file?.name}</p>
+          <img src={url} alt="รูปที่แนบ" className="max-h-48 w-full rounded-xl border border-emerald-800/50 bg-slate-800/40 object-contain" />
+          <div className="flex items-center justify-between">
+            <span className="flex items-center gap-1.5 text-xs text-emerald-400">
+              <svg className="h-3.5 w-3.5" viewBox="0 0 24 24" fill="currentColor"><path d="M20.283 10.356h-8.327v3.451h4.792c-.446 2.193-2.313 3.453-4.792 3.453a5.27 5.27 0 0 1-5.279-5.28 5.27 5.27 0 0 1 5.279-5.279c1.259 0 2.397.447 3.29 1.178l2.6-2.599c-1.584-1.381-3.615-2.233-5.89-2.233a8.908 8.908 0 0 0-8.934 8.934 8.908 8.908 0 0 0 8.934 8.934c4.467 0 8.529-3.249 8.529-8.934 0-.528-.081-1.097-.202-1.625z"/></svg>
+              อัปโหลดสำเร็จแล้วบน Drive
+            </span>
+            <button
+              type="button"
+              onClick={() => { onUrl(null); setUploadError(null); }}
+              className="text-xs text-slate-500 hover:text-red-400 transition-colors"
+            >
+              ลบ
+            </button>
+          </div>
         </div>
       ) : (
         <div
-          className="flex cursor-pointer flex-col items-center justify-center gap-2 rounded-xl border border-dashed border-slate-700 bg-slate-800/40 py-6 text-center transition-all hover:border-slate-500"
-          onClick={() => fileRef.current?.click()}
-          onPaste={handlePaste}
+          className={`flex cursor-pointer flex-col items-center justify-center gap-2 rounded-xl border border-dashed py-6 text-center transition-all ${
+            uploading ? 'border-blue-700 bg-blue-950/20' : 'border-slate-700 bg-slate-800/40 hover:border-slate-500'
+          }`}
+          onClick={() => !uploading && fileRef.current?.click()}
         >
-          <span className="text-2xl">📷</span>
-          <p className="text-xs text-slate-400">คลิกเพื่อเลือกภาพ หรือ <span className="text-blue-400">วางจากคลิปบอร์ด (Ctrl+V)</span></p>
+          {uploading ? (
+            <>
+              <div className="h-7 w-7 animate-spin rounded-full border-2 border-slate-600 border-t-blue-400" />
+              <p className="text-xs text-slate-400">กำลังอัปโหลดไปยัง Drive...</p>
+            </>
+          ) : (
+            <>
+              <span className="text-2xl">📷</span>
+              <p className="text-sm font-medium text-slate-300">คลิกเพื่อเลือกรูปภาพ</p>
+              <p className="text-xs text-slate-500">JPG · PNG · GIF · WebP — สูงสุด 10 MB</p>
+            </>
+          )}
         </div>
       )}
+      {uploadError && <p className="text-xs text-red-400">⚠ {uploadError}</p>}
       <input
-        type="file" accept="image/*" className="hidden" ref={fileRef}
-        onChange={e => { const f = e.target.files?.[0]; if (f) onFile(f); }}
+        type="file"
+        accept="image/jpeg,image/png,image/gif,image/webp"
+        className="hidden"
+        ref={fileRef}
+        onChange={e => { const f = e.target.files?.[0]; e.target.value = ''; if (f) handleFile(f); }}
       />
+    </div>
+  );
+}
+
+function GroupInfoPanel({ group }: { group: MyGroup }) {
+  return (
+    <div className="rounded-2xl border border-blue-800/60 bg-blue-950/20 p-5">
+      <div className="flex items-center gap-2 mb-3">
+        <span className="text-lg">👥</span>
+        <p className="text-sm font-semibold text-blue-300">{group.name}</p>
+        <span className="ml-auto text-xs text-blue-500">{group.members.length} คน</span>
+      </div>
+      <div className="flex flex-wrap gap-2">
+        {group.members.map(m => (
+          <div key={m.uid} className="flex items-center gap-1.5 rounded-full border border-blue-800/40 bg-slate-800 px-3 py-1 text-xs text-slate-300">
+            {m.displayName}
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+function GroupSubmissionView({
+  submission,
+  group,
+  assignment,
+}: {
+  submission: GroupSub;
+  group: MyGroup;
+  assignment: Assignment | null;
+}) {
+  const hasScore = typeof submission.score === 'number';
+  return (
+    <div className="space-y-4">
+      <div className="rounded-2xl border border-slate-800 bg-slate-900 p-6">
+        <div className="flex items-center gap-2 mb-3">
+          <span className="text-lg">👥</span>
+          <p className="text-sm font-semibold text-slate-200">{group.name}</p>
+        </div>
+        <div className="flex flex-wrap gap-2 mb-4">
+          {group.members.map(m => (
+            <span key={m.uid} className="rounded-full border border-slate-700 bg-slate-800 px-3 py-1 text-xs text-slate-300">
+              {m.displayName}
+            </span>
+          ))}
+        </div>
+        <div className="flex items-center gap-3 rounded-xl border border-emerald-800/60 bg-emerald-950/30 px-4 py-3">
+          <span className="text-emerald-400 text-lg">✓</span>
+          <div>
+            <p className="text-sm font-medium text-emerald-300">กลุ่มส่งงานแล้ว</p>
+            {submission.submittedAt && (
+              <p className="text-xs text-emerald-600">
+                เมื่อ {new Date(submission.submittedAt._seconds * 1000).toLocaleString('th-TH')}
+              </p>
+            )}
+          </div>
+        </div>
+      </div>
+      {hasScore ? (
+        <div className={`rounded-2xl border p-6 ${scoreColor(submission.score!)}`}>
+          <div className="mb-2 flex items-center justify-between">
+            <p className="text-sm font-semibold">คะแนนกลุ่ม (ครูตรวจแล้ว)</p>
+            <span className="text-2xl font-bold">{submission.score}/100</span>
+          </div>
+          {submission.feedback && <p className="text-sm opacity-90">{submission.feedback}</p>}
+        </div>
+      ) : (
+        <div className="rounded-2xl border border-slate-700 bg-slate-900 p-5 text-center">
+          <p className="text-sm text-slate-400">รอครูตรวจงาน</p>
+        </div>
+      )}
     </div>
   );
 }

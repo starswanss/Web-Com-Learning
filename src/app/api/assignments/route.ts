@@ -53,6 +53,9 @@ export async function POST(req: NextRequest) {
   const timeLimit = timeLimitRaw ? parseInt(timeLimitRaw, 10) : null;
   const quizPhase = (formData.get('quizPhase') as string | null) ?? null;
   const pairedQuizId = (formData.get('pairedQuizId') as string | null) ?? null;
+  const isGroupWork = formData.get('isGroupWork') === 'true';
+  const groupSizeRaw = formData.get('groupSize') as string | null;
+  const groupSize = groupSizeRaw ? parseInt(groupSizeRaw, 10) : null;
   // dueDate is required only for worksheet; quiz/knowledge can omit it
   const dueDateRequired = contentType === 'worksheet';
 
@@ -92,6 +95,8 @@ export async function POST(req: NextRequest) {
     isOpen: contentType === 'quiz' ? false : true,
     quizPhase: quizPhase || null,
     pairedQuizId: pairedQuizId || null,
+    isGroupWork: isGroupWork || false,
+    groupSize: groupSize ?? null,
     createdAt: FieldValue.serverTimestamp(),
     updatedAt: FieldValue.serverTimestamp(),
   });

@@ -31,13 +31,15 @@ export async function POST(req: NextRequest) {
   const answersRaw = formData.get('answers') as string | null;
   const answers = answersRaw ? (JSON.parse(answersRaw) as Record<string, string | string[]>) : null;
   const file = formData.get('file') as File | null;
+  // Pre-uploaded Drive URL (from /api/student/upload-image)
+  const preUploadedFileUrl = (formData.get('fileUrl') as string | null) ?? null;
   const tabSwitchRaw = formData.get('tabSwitchCount') as string | null;
   const tabSwitchCount = tabSwitchRaw ? parseInt(tabSwitchRaw, 10) : 0;
   const selfScoreRaw = formData.get('selfScore') as string | null;
   const selfScore = selfScoreRaw ? parseInt(selfScoreRaw, 10) : null;
 
   if (!assignmentId) return NextResponse.json({ error: 'Missing assignmentId' }, { status: 400 });
-  if (!content.trim() && !answers && !file) {
+  if (!content.trim() && !answers && !file && !preUploadedFileUrl) {
     return NextResponse.json({ error: 'No content provided' }, { status: 400 });
   }
 
@@ -61,14 +63,14 @@ export async function POST(req: NextRequest) {
     .get();
   if (!existing.empty) return NextResponse.json({ error: 'Already submitted' }, { status: 409 });
 
-  // Upload file if provided
-  const fileBuffer = file ? Buffer.from(await file.arrayBuffer()) : null;
-  const uploadResult = fileBuffer
-    ? await uploadSubmissionFile(student.classId, student.displayName, fileBuffer, file!.type, file!.name)
-        .catch((err) => { console.error('[submissions] upload failed:', err); return null; })
-    : null;
-
-  const driveWebViewLink = uploadResult?.url ?? null;
+  // Use pre-uploaded Drive URL if provided, otherwise upload raw file
+  let driveWebViewLink: string | null = preUploadedFileUrl;
+  if (!driveWebViewLink && file) {
+    const fileBuffer = Buffer.from(await file.arrayBuffer());
+    const uploadResult = await uploadSubmissionFile(student.classId, student.displayName, fileBuffer, file.type, file.name)
+      .catch((err) => { console.error('[submissions] upload failed:', err); return null; });
+    driveWebViewLink = uploadResult?.url ?? null;
+  }
   const xpGain = calcXpGain(null); // base XP for submitting; score-based XP added when teacher grades
 
   const [docRef] = await Promise.all([

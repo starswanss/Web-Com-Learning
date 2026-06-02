@@ -103,3 +103,26 @@ export async function ensureMediaFolder(subfolder: 'Icons' | 'PDFs'): Promise<st
   const mediaFolder = await getOrCreateFolder('LMS Media', root);
   return getOrCreateFolder(subfolder, mediaFolder);
 }
+
+/** Download a Drive file and return its raw content + mimeType */
+export async function downloadFileFromDrive(fileId: string): Promise<{ data: Buffer; mimeType: string }> {
+  const drive = getDriveClient();
+
+  const meta = await drive.files.get({ fileId, fields: 'mimeType' });
+
+  // responseType: 'stream' is the typed overload; collect chunks into a Buffer
+  const response = await drive.files.get({ fileId, alt: 'media' }, { responseType: 'stream' });
+  const stream = response.data as unknown as import('stream').Readable;
+
+  const chunks: Buffer[] = [];
+  await new Promise<void>((resolve, reject) => {
+    stream.on('data', (chunk: Buffer) => chunks.push(chunk));
+    stream.on('end', resolve);
+    stream.on('error', reject);
+  });
+
+  return {
+    data: Buffer.concat(chunks),
+    mimeType: (meta.data.mimeType as string) ?? 'image/jpeg',
+  };
+}

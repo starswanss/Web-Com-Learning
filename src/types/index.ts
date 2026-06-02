@@ -97,8 +97,48 @@ export interface Assignment {
   isOpen?: boolean;
   quizPhase?: QuizPhase;
   pairedQuizId?: string;
+  isGroupWork?: boolean;
+  groupSize?: number;
   createdAt: Date;
   updatedAt: Date;
+}
+
+// ── Group types ───────────────────────────────────────────────────────────────
+
+export interface Group {
+  id: string;
+  assignmentId: string;
+  teacherId: string;
+  classId: string;
+  name: string;
+  memberIds: string[];
+  createdAt?: { _seconds: number };
+}
+
+export interface GroupMember {
+  uid: string;
+  displayName: string;
+  photoURL?: string;
+}
+
+export interface GroupWithMembers extends Group {
+  members: GroupMember[];
+}
+
+export interface GroupSubmission {
+  id: string;
+  groupId: string;
+  assignmentId: string;
+  classId: string;
+  submittedBy: string;
+  content?: string;
+  answers?: Record<string, string | string[]>;
+  score?: number;
+  feedback?: string;
+  status: 'submitted' | 'reviewed';
+  xpAwarded?: number;
+  submittedAt?: { _seconds: number };
+  reviewedAt?: { _seconds: number };
 }
 
 // ── Milestone ─────────────────────────────────────────────────────────────────

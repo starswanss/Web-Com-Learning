@@ -44,6 +44,7 @@ interface Assignment {
   contentType?: string;
   dueDate?: { _seconds: number };
   blocks?: AssignmentBlock[];
+  isGroupWork?: boolean;
 }
 
 function scoreColor(score: number) {
@@ -268,6 +269,22 @@ export default function SubmissionsPage({ params }: { params: Promise<{ id: stri
           <div className="flex items-center gap-2 shrink-0 flex-wrap">
             {batchResult && (
               <span className="text-xs text-emerald-400">{batchResult}</span>
+            )}
+            {assignment?.isGroupWork && (
+              <Link
+                href={`/teacher/assignments/${id}/groups`}
+                className="rounded-lg border border-blue-700 bg-blue-950/40 px-3 py-1.5 text-xs text-blue-300 transition-all hover:border-blue-500"
+              >
+                👥 จัดกลุ่ม
+              </Link>
+            )}
+            {assignment?.isGroupWork && (
+              <Link
+                href={`/teacher/assignments/${id}/group-submissions`}
+                className="rounded-lg border border-emerald-700 bg-emerald-950/40 px-3 py-1.5 text-xs text-emerald-300 transition-all hover:border-emerald-500"
+              >
+                📋 งานกลุ่ม
+              </Link>
             )}
             {assignment?.contentType === 'quiz' && (
               <button

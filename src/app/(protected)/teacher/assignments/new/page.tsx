@@ -42,6 +42,8 @@ export default function NewAssignmentPage() {
     (typeParam && ['worksheet', 'knowledge', 'quiz'].includes(typeParam)) ? typeParam : 'worksheet'
   );
   const [timeLimit, setTimeLimit] = useState('');
+  const [isGroupWork, setIsGroupWork] = useState(false);
+  const [groupSize, setGroupSize] = useState('');
   const [quizMode, setQuizMode] = useState<'standalone' | 'prepost'>('standalone');
   const [blocks, setBlocks] = useState<FormBlock[]>([]);
   const subjectId = typeof window !== 'undefined'
@@ -181,6 +183,8 @@ export default function NewAssignmentPage() {
     fd.append('unit', unit.trim());
     fd.append('contentType', contentType);
     if (timeLimit) fd.append('timeLimit', timeLimit);
+    fd.append('isGroupWork', String(isGroupWork));
+    if (isGroupWork && groupSize) fd.append('groupSize', groupSize);
     fd.append('subjectId', subjectId);
     if (extra) Object.entries(extra).forEach(([k, v]) => fd.append(k, v));
     return fd;
@@ -413,6 +417,33 @@ export default function NewAssignmentPage() {
                 className="input resize-none text-sm"
               />
               <p className="mt-1 text-xs text-slate-500">ถ้าเว้นว่างไว้ AI จะใช้เกณฑ์มาตรฐาน</p>
+            </div>
+
+            {/* Group work toggle */}
+            <div className="flex items-start justify-between gap-4 rounded-xl border border-slate-700 bg-slate-800/40 p-4">
+              <div>
+                <p className="text-sm font-medium text-slate-200">👥 งานกลุ่ม</p>
+                <p className="text-xs text-slate-500 mt-0.5">ครูจัดกลุ่มนักเรียน นักเรียนส่งงานในนามกลุ่ม ทุกคนได้คะแนนเท่ากัน</p>
+                {isGroupWork && (
+                  <div className="mt-3">
+                    <label className="text-xs text-slate-400 block mb-1">ขนาดกลุ่มโดยประมาณ (hint สำหรับสุ่ม)</label>
+                    <input
+                      type="number" min={2} max={10}
+                      value={groupSize}
+                      onChange={e => setGroupSize(e.target.value)}
+                      placeholder="เช่น 4"
+                      className="input w-24 text-sm"
+                    />
+                  </div>
+                )}
+              </div>
+              <button
+                type="button"
+                onClick={() => setIsGroupWork(v => !v)}
+                className={`shrink-0 mt-0.5 h-6 w-11 rounded-full transition-colors ${isGroupWork ? 'bg-blue-600' : 'bg-slate-700'}`}
+              >
+                <span className={`block h-4 w-4 rounded-full bg-white shadow transition-transform mx-1 ${isGroupWork ? 'translate-x-5' : 'translate-x-0'}`} />
+              </button>
             </div>
 
           </section>

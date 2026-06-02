@@ -8,7 +8,8 @@ import {
 function driveViewUrl(fileId: string, mimeType: string): string {
   if (mimeType === 'application/pdf')
     return `https://drive.google.com/file/d/${fileId}/preview`;
-  return `https://drive.google.com/thumbnail?id=${fileId}&sz=w1600`;
+  // Proxy through our own API so <img> tags always load (no Google auth/CORS issues)
+  return `/api/drive-image?id=${fileId}`;
 }
 
 export async function uploadToStorage(
