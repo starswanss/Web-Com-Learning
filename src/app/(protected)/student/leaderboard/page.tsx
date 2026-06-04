@@ -187,7 +187,10 @@ export default function StudentLeaderboardPage() {
           <Link href="/student" className="text-xs text-slate-500 hover:text-slate-300">←</Link>
           <div>
             <h1 className="text-base font-semibold text-slate-100">🏆 Leaderboard ห้องเรียน</h1>
-            {subject && <p className="text-xs text-slate-500">{subject.name}</p>}
+            {subject
+              ? <p className="text-xs text-slate-500">วิชา: {subject.name}</p>
+              : <p className="text-xs text-amber-500/80">แสดงผลทุกวิชารวมกัน</p>
+            }
           </div>
         </div>
       </header>

@@ -168,9 +168,10 @@ export default function TeacherLeaderboardPage() {
     const sub = saved ? JSON.parse(saved) : null;
     setSubject(sub);
     const url = sub ? `/api/teacher/leaderboard?subject=${sub.id}` : '/api/teacher/leaderboard';
+    const levelUrl = sub ? `/api/teacher/level-ranking?subject=${sub.id}` : '/api/teacher/level-ranking';
     Promise.all([
       fetch(url).then(r => r.json()),
-      fetch('/api/teacher/level-ranking').then(r => r.json()),
+      fetch(levelUrl).then(r => r.json()),
     ]).then(([scoreData, levelData]) => {
       setEntries(Array.isArray(scoreData) ? scoreData : []);
       setLevelEntries(Array.isArray(levelData) ? levelData : []);
@@ -203,7 +204,10 @@ export default function TeacherLeaderboardPage() {
             <Link href="/teacher" className="text-xs text-slate-500 hover:text-slate-300">←</Link>
             <div>
               <h1 className="text-base font-semibold text-slate-100">🏆 Hall of Fame</h1>
-              {subject && <p className="text-xs text-slate-500">{subject.name}</p>}
+              {subject
+                ? <p className="text-xs text-slate-500">วิชา: {subject.name}</p>
+                : <p className="text-xs text-amber-500/80">แสดงผลทุกวิชารวมกัน</p>
+              }
             </div>
           </div>
           <Link
