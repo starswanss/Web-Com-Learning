@@ -5,6 +5,10 @@ import { useAuth } from '@/context/AuthContext';
 import Link from 'next/link';
 import Image from 'next/image';
 
+// ── Backfill XP types ──────────────────────────────────────────────────────────
+interface StudentFixed { studentId: string; displayName: string; xpAdded: number }
+interface BackfillResult { fixed: number; totalXpAwarded: number; studentsFixed: StudentFixed[]; applied: boolean }
+
 function currentThaiYear() {
   return new Date().getFullYear() + 543;
 }
@@ -13,6 +17,13 @@ export default function TeacherAdminPage() {
   const { profile, loading } = useAuth();
   const [year, setYear] = useState(currentThaiYear());
   const [resetting, setResetting] = useState(false);
+
+  // Backfill XP state
+  const [bfPreview, setBfPreview] = useState<BackfillResult | null>(null);
+  const [bfResult, setBfResult] = useState<BackfillResult | null>(null);
+  const [bfFetching, setBfFetching] = useState(false);
+  const [bfApplying, setBfApplying] = useState(false);
+  const [bfError, setBfError] = useState<string | null>(null);
   const [result, setResult] = useState<{ reset: number; year: number; yearFolderId: string | null } | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [confirmed, setConfirmed] = useState(false);
@@ -87,6 +98,34 @@ export default function TeacherAdminPage() {
     } finally {
       setLineTokenSaving(false);
     }
+  }
+
+  async function handleBfPreview() {
+    setBfFetching(true); setBfError(null); setBfPreview(null); setBfResult(null);
+    try {
+      const res = await fetch('/api/admin/backfill-xp');
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error ?? 'ไม่สำเร็จ');
+      setBfPreview(data);
+    } catch (e) { setBfError(e instanceof Error ? e.message : 'เกิดข้อผิดพลาด'); }
+    finally { setBfFetching(false); }
+  }
+
+  async function handleBfApply() {
+    if (!bfPreview || bfPreview.fixed === 0) return;
+    if (!confirm(`ยืนยัน: เพิ่ม EXP ให้นักเรียน ${bfPreview.studentsFixed.length} คน รวม ${bfPreview.totalXpAwarded.toLocaleString()} XP?`)) return;
+    setBfApplying(true); setBfError(null);
+    try {
+      const res = await fetch('/api/admin/backfill-xp', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ apply: true }),
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error ?? 'ไม่สำเร็จ');
+      setBfResult(data); setBfPreview(null);
+    } catch (e) { setBfError(e instanceof Error ? e.message : 'เกิดข้อผิดพลาด'); }
+    finally { setBfApplying(false); }
   }
 
   async function handleReset() {
@@ -225,6 +264,86 @@ export default function TeacherAdminPage() {
               )}
             </div>
           </div>
+        </section>
+
+        {/* Backfill XP */}
+        <section className="rounded-2xl border border-yellow-900/60 bg-yellow-950/10 p-6 space-y-5">
+          <div>
+            <h2 className="text-base font-semibold text-yellow-400">⭐ กู้ EXP จากงานที่ตรวจแล้ว</h2>
+            <p className="mt-1 text-sm text-slate-400">
+              สแกนหา submissions ที่ครูตรวจแล้วแต่นักเรียนไม่ได้รับ EXP (งานเก่าก่อนระบบ XP tracking)
+              แล้วเพิ่ม <strong className="text-white">คะแนน × 10</strong> ให้อัตโนมัติ
+            </p>
+          </div>
+
+          <div className="rounded-xl border border-slate-700 bg-slate-800/40 p-4 text-xs text-slate-400 space-y-1">
+            <ul className="list-disc list-inside space-y-0.5">
+              <li>กด <strong className="text-slate-200">Preview</strong> เพื่อดูรายชื่อก่อน — ยังไม่แก้ข้อมูล</li>
+              <li>กด <strong className="text-slate-200">Apply</strong> เพื่อเขียนจริง (ทำได้ซ้ำได้อย่างปลอดภัย — ระบบ skip งานที่ได้ EXP แล้ว)</li>
+              <li>ระบบตรวจงานปกติยังทำงานเหมือนเดิม</li>
+            </ul>
+          </div>
+
+          {!bfResult && (
+            <div className="flex gap-3 flex-wrap">
+              <button
+                onClick={handleBfPreview}
+                disabled={bfFetching || bfApplying}
+                className="rounded-xl border border-blue-700 bg-blue-950/40 px-5 py-2 text-sm font-medium text-blue-300 hover:border-blue-500 disabled:opacity-50 transition-all"
+              >
+                {bfFetching ? 'กำลังสแกน…' : '🔍 Preview'}
+              </button>
+              {bfPreview && bfPreview.fixed > 0 && (
+                <button
+                  onClick={handleBfApply}
+                  disabled={bfApplying}
+                  className="rounded-xl bg-yellow-600 px-5 py-2 text-sm font-medium text-white hover:bg-yellow-500 disabled:opacity-50 transition-all"
+                >
+                  {bfApplying ? 'กำลังอัปเดต…' : `⭐ Apply (${bfPreview.fixed} submissions)`}
+                </button>
+              )}
+            </div>
+          )}
+
+          {bfError && <p className="text-sm text-red-400">{bfError}</p>}
+
+          {bfPreview && bfPreview.fixed === 0 && (
+            <p className="text-sm text-emerald-400">✅ ไม่พบงานที่ต้องกู้ EXP — นักเรียนทุกคนได้ EXP ครบแล้ว</p>
+          )}
+
+          {bfPreview && bfPreview.fixed > 0 && (
+            <div className="space-y-2">
+              <p className="text-xs text-slate-400">
+                พบ <strong className="text-white">{bfPreview.fixed}</strong> submissions
+                · นักเรียน <strong className="text-white">{bfPreview.studentsFixed.length}</strong> คน
+                · รวม <strong className="text-yellow-400">+{bfPreview.totalXpAwarded.toLocaleString()} XP</strong>
+              </p>
+              <div className="max-h-48 overflow-y-auto rounded-xl border border-slate-700 divide-y divide-slate-800">
+                {bfPreview.studentsFixed.map((s) => (
+                  <div key={s.studentId} className="flex items-center justify-between px-4 py-2">
+                    <p className="text-sm text-slate-300">{s.displayName}</p>
+                    <span className="text-sm font-semibold text-yellow-400">+{s.xpAdded.toLocaleString()} XP</span>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+
+          {bfResult && (
+            <div className="space-y-2">
+              <div className="rounded-xl border border-emerald-800 bg-emerald-950/30 px-4 py-3 text-sm text-emerald-400">
+                ✅ อัปเดตสำเร็จ — {bfResult.fixed} submissions · +{bfResult.totalXpAwarded.toLocaleString()} XP · {bfResult.studentsFixed.length} คน
+              </div>
+              <div className="max-h-48 overflow-y-auto rounded-xl border border-slate-700 divide-y divide-slate-800">
+                {bfResult.studentsFixed.map((s) => (
+                  <div key={s.studentId} className="flex items-center justify-between px-4 py-2">
+                    <p className="text-sm text-slate-300">{s.displayName}</p>
+                    <span className="text-sm font-semibold text-emerald-400">+{s.xpAdded.toLocaleString()} XP</span>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
         </section>
 
         {/* Reset Term */}
