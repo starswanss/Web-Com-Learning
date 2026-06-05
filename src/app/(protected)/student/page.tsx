@@ -8,6 +8,7 @@ import Link from 'next/link';
 import { CONTENT_TYPE_LABELS, type ContentType, type QuizPhase } from '@/types';
 import { useTheme } from '@/context/ThemeContext';
 import { calcLevel, levelColor, levelBarColor, DEFAULT_SETTINGS, type LevelSettings } from '@/lib/xp';
+import { cachedFetch } from '@/lib/client-cache';
 
 /* ───────── Types ───────── */
 interface AssignmentWithSubmission {
@@ -94,14 +95,14 @@ export default function StudentPage() {
     const saved = localStorage.getItem('lms_subject');
     const sub = saved ? JSON.parse(saved) : null;
     setSubject(sub);
-    fetch('/api/student/medals').then(r => r.json()).then(d => { if (Array.isArray(d)) setMedals(d); }).catch(() => {});
-    fetch('/api/teacher/level-settings').then(r => r.json()).then(d => setLevelSettings(s => ({ ...s, ...d }))).catch(() => {});
+    cachedFetch<unknown>('/api/student/medals').then(d => { if (Array.isArray(d)) setMedals(d); }).catch(() => {});
+    cachedFetch<Partial<LevelSettings>>('/api/teacher/level-settings').then(d => setLevelSettings(s => ({ ...s, ...d }))).catch(() => {});
     const qs = new URLSearchParams();
     if (sub) qs.set('subject', sub.id);
     if (profile.classId) qs.set('classId', profile.classId);
-    fetch(`/api/assignments/student?${qs}`)
-      .then(r => r.json())
+    cachedFetch<AssignmentWithSubmission[]>(`/api/assignments/student?${qs}`)
       .then(d => setAssignments(Array.isArray(d) ? d : []))
+      .catch(() => setAssignments([]))
       .finally(() => setFetching(false));
   }, [profile]);
 

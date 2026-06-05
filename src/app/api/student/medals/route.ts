@@ -1,6 +1,7 @@
 import { NextResponse } from 'next/server';
 import { adminAuth, adminDb } from '@/lib/firebase/admin';
 import { cookies } from 'next/headers';
+import { trackReads, flushReadsIfDue } from '@/lib/read-tracker';
 
 async function getStudentUid(): Promise<string | null> {
   try {
@@ -20,6 +21,9 @@ export async function GET() {
     .where('studentId', '==', uid)
     .limit(20)
     .get();
+
+  trackReads(uid, Math.max(1, snap.size));
+  await flushReadsIfDue();
 
   const medals = snap.docs
     .sort((a, b) => (b.data().createdAt?._seconds ?? 0) - (a.data().createdAt?._seconds ?? 0))

@@ -696,10 +696,20 @@ interface UsageData {
   error?: string;
 }
 
+interface ReadStatsData {
+  date: string;
+  total: number;
+  students: Array<{ uid: string; reads: number; displayName: string; classId: string }>;
+}
+
 function FirestoreUsageCard() {
   const [data, setData] = useState<UsageData | null>(null);
   const [loading, setLoading] = useState(true);
   const [failed, setFailed] = useState(false);
+
+  const [showPerStudent, setShowPerStudent] = useState(false);
+  const [stats, setStats] = useState<ReadStatsData | null>(null);
+  const [statsLoading, setStatsLoading] = useState(false);
 
   const load = useCallback(() => {
     setLoading(true);
@@ -712,6 +722,21 @@ function FirestoreUsageCard() {
       .catch(() => setFailed(true))
       .finally(() => setLoading(false));
   }, []);
+
+  const loadStats = useCallback(() => {
+    setStatsLoading(true);
+    fetch('/api/teacher/read-stats')
+      .then((r) => r.json())
+      .then((j) => setStats(j?.students ? j : null))
+      .catch(() => setStats(null))
+      .finally(() => setStatsLoading(false));
+  }, []);
+
+  function togglePerStudent() {
+    const next = !showPerStudent;
+    setShowPerStudent(next);
+    if (next && !stats) loadStats();
+  }
 
   useEffect(() => { load(); }, [load]);
 
@@ -767,6 +792,52 @@ function FirestoreUsageCard() {
               </p>
             )}
             <p className="mt-2 text-[9px] text-slate-700">reset เที่ยงคืน Pacific (~บ่าย 2 ไทย) · อัปเดตช้า ~5 นาที</p>
+
+            {/* Per-student breakdown (estimated, from our own tracking) */}
+            <button onClick={togglePerStudent}
+              className="mt-3 w-full rounded-lg border border-slate-800 py-1.5 text-[10px] font-semibold text-slate-400 transition-all hover:border-slate-700 hover:text-slate-200">
+              {showPerStudent ? '▲ ซ่อนรายคน' : '▼ ดู read รายคน'}
+            </button>
+
+            {showPerStudent && (
+              <div className="mt-2">
+                {statsLoading ? (
+                  <p className="py-3 text-center text-[10px] text-slate-600">กำลังโหลด…</p>
+                ) : !stats || stats.students.length === 0 ? (
+                  <p className="py-3 text-center text-[10px] text-slate-600">ยังไม่มีข้อมูลวันนี้</p>
+                ) : (
+                  <div className="space-y-1">
+                    <p className="mb-1 text-[9px] text-slate-600">
+                      รวมที่บันทึกได้ ~{stats.total.toLocaleString()} อ่าน · {stats.students.length} คน (ค่าประมาณ)
+                    </p>
+                    {stats.students.slice(0, 15).map((s, i) => {
+                      const max = stats.students[0]?.reads || 1;
+                      const w = Math.max(4, Math.round((s.reads / max) * 100));
+                      return (
+                        <div key={s.uid} className="flex items-center gap-2">
+                          <span className="w-4 shrink-0 text-right text-[9px] text-slate-600">{i + 1}</span>
+                          <div className="min-w-0 flex-1">
+                            <div className="flex items-center justify-between gap-2">
+                              <span className="truncate text-[10px] text-slate-300">
+                                {s.displayName || s.uid.slice(0, 6)}
+                                {s.classId && <span className="ml-1 text-slate-600">{s.classId}</span>}
+                              </span>
+                              <span className="shrink-0 text-[10px] font-bold tabular-nums text-slate-400">{s.reads.toLocaleString()}</span>
+                            </div>
+                            <div className="mt-0.5 h-1 overflow-hidden rounded-full bg-slate-800">
+                              <div className="h-full rounded-full bg-blue-500/70" style={{ width: `${w}%` }} />
+                            </div>
+                          </div>
+                        </div>
+                      );
+                    })}
+                    {stats.students.length > 15 && (
+                      <p className="pt-1 text-center text-[9px] text-slate-600">+ อีก {stats.students.length - 15} คน</p>
+                    )}
+                  </div>
+                )}
+              </div>
+            )}
           </>
         )}
       </div>

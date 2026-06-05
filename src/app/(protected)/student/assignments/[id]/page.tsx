@@ -5,6 +5,7 @@ import { useRouter } from 'next/navigation';
 import { useAuth } from '@/context/AuthContext';
 import Link from 'next/link';
 import type { FormBlock, InfographicColor } from '@/types';
+import { invalidate } from '@/lib/client-cache';
 
 interface Assignment {
   id: string;
@@ -306,8 +307,10 @@ export default function SubmissionPage({ params }: { params: Promise<{ id: strin
         setXpGain(data.xpGain);
         setTimeout(() => setXpGain(null), 4000);
       }
-      // Clear saved draft after successful submission
+      // Clear saved draft after successful submission, and drop the cached
+      // dashboard assignment list so it reflects this submission immediately.
       localStorage.removeItem(`lms_draft_${id}`);
+      invalidate('/api/assignments/student');
       setSubmission({
         id: data.id,
         content,

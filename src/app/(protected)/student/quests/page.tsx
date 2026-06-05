@@ -5,6 +5,7 @@ import { useRouter } from 'next/navigation';
 import { useAuth } from '@/context/AuthContext';
 import Link from 'next/link';
 import { calcLevel, levelBarColor, levelColor, DEFAULT_SETTINGS, type LevelSettings } from '@/lib/xp';
+import { cachedFetch, invalidate } from '@/lib/client-cache';
 
 interface Quest {
   id: string;
@@ -65,18 +66,18 @@ export default function StudentQuestsPage() {
     if (profile) setLocalXp(profile.xp ?? 0);
   }, [profile]);
 
-  const loadQuests = useCallback(() => {
-    fetch('/api/student/quests')
-      .then((r) => r.json())
+  const loadQuests = useCallback((force = false) => {
+    if (force) invalidate('/api/student/quests');
+    cachedFetch<Quest[]>('/api/student/quests')
       .then((d) => setQuests(Array.isArray(d) ? d : []))
+      .catch(() => setQuests([]))
       .finally(() => setFetching(false));
   }, []);
 
   useEffect(() => {
     if (profile?.role === 'student') {
       loadQuests();
-      fetch('/api/teacher/level-settings')
-        .then((r) => r.json())
+      cachedFetch<Partial<LevelSettings>>('/api/teacher/level-settings')
         .then((d) => setLevelSettings((s) => ({ ...s, ...d })))
         .catch(() => {});
     }
@@ -87,6 +88,8 @@ export default function StudentQuestsPage() {
     setClaiming(quest.id);
     try {
       const res = await fetch(`/api/student/quests/${quest.id}/claim`, { method: 'POST' });
+      // Claim status changed — drop the cached quest list so a revisit is fresh.
+      invalidate('/api/student/quests');
       if (res.status === 409) {
         setQuests((prev) => prev.map((q) => q.id === quest.id ? { ...q, isClaimed: true } : q));
         return;
