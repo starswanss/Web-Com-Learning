@@ -63,10 +63,24 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       if (cached?.uid === firebaseUser.uid) {
         setProfile(cached);
         setLoading(false);
-        // Silently refresh in background
+        // Silently refresh in background; if the server session has expired,
+        // re-establish it from the current ID token so API calls (assignments,
+        // etc.) keep working instead of 401-ing.
         fetch('/api/auth/session')
           .then((r) => (r.ok ? r.json() : null))
-          .then((p) => { if (p) { setProfile(p); saveProfileCache(p); } })
+          .then(async (p) => {
+            if (p) { setProfile(p); saveProfileCache(p); return; }
+            const idToken = await firebaseUser.getIdToken(true);
+            const post = await fetch('/api/auth/session', {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ idToken }),
+            });
+            if (post.ok) {
+              const body = await post.json();
+              if (body.profile) { setProfile(body.profile); saveProfileCache(body.profile); }
+            }
+          })
           .catch(() => {});
         return;
       }
@@ -74,7 +88,31 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       // No matching cache — fetch and wait
       try {
         const res = await fetch('/api/auth/session');
-        const p = res.ok ? await res.json() : null;
+        let p = res.ok ? await res.json() : null;
+
+        // Firebase client is authenticated but the server session cookie is
+        // missing/expired (returns null). Without recovery the user is trapped
+        // on an infinite spinner: the proxy lets the stale cookie through, but
+        // the profile never loads. Silently re-establish the cookie using the
+        // current ID token (Firebase auto-refreshes it) so no manual re-login
+        // is needed.
+        if (!p) {
+          try {
+            const idToken = await firebaseUser.getIdToken(true);
+            const post = await fetch('/api/auth/session', {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ idToken }),
+            });
+            if (post.ok) {
+              const body = await post.json();
+              p = body.profile ?? null;
+            }
+          } catch {
+            // Re-establish failed — fall through with null profile
+          }
+        }
+
         setProfile((prev) => (prev?.uid === firebaseUser.uid && p === null ? prev : p));
         saveProfileCache(p);
       } catch {
