@@ -1,6 +1,10 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { adminAuth, adminDb } from '@/lib/firebase/admin';
 import { cookies } from 'next/headers';
+import { cachedGlobal, invalidateGlobal } from '@/lib/server-cache';
+
+const LOGO_CACHE_KEY = 'system/config:logoUrl';
+const LOGO_CACHE_TTL = 300_000; // 5 min — logo rarely changes
 
 async function getTeacherUid(): Promise<string | null> {
   try {
@@ -15,8 +19,10 @@ async function getTeacherUid(): Promise<string | null> {
 }
 
 export async function GET() {
-  const snap = await adminDb.collection('system').doc('config').get();
-  const logoUrl = snap.exists ? (snap.data()?.logoUrl ?? null) : null;
+  const logoUrl = await cachedGlobal(LOGO_CACHE_KEY, LOGO_CACHE_TTL, async () => {
+    const snap = await adminDb.collection('system').doc('config').get();
+    return snap.exists ? (snap.data()?.logoUrl ?? null) : null;
+  });
   return NextResponse.json({ logoUrl });
 }
 
@@ -29,5 +35,6 @@ export async function POST(req: NextRequest) {
     { logoUrl: logoUrl ?? null, logoUpdatedBy: uid, logoUpdatedAt: new Date() },
     { merge: true }
   );
+  invalidateGlobal(LOGO_CACHE_KEY); // reflect the new logo immediately
   return NextResponse.json({ ok: true });
 }

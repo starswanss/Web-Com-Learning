@@ -2,6 +2,10 @@ import { NextRequest, NextResponse } from 'next/server';
 import { adminAuth, adminDb } from '@/lib/firebase/admin';
 import { cookies } from 'next/headers';
 import { DEFAULT_SETTINGS, LevelSettings } from '@/lib/xp';
+import { cachedGlobal, invalidateGlobal } from '@/lib/server-cache';
+
+const CACHE_KEY = 'levelSettings/global';
+const CACHE_TTL = 60_000; // 60s — global doc read by every student on load
 
 async function getTeacherUid(): Promise<string | null> {
   try {
@@ -18,9 +22,13 @@ async function getTeacherUid(): Promise<string | null> {
 const SETTINGS_DOC = 'levelSettings/global';
 
 export async function GET() {
-  const snap = await adminDb.doc(SETTINGS_DOC).get();
-  if (!snap.exists) return NextResponse.json(DEFAULT_SETTINGS);
-  return NextResponse.json({ ...DEFAULT_SETTINGS, ...snap.data() });
+  const settings = await cachedGlobal(CACHE_KEY, CACHE_TTL, async () => {
+    const snap = await adminDb.doc(SETTINGS_DOC).get();
+    return snap.exists
+      ? { ...DEFAULT_SETTINGS, ...snap.data() }
+      : DEFAULT_SETTINGS;
+  });
+  return NextResponse.json(settings);
 }
 
 export async function PUT(req: NextRequest) {
@@ -42,5 +50,6 @@ export async function PUT(req: NextRequest) {
   };
 
   await adminDb.doc(SETTINGS_DOC).set(settings);
+  invalidateGlobal(CACHE_KEY); // make the new settings visible immediately
   return NextResponse.json(settings);
 }
