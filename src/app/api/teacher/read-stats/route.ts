@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { adminAuth, adminDb } from '@/lib/firebase/admin';
 import { cookies } from 'next/headers';
 import { pacificDate } from '@/lib/read-tracker';
+import { cachedGlobal } from '@/lib/server-cache';
 
 /**
  * Per-student Firestore read counts for a given Pacific day, recorded by the
@@ -27,6 +28,13 @@ export async function GET(req: NextRequest) {
 
   const date = new URL(req.url).searchParams.get('date') || pacificDate();
 
+  // Cache 60s — scanning the day's shard docs itself costs reads, so don't
+  // re-scan on every dashboard load.
+  const payload = await cachedGlobal(`read-stats:${date}`, 60_000, () => computeStats(date));
+  return NextResponse.json(payload);
+}
+
+async function computeStats(date: string) {
   const snap = await adminDb.collection(`readStats/${date}/students`).get();
 
   const rows = snap.docs.map((d) => ({
@@ -59,5 +67,5 @@ export async function GET(req: NextRequest) {
   rows.sort((a, b) => b.reads - a.reads);
   const total = rows.reduce((sum, r) => sum + r.reads, 0);
 
-  return NextResponse.json({ date, total, students: rows });
+  return { date, total, students: rows };
 }

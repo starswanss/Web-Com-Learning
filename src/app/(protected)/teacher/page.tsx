@@ -651,72 +651,47 @@ function AssignmentRow({
   );
 }
 
-/* Firestore daily quota usage — pulled from Cloud Monitoring (does NOT consume
-   Firestore reads). Reads is the metric that matters; writes/deletes shown small. */
-interface UsageData {
-  reads: number; writes: number; deletes: number;
-  limits: { reads: number; writes: number; deletes: number };
-  asOf?: string;
-  error?: string;
-  detail?: string;
-}
-
+/* Firestore daily read usage — ESTIMATED from our own per-student read-tracker
+   (readStats/{date}/students). Works on the free plan with no billing/Cloud
+   Monitoring. Students are the bulk of reads, so the self-counted total tracks
+   the real figure closely; the exact number lives in the Firebase Console. */
 interface ReadStatsData {
   date: string;
   total: number;
   students: Array<{ uid: string; reads: number; displayName: string; classId: string }>;
 }
 
+const READ_LIMIT = 50000; // Spark free-tier daily reads
+
 function FirestoreUsageCard() {
-  const [data, setData] = useState<UsageData | null>(null);
+  const [stats, setStats] = useState<ReadStatsData | null>(null);
   const [loading, setLoading] = useState(true);
   const [failed, setFailed] = useState(false);
-
   const [showPerStudent, setShowPerStudent] = useState(false);
-  const [stats, setStats] = useState<ReadStatsData | null>(null);
-  const [statsLoading, setStatsLoading] = useState(false);
 
   const load = useCallback(() => {
     setLoading(true);
-    fetch('/api/teacher/firestore-usage')
-      .then(async (r) => {
-        const j = await r.json();
-        if (!r.ok) { setFailed(true); setData(j); return; }
-        setFailed(false); setData(j);
-      })
+    fetch('/api/teacher/read-stats')
+      .then((r) => r.json())
+      .then((j) => { if (j?.students) { setStats(j); setFailed(false); } else setFailed(true); })
       .catch(() => setFailed(true))
       .finally(() => setLoading(false));
   }, []);
 
-  const loadStats = useCallback(() => {
-    setStatsLoading(true);
-    fetch('/api/teacher/read-stats')
-      .then((r) => r.json())
-      .then((j) => setStats(j?.students ? j : null))
-      .catch(() => setStats(null))
-      .finally(() => setStatsLoading(false));
-  }, []);
-
-  function togglePerStudent() {
-    const next = !showPerStudent;
-    setShowPerStudent(next);
-    if (next && !stats) loadStats();
-  }
-
   useEffect(() => { load(); }, [load]);
 
-  const reads = data?.reads ?? 0;
-  const limit = data?.limits?.reads ?? 50000;
-  const pct = Math.min(100, Math.round((reads / limit) * 100));
+  const reads = stats?.total ?? 0;
+  const pct = Math.min(100, Math.round((reads / READ_LIMIT) * 100));
   const barColor = pct >= 90 ? 'bg-red-500' : pct >= 70 ? 'bg-amber-400' : 'bg-emerald-500';
   const txtColor = pct >= 90 ? 'text-red-400' : pct >= 70 ? 'text-amber-400' : 'text-emerald-400';
+  const students = stats?.students ?? [];
 
   return (
     <div className="overflow-hidden rounded-2xl border border-slate-800/80 bg-slate-900">
       <div className="flex items-center justify-between border-b border-slate-800/80 px-5 py-3.5">
         <div>
-          <p className="text-[9px] font-bold uppercase tracking-widest text-slate-600">Firestore วันนี้</p>
-          <h2 className="text-xs font-semibold text-slate-300">📊 โควต้าการอ่าน</h2>
+          <p className="text-[9px] font-bold uppercase tracking-widest text-slate-600">Firestore วันนี้ (ประมาณ)</p>
+          <h2 className="text-xs font-semibold text-slate-300">📊 การอ่าน</h2>
         </div>
         <button onClick={load} disabled={loading}
           className="rounded-lg border border-slate-800 px-2 py-1 text-[10px] text-slate-500 transition-all hover:border-slate-700 hover:text-slate-300 disabled:opacity-50">
@@ -726,62 +701,44 @@ function FirestoreUsageCard() {
 
       <div className="p-4">
         {failed ? (
-          <div className="space-y-1.5">
-            <p className="text-[11px] font-medium text-amber-400">⚠ ดึงข้อมูลไม่ได้</p>
-            <p className="text-[10px] leading-relaxed text-slate-600">
-              ต้องเปิด Cloud Monitoring API และให้สิทธิ์ Monitoring Viewer แก่ service account ก่อน
-            </p>
-            {data?.detail && (
-              <p className="mt-1 break-words rounded-lg border border-slate-800 bg-slate-950/60 px-2 py-1.5 font-mono text-[9px] leading-relaxed text-red-400">
-                {data.detail}
-              </p>
-            )}
-          </div>
+          <p className="py-2 text-[10px] leading-relaxed text-slate-600">
+            ยังไม่มีข้อมูลการนับวันนี้ — ตัวเลขจะขึ้นเมื่อนักเรียนเริ่มใช้งาน
+          </p>
         ) : (
           <>
             <div className="mb-1.5 flex items-baseline justify-between">
               <span className={`text-lg font-black tabular-nums ${txtColor}`}>
-                {reads.toLocaleString()}
+                ~{reads.toLocaleString()}
               </span>
-              <span className="text-[10px] text-slate-500">/ {limit.toLocaleString()} อ่าน</span>
+              <span className="text-[10px] text-slate-500">/ {READ_LIMIT.toLocaleString()} อ่าน</span>
             </div>
             <div className="h-2 w-full overflow-hidden rounded-full bg-slate-800">
               <div className={`h-full rounded-full transition-all duration-700 ${barColor}`} style={{ width: `${pct}%` }} />
             </div>
             <div className="mt-1.5 flex items-center justify-between">
-              <span className={`text-[10px] font-bold ${txtColor}`}>{pct}% ใช้แล้ว</span>
-              {data && (
-                <span className="text-[9px] text-slate-600">
-                  เขียน {data.writes.toLocaleString()} · ลบ {data.deletes.toLocaleString()}
-                </span>
-              )}
+              <span className={`text-[10px] font-bold ${txtColor}`}>~{pct}% ใช้แล้ว</span>
+              <span className="text-[9px] text-slate-600">{students.length} คน</span>
             </div>
-            {pct >= 90 && (
+            {pct >= 80 && (
               <p className="mt-2 rounded-lg border border-red-900/50 bg-red-950/30 px-2 py-1.5 text-[10px] font-medium text-red-400">
                 ใกล้เต็มโควต้า! เว็บจะล่มเมื่อชน 100% — แนะนำอัปเกรด Blaze
               </p>
             )}
-            <p className="mt-2 text-[9px] text-slate-700">reset เที่ยงคืน Pacific (~บ่าย 2 ไทย) · อัปเดตช้า ~5 นาที</p>
+            <p className="mt-2 text-[9px] leading-relaxed text-slate-700">
+              ค่าประมาณจากการนับฝั่งนักเรียน · ตัวเลขจริงดูใน Firebase Console · reset เที่ยงคืน Pacific (~บ่าย 2 ไทย)
+            </p>
 
-            {/* Per-student breakdown (estimated, from our own tracking) */}
-            <button onClick={togglePerStudent}
-              className="mt-3 w-full rounded-lg border border-slate-800 py-1.5 text-[10px] font-semibold text-slate-400 transition-all hover:border-slate-700 hover:text-slate-200">
-              {showPerStudent ? '▲ ซ่อนรายคน' : '▼ ดู read รายคน'}
-            </button>
+            {students.length > 0 && (
+              <>
+                <button onClick={() => setShowPerStudent((v) => !v)}
+                  className="mt-3 w-full rounded-lg border border-slate-800 py-1.5 text-[10px] font-semibold text-slate-400 transition-all hover:border-slate-700 hover:text-slate-200">
+                  {showPerStudent ? '▲ ซ่อนรายคน' : '▼ ดู read รายคน'}
+                </button>
 
-            {showPerStudent && (
-              <div className="mt-2">
-                {statsLoading ? (
-                  <p className="py-3 text-center text-[10px] text-slate-600">กำลังโหลด…</p>
-                ) : !stats || stats.students.length === 0 ? (
-                  <p className="py-3 text-center text-[10px] text-slate-600">ยังไม่มีข้อมูลวันนี้</p>
-                ) : (
-                  <div className="space-y-1">
-                    <p className="mb-1 text-[9px] text-slate-600">
-                      รวมที่บันทึกได้ ~{stats.total.toLocaleString()} อ่าน · {stats.students.length} คน (ค่าประมาณ)
-                    </p>
-                    {stats.students.slice(0, 15).map((s, i) => {
-                      const max = stats.students[0]?.reads || 1;
+                {showPerStudent && (
+                  <div className="mt-2 space-y-1">
+                    {students.slice(0, 15).map((s, i) => {
+                      const max = students[0]?.reads || 1;
                       const w = Math.max(4, Math.round((s.reads / max) * 100));
                       return (
                         <div key={s.uid} className="flex items-center gap-2">
@@ -801,12 +758,12 @@ function FirestoreUsageCard() {
                         </div>
                       );
                     })}
-                    {stats.students.length > 15 && (
-                      <p className="pt-1 text-center text-[9px] text-slate-600">+ อีก {stats.students.length - 15} คน</p>
+                    {students.length > 15 && (
+                      <p className="pt-1 text-center text-[9px] text-slate-600">+ อีก {students.length - 15} คน</p>
                     )}
                   </div>
                 )}
-              </div>
+              </>
             )}
           </>
         )}
