@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useState } from 'react';
+import { useEffect, useState, useCallback } from 'react';
 import { useRouter } from 'next/navigation';
 import { useAuth } from '@/context/AuthContext';
 import Image from 'next/image';
@@ -365,6 +365,9 @@ export default function TeacherPage() {
               {/* ── RIGHT: Sidebar ── */}
               <div className="space-y-4">
 
+                {/* Firestore usage */}
+                <FirestoreUsageCard />
+
                 {/* Calendar */}
                 <div className="overflow-hidden rounded-2xl border border-slate-800/80 bg-slate-900">
                   <div className="flex items-center justify-between border-b border-slate-800/80 px-5 py-3.5">
@@ -681,6 +684,93 @@ function AssignmentRow({
       </div>
     )}
   </div>
+  );
+}
+
+/* Firestore daily quota usage — pulled from Cloud Monitoring (does NOT consume
+   Firestore reads). Reads is the metric that matters; writes/deletes shown small. */
+interface UsageData {
+  reads: number; writes: number; deletes: number;
+  limits: { reads: number; writes: number; deletes: number };
+  asOf?: string;
+  error?: string;
+}
+
+function FirestoreUsageCard() {
+  const [data, setData] = useState<UsageData | null>(null);
+  const [loading, setLoading] = useState(true);
+  const [failed, setFailed] = useState(false);
+
+  const load = useCallback(() => {
+    setLoading(true);
+    fetch('/api/teacher/firestore-usage')
+      .then(async (r) => {
+        const j = await r.json();
+        if (!r.ok) { setFailed(true); setData(j); return; }
+        setFailed(false); setData(j);
+      })
+      .catch(() => setFailed(true))
+      .finally(() => setLoading(false));
+  }, []);
+
+  useEffect(() => { load(); }, [load]);
+
+  const reads = data?.reads ?? 0;
+  const limit = data?.limits?.reads ?? 50000;
+  const pct = Math.min(100, Math.round((reads / limit) * 100));
+  const barColor = pct >= 90 ? 'bg-red-500' : pct >= 70 ? 'bg-amber-400' : 'bg-emerald-500';
+  const txtColor = pct >= 90 ? 'text-red-400' : pct >= 70 ? 'text-amber-400' : 'text-emerald-400';
+
+  return (
+    <div className="overflow-hidden rounded-2xl border border-slate-800/80 bg-slate-900">
+      <div className="flex items-center justify-between border-b border-slate-800/80 px-5 py-3.5">
+        <div>
+          <p className="text-[9px] font-bold uppercase tracking-widest text-slate-600">Firestore วันนี้</p>
+          <h2 className="text-xs font-semibold text-slate-300">📊 โควต้าการอ่าน</h2>
+        </div>
+        <button onClick={load} disabled={loading}
+          className="rounded-lg border border-slate-800 px-2 py-1 text-[10px] text-slate-500 transition-all hover:border-slate-700 hover:text-slate-300 disabled:opacity-50">
+          {loading ? '…' : '↻'}
+        </button>
+      </div>
+
+      <div className="p-4">
+        {failed ? (
+          <div className="space-y-1.5">
+            <p className="text-[11px] font-medium text-amber-400">⚠ ดึงข้อมูลไม่ได้</p>
+            <p className="text-[10px] leading-relaxed text-slate-600">
+              ต้องเปิด Cloud Monitoring API และให้สิทธิ์ Monitoring Viewer แก่ service account ก่อน
+            </p>
+          </div>
+        ) : (
+          <>
+            <div className="mb-1.5 flex items-baseline justify-between">
+              <span className={`text-lg font-black tabular-nums ${txtColor}`}>
+                {reads.toLocaleString()}
+              </span>
+              <span className="text-[10px] text-slate-500">/ {limit.toLocaleString()} อ่าน</span>
+            </div>
+            <div className="h-2 w-full overflow-hidden rounded-full bg-slate-800">
+              <div className={`h-full rounded-full transition-all duration-700 ${barColor}`} style={{ width: `${pct}%` }} />
+            </div>
+            <div className="mt-1.5 flex items-center justify-between">
+              <span className={`text-[10px] font-bold ${txtColor}`}>{pct}% ใช้แล้ว</span>
+              {data && (
+                <span className="text-[9px] text-slate-600">
+                  เขียน {data.writes.toLocaleString()} · ลบ {data.deletes.toLocaleString()}
+                </span>
+              )}
+            </div>
+            {pct >= 90 && (
+              <p className="mt-2 rounded-lg border border-red-900/50 bg-red-950/30 px-2 py-1.5 text-[10px] font-medium text-red-400">
+                ใกล้เต็มโควต้า! เว็บจะล่มเมื่อชน 100% — แนะนำอัปเกรด Blaze
+              </p>
+            )}
+            <p className="mt-2 text-[9px] text-slate-700">reset เที่ยงคืน Pacific (~บ่าย 2 ไทย) · อัปเดตช้า ~5 นาที</p>
+          </>
+        )}
+      </div>
+    </div>
   );
 }
 
