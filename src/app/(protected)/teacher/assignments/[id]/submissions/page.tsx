@@ -110,6 +110,7 @@ export default function SubmissionsPage({ params }: { params: Promise<{ id: stri
   const [approving, setApproving] = useState(false);
   const [batchResult, setBatchResult] = useState<string | null>(null);
   const [deleting, setDeleting] = useState<string | null>(null);
+  const [classFilter, setClassFilter] = useState<string | null>(null);
 
   useEffect(() => {
     if (!loading && profile?.role !== 'teacher') router.push('/dashboard');
@@ -246,9 +247,12 @@ export default function SubmissionsPage({ params }: { params: Promise<{ id: stri
 
   if (loading || !profile) return <Spinner />;
 
-  const pendingCount  = submissions.filter((s) => s.status === 'submitted').length;
-  const gradedCount   = submissions.filter((s) => s.status === 'graded').length;
-  const reviewedCount = submissions.filter((s) => s.status === 'reviewed').length;
+  // Submissions shown, narrowed to the clicked class.
+  const visible = classFilter ? submissions.filter((s) => s.classId === classFilter) : submissions;
+
+  const pendingCount  = visible.filter((s) => s.status === 'submitted').length;
+  const gradedCount   = visible.filter((s) => s.status === 'graded').length;
+  const reviewedCount = visible.filter((s) => s.status === 'reviewed').length;
 
   return (
     <div className="min-h-screen bg-slate-950">
@@ -321,16 +325,34 @@ export default function SubmissionsPage({ params }: { params: Promise<{ id: stri
       </header>
 
       <main className="mx-auto max-w-6xl px-4 py-6">
-        {/* Per-class submission mini cards */}
+        {/* Per-class submission cards — click to filter the list by class */}
         {!fetching && classStats.length > 0 && (
-          <div className="mb-4 flex flex-wrap gap-2">
+          <div className="mb-4 flex flex-wrap items-stretch gap-2">
+            {/* "ทั้งหมด" — clears the filter */}
+            <button
+              onClick={() => setClassFilter(null)}
+              className={`flex items-center rounded-xl border px-3 py-2 text-xs font-bold transition-all ${
+                classFilter === null
+                  ? 'border-blue-600 bg-blue-950/50 text-blue-300 ring-1 ring-blue-600/40'
+                  : 'border-slate-700 bg-slate-900 text-slate-400 hover:border-slate-600'
+              }`}
+            >
+              ทั้งหมด
+            </button>
             {classStats.map((cs) => {
               const pct = cs.total > 0 ? Math.round((cs.submitted / cs.total) * 100) : 0;
               const color = pct >= 100 ? 'border-emerald-800 bg-emerald-950/40 text-emerald-400'
                 : pct >= 50 ? 'border-amber-800 bg-amber-950/40 text-amber-400'
                 : 'border-red-900 bg-red-950/40 text-red-400';
+              const active = classFilter === cs.classId;
               return (
-                <div key={cs.classId} className={`flex items-center gap-2 rounded-xl border px-3 py-2 ${color}`}>
+                <button
+                  key={cs.classId}
+                  onClick={() => setClassFilter(active ? null : cs.classId)}
+                  className={`flex items-center gap-2 rounded-xl border px-3 py-2 transition-all ${color} ${
+                    active ? 'ring-2 ring-blue-500/70' : 'hover:brightness-125'
+                  }`}
+                >
                   <span className="text-xs font-bold">{cs.classId}</span>
                   <span className="text-xs opacity-80">
                     ส่ง {cs.submitted}{cs.total > 0 ? `/${cs.total}` : ''} คน
@@ -338,7 +360,7 @@ export default function SubmissionsPage({ params }: { params: Promise<{ id: stri
                   {cs.total > 0 && cs.submitted < cs.total && (
                     <span className="text-[10px] opacity-60">ค้าง {cs.total - cs.submitted}</span>
                   )}
-                </div>
+                </button>
               );
             })}
           </div>
@@ -352,9 +374,11 @@ export default function SubmissionsPage({ params }: { params: Promise<{ id: stri
           <div className="flex gap-4 h-[calc(100vh-112px)]">
             {/* Submission list */}
             <div className="w-72 shrink-0 overflow-y-auto pr-1">
-              {submissions.length === 0 ? (
+              {visible.length === 0 ? (
                 <div className="rounded-xl border border-dashed border-slate-800 py-12 text-center">
-                  <p className="text-sm text-slate-500">ยังไม่มีการส่งงาน</p>
+                  <p className="text-sm text-slate-500">
+                    {classFilter ? `ยังไม่มีการส่งงานจากห้อง ${classFilter}` : 'ยังไม่มีการส่งงาน'}
+                  </p>
                 </div>
               ) : (
                 <div className="space-y-4">
@@ -362,7 +386,7 @@ export default function SubmissionsPage({ params }: { params: Promise<{ id: stri
                   <SubmissionGroup
                     label="รอตรวจ"
                     color="amber"
-                    items={submissions.filter((s) => s.status === 'submitted')}
+                    items={visible.filter((s) => s.status === 'submitted')}
                     selected={selected}
                     deleting={deleting}
                     onOpen={openSubmission}
@@ -373,7 +397,7 @@ export default function SubmissionsPage({ params }: { params: Promise<{ id: stri
                   <SubmissionGroup
                     label="รอบันทึกคะแนน"
                     color="blue"
-                    items={submissions.filter((s) => s.status === 'graded')}
+                    items={visible.filter((s) => s.status === 'graded')}
                     selected={selected}
                     deleting={deleting}
                     onOpen={openSubmission}
@@ -384,7 +408,7 @@ export default function SubmissionsPage({ params }: { params: Promise<{ id: stri
                   <SubmissionGroup
                     label="ตรวจแล้ว"
                     color="emerald"
-                    items={submissions.filter((s) => s.status === 'reviewed')}
+                    items={visible.filter((s) => s.status === 'reviewed')}
                     selected={selected}
                     deleting={deleting}
                     onOpen={openSubmission}

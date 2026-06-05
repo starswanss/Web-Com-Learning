@@ -110,7 +110,6 @@ export default function TeacherPage() {
   const [deleting, setDeleting] = useState<string | null>(null);
   const [toggling, setToggling] = useState<string | null>(null);
   const [subject, setSubject] = useState<{ id: string; name: string } | null>(null);
-  const [classFilter, setClassFilter] = useState<string | null>(null);
   const [timetable, setTimetable] = useState<TimetableCells>({});
   const [subStats, setSubStats] = useState<Map<string, { total: number; submitted: number; notSubmitted: Array<{ uid: string; name: string; classId: string }> }>>(new Map());
   const [calYear, setCalYear] = useState(() => new Date().getFullYear());
@@ -172,17 +171,12 @@ export default function TeacherPage() {
   if (loading || !profile) return <Spinner />;
 
   /* ── Derived ── */
-  const allClassIds = Array.from(new Set(assignments.flatMap(a => a.classIds))).sort();
-  const filtered = classFilter
-    ? assignments.filter(a => a.classIds.includes(classFilter))
-    : assignments;
-
-  const totalAssignments = filtered.length;
-  const openQuizzes  = filtered.filter(a => a.contentType === 'quiz' && a.isOpen).length;
-  const dueThisWeek  = filtered.filter(a => { if (!a.dueDate) return false; const d = a.dueDate._seconds*1000-Date.now(); return d>0 && d<7*86400000; }).length;
-  const knowledgeCount = filtered.filter(a => (a.contentType??'worksheet') === 'knowledge').length;
-  const worksheetCount = filtered.filter(a => (a.contentType??'worksheet') === 'worksheet').length;
-  const quizCount      = filtered.filter(a => (a.contentType??'worksheet') === 'quiz').length;
+  const totalAssignments = assignments.length;
+  const openQuizzes  = assignments.filter(a => a.contentType === 'quiz' && a.isOpen).length;
+  const dueThisWeek  = assignments.filter(a => { if (!a.dueDate) return false; const d = a.dueDate._seconds*1000-Date.now(); return d>0 && d<7*86400000; }).length;
+  const knowledgeCount = assignments.filter(a => (a.contentType??'worksheet') === 'knowledge').length;
+  const worksheetCount = assignments.filter(a => (a.contentType??'worksheet') === 'worksheet').length;
+  const quizCount      = assignments.filter(a => (a.contentType??'worksheet') === 'quiz').length;
 
   const today = new Date();
   const firstDay = new Date(calYear, calMonth, 1).getDay();
@@ -208,7 +202,7 @@ export default function TeacherPage() {
   const isWeekend = new Date().getDay() === 0 || new Date().getDay() === 6;
 
   const grouped = SECTION_ORDER.reduce((acc, ct) => {
-    acc[ct] = filtered.filter(a => (a.contentType ?? 'worksheet') === ct);
+    acc[ct] = assignments.filter(a => (a.contentType ?? 'worksheet') === ct);
     return acc;
   }, {} as Record<ContentType, Assignment[]>);
 
@@ -284,36 +278,6 @@ export default function TeacherPage() {
                 </div>
               ))}
             </div>
-
-            {/* ══ CLASS FILTER BAR ══ */}
-            {allClassIds.length > 1 && (
-              <div className="flex items-center gap-2 flex-wrap">
-                <span className="text-[10px] font-bold uppercase tracking-widest text-slate-600">ห้อง:</span>
-                <button
-                  onClick={() => setClassFilter(null)}
-                  className={`rounded-lg border px-3 py-1 text-xs font-semibold transition-all ${
-                    classFilter === null
-                      ? 'border-blue-700 bg-blue-950/50 text-blue-300'
-                      : 'border-slate-700 text-slate-500 hover:border-slate-600 hover:text-slate-300'
-                  }`}
-                >
-                  ทั้งหมด
-                </button>
-                {allClassIds.map((c) => (
-                  <button
-                    key={c}
-                    onClick={() => setClassFilter(classFilter === c ? null : c)}
-                    className={`rounded-lg border px-3 py-1 text-xs font-semibold transition-all ${
-                      classFilter === c
-                        ? 'border-blue-700 bg-blue-950/50 text-blue-300'
-                        : 'border-slate-700 text-slate-500 hover:border-slate-600 hover:text-slate-300'
-                    }`}
-                  >
-                    {c}
-                  </button>
-                ))}
-              </div>
-            )}
 
             {/* ══ MAIN CONTENT ══ */}
             <div className="grid gap-5 xl:grid-cols-[1fr_300px]">
