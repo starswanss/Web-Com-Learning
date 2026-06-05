@@ -310,6 +310,7 @@ export default function SubmissionPage({ params }: { params: Promise<{ id: strin
       // Clear saved draft after successful submission, and drop the cached
       // dashboard assignment list so it reflects this submission immediately.
       localStorage.removeItem(`lms_draft_${id}`);
+      invalidate('/api/student/dashboard');
       invalidate('/api/assignments/student');
       setSubmission({
         id: data.id,

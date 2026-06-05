@@ -29,6 +29,13 @@ interface AssignmentWithSubmission {
   };
 }
 
+interface DashboardPayload {
+  xp: number;
+  assignments: AssignmentWithSubmission[];
+  medals: Array<{ id: string; medal: string; icon?: string; points: number; reason: string }>;
+  levelSettings: Partial<LevelSettings>;
+}
+
 /* ───────── Helpers ───────── */
 function dueDateColor(s: number) {
   const diff = s*1000 - Date.now(); const d = diff/86400000;
@@ -95,13 +102,17 @@ export default function StudentPage() {
     const saved = localStorage.getItem('lms_subject');
     const sub = saved ? JSON.parse(saved) : null;
     setSubject(sub);
-    cachedFetch<unknown>('/api/student/medals').then(d => { if (Array.isArray(d)) setMedals(d); }).catch(() => {});
-    cachedFetch<Partial<LevelSettings>>('/api/teacher/level-settings').then(d => setLevelSettings(s => ({ ...s, ...d }))).catch(() => {});
+
+    // Single combined call replaces the medals + level-settings + assignments
+    // round-trips (one invocation, one network trip).
     const qs = new URLSearchParams();
     if (sub) qs.set('subject', sub.id);
-    if (profile.classId) qs.set('classId', profile.classId);
-    cachedFetch<AssignmentWithSubmission[]>(`/api/assignments/student?${qs}`)
-      .then(d => setAssignments(Array.isArray(d) ? d : []))
+    cachedFetch<DashboardPayload>(`/api/student/dashboard?${qs}`)
+      .then(d => {
+        setAssignments(Array.isArray(d.assignments) ? d.assignments : []);
+        setMedals(Array.isArray(d.medals) ? d.medals : []);
+        if (d.levelSettings) setLevelSettings(s => ({ ...s, ...d.levelSettings }));
+      })
       .catch(() => setAssignments([]))
       .finally(() => setFetching(false));
   }, [profile]);
