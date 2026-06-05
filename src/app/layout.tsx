@@ -9,7 +9,6 @@ const geist = Geist({ variable: '--font-geist-sans', subsets: ['latin'] });
 export const metadata: Metadata = {
   title: 'LMS — Computing Science & IT | ม.3',
   description: 'ระบบจัดการการเรียนรู้ วิทยาการคำนวณและเทคโนโลยีสารสนเทศ',
-  manifest: '/manifest.json',
   appleWebApp: {
     capable: true,
     statusBarStyle: 'black-translucent',
