@@ -88,10 +88,17 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   }, []);
 
   async function refreshProfile() {
-    const res = await fetch('/api/auth/session');
-    const p = res.ok ? await res.json() : null;
-    setProfile(p);
-    saveProfileCache(p);
+    try {
+      const res = await fetch('/api/auth/session');
+      if (!res.ok) return;
+      const p = await res.json();
+      if (p && typeof p === 'object' && p.uid) {
+        setProfile(p);
+        saveProfileCache(p);
+      }
+    } catch {
+      // Ignore network errors — keep existing profile
+    }
   }
 
   async function signInWithGoogle() {

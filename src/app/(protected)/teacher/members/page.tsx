@@ -4,7 +4,7 @@ import { useEffect, useState, useMemo } from 'react';
 import { useRouter } from 'next/navigation';
 import { useAuth } from '@/context/AuthContext';
 import Link from 'next/link';
-import { calcLevel, levelColor, levelBarColor } from '@/lib/xp';
+import { calcLevel, levelColor, levelBarColor, DEFAULT_SETTINGS, type LevelSettings } from '@/lib/xp';
 
 interface Member {
   uid: string;
@@ -53,6 +53,7 @@ export default function MembersPage() {
   // Delete state
   const [deletingUid, setDeletingUid] = useState<string | null>(null);
   const [confirmDeleteUid, setConfirmDeleteUid] = useState<string | null>(null);
+  const [levelSettings, setLevelSettings] = useState<LevelSettings>(DEFAULT_SETTINGS);
 
   useEffect(() => {
     if (!loading && profile?.role !== 'teacher') router.push('/dashboard');
@@ -64,6 +65,10 @@ export default function MembersPage() {
       .then(r => r.json())
       .then(d => setMembers(Array.isArray(d) ? d : []))
       .finally(() => setFetching(false));
+    fetch('/api/teacher/level-settings')
+      .then(r => r.json())
+      .then(d => setLevelSettings(s => ({ ...s, ...d })))
+      .catch(() => {});
   }, [profile]);
 
   const classCounts = useMemo(() => {
@@ -301,7 +306,7 @@ export default function MembersPage() {
                   {filtered.map(m => {
                     const isEditing = editingUid === m.uid;
                     const isXpEditing = xpEditingUid === m.uid;
-                    const lvInfo = calcLevel(m.xp);
+                    const lvInfo = calcLevel(m.xp, levelSettings);
                     return (
                       <div key={m.uid} className="group">
                         <div className="grid grid-cols-[2.5rem_1fr_1fr_9rem_10rem_6rem_5rem_3rem] items-center gap-3 px-5 py-3 transition-colors hover:bg-slate-800/20">

@@ -4,7 +4,7 @@ import { useEffect, useState, useCallback } from 'react';
 import { useRouter } from 'next/navigation';
 import { useAuth } from '@/context/AuthContext';
 import Link from 'next/link';
-import { calcLevel, levelBarColor, levelColor } from '@/lib/xp';
+import { calcLevel, levelBarColor, levelColor, DEFAULT_SETTINGS, type LevelSettings } from '@/lib/xp';
 
 interface Quest {
   id: string;
@@ -14,14 +14,16 @@ interface Quest {
   icon: string;
   resetType: 'daily' | 'once';
   isClaimed: boolean;
+  subjectId?: string | null;
+  subjectName?: string | null;
 }
 
 function Spinner() {
   return <div className="flex items-center justify-center py-24"><div className="h-6 w-6 animate-spin rounded-full border-2 border-slate-700 border-t-violet-500" /></div>;
 }
 
-function MiniXpBar({ xp }: { xp: number }) {
-  const { level, title, currentXp, nextLevelXp, progress, totalXp } = calcLevel(xp);
+function MiniXpBar({ xp, levelSettings }: { xp: number; levelSettings: LevelSettings }) {
+  const { level, title, currentXp, nextLevelXp, progress, totalXp } = calcLevel(xp, levelSettings);
   const bar = levelBarColor(level);
   const txt = levelColor(level);
   return (
@@ -52,6 +54,8 @@ export default function StudentQuestsPage() {
   const [claiming, setClaiming] = useState<string | null>(null);
   const [justClaimed, setJustClaimed] = useState<{ id: string; xp: number } | null>(null);
   const [localXp, setLocalXp] = useState<number>(0);
+  const [subjectFilter, setSubjectFilter] = useState<string | null>(null);
+  const [levelSettings, setLevelSettings] = useState<LevelSettings>(DEFAULT_SETTINGS);
 
   useEffect(() => {
     if (!loading && profile?.role !== 'student') router.push('/dashboard');
@@ -69,7 +73,13 @@ export default function StudentQuestsPage() {
   }, []);
 
   useEffect(() => {
-    if (profile?.role === 'student') loadQuests();
+    if (profile?.role === 'student') {
+      loadQuests();
+      fetch('/api/teacher/level-settings')
+        .then((r) => r.json())
+        .then((d) => setLevelSettings((s) => ({ ...s, ...d })))
+        .catch(() => {});
+    }
   }, [profile, loadQuests]);
 
   async function handleClaim(quest: Quest) {
@@ -97,8 +107,17 @@ export default function StudentQuestsPage() {
 
   if (loading || !profile) return <Spinner />;
 
-  const available = quests.filter((q) => !q.isClaimed);
-  const claimed = quests.filter((q) => q.isClaimed);
+  // Derive unique subjects from quest list
+  const subjectMap = new Map<string, string>();
+  quests.forEach((q) => { if (q.subjectId && q.subjectName) subjectMap.set(q.subjectId, q.subjectName); });
+  const availableSubjects = Array.from(subjectMap.entries()).map(([id, name]) => ({ id, name }));
+
+  const visibleQuests = subjectFilter
+    ? quests.filter((q) => q.subjectId === subjectFilter)
+    : quests;
+
+  const available = visibleQuests.filter((q) => !q.isClaimed);
+  const claimed = visibleQuests.filter((q) => q.isClaimed);
 
   // Time until midnight reset
   const now = new Date();
@@ -123,8 +142,37 @@ export default function StudentQuestsPage() {
 
         {/* XP Summary Card */}
         <div className="rounded-2xl border border-slate-800 bg-gradient-to-br from-slate-900 to-slate-900/60 p-5">
-          <MiniXpBar xp={localXp} />
+          <MiniXpBar xp={localXp} levelSettings={levelSettings} />
         </div>
+
+        {/* Subject filter tabs — only shown when there are multiple subjects */}
+        {!fetching && availableSubjects.length > 1 && (
+          <div className="flex items-center gap-2 flex-wrap">
+            <button
+              onClick={() => setSubjectFilter(null)}
+              className={`rounded-xl border px-3 py-1.5 text-xs font-semibold transition-all ${
+                subjectFilter === null
+                  ? 'border-violet-600 bg-violet-950/60 text-violet-300'
+                  : 'border-slate-700 text-slate-500 hover:border-slate-600 hover:text-slate-300'
+              }`}
+            >
+              ทั้งหมด
+            </button>
+            {availableSubjects.map((s) => (
+              <button
+                key={s.id}
+                onClick={() => setSubjectFilter(subjectFilter === s.id ? null : s.id)}
+                className={`rounded-xl border px-3 py-1.5 text-xs font-semibold transition-all ${
+                  subjectFilter === s.id
+                    ? 'border-violet-600 bg-violet-950/60 text-violet-300'
+                    : 'border-slate-700 text-slate-500 hover:border-slate-600 hover:text-slate-300'
+                }`}
+              >
+                {s.name}
+              </button>
+            ))}
+          </div>
+        )}
 
         {/* XP gain toast */}
         {justClaimed && (
@@ -165,8 +213,12 @@ export default function StudentQuestsPage() {
             {available.length === 0 && claimed.length === 0 && (
               <div className="flex flex-col items-center justify-center gap-3 py-16">
                 <span className="text-5xl">⚡</span>
-                <p className="font-medium text-slate-400">ยังไม่มีเควสสำหรับวันนี้</p>
-                <p className="text-sm text-slate-600">ครูจะเพิ่มเควสให้เร็วๆ นี้</p>
+                <p className="font-medium text-slate-400">
+                  {subjectFilter ? 'ไม่มีเควสสำหรับวิชานี้' : 'ยังไม่มีเควสสำหรับวันนี้'}
+                </p>
+                <p className="text-sm text-slate-600">
+                  {subjectFilter ? 'ลองเลือกวิชาอื่น หรือดูทั้งหมด' : 'ครูจะเพิ่มเควสให้เร็วๆ นี้'}
+                </p>
               </div>
             )}
 

@@ -25,6 +25,15 @@ export async function GET() {
     .where('classIds', 'array-contains', student.classId)
     .get();
 
+  // Build teacherId → {subjectId, subjectName} map
+  const teacherSubjectMap = new Map<string, { subjectId: string; subjectName: string }>();
+  subjectsSnap.docs.forEach((d) => {
+    const tid = d.data().teacherId as string;
+    if (!teacherSubjectMap.has(tid)) {
+      teacherSubjectMap.set(tid, { subjectId: d.id, subjectName: (d.data().name as string) ?? '' });
+    }
+  });
+
   const teacherIds = [...new Set(subjectsSnap.docs.map((d) => d.data().teacherId as string))];
   if (teacherIds.length === 0) return NextResponse.json([]);
 
@@ -70,6 +79,7 @@ export async function GET() {
     const data = d.data();
     const id = d.id;
     const isClaimed = data.resetType === 'daily' ? claimedToday.has(id) : claimedEver.has(id);
+    const subjectInfo = teacherSubjectMap.get(data.teacherId as string);
     return {
       id,
       title: data.title as string,
@@ -78,6 +88,8 @@ export async function GET() {
       icon: (data.icon ?? '⭐') as string,
       resetType: (data.resetType ?? 'daily') as 'daily' | 'once',
       isClaimed,
+      subjectId: subjectInfo?.subjectId ?? null,
+      subjectName: subjectInfo?.subjectName ?? null,
     };
   });
 
