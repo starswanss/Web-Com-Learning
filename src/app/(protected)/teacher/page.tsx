@@ -658,6 +658,7 @@ interface UsageData {
   limits: { reads: number; writes: number; deletes: number };
   asOf?: string;
   error?: string;
+  detail?: string;
 }
 
 interface ReadStatsData {
@@ -730,6 +731,11 @@ function FirestoreUsageCard() {
             <p className="text-[10px] leading-relaxed text-slate-600">
               ต้องเปิด Cloud Monitoring API และให้สิทธิ์ Monitoring Viewer แก่ service account ก่อน
             </p>
+            {data?.detail && (
+              <p className="mt-1 break-words rounded-lg border border-slate-800 bg-slate-950/60 px-2 py-1.5 font-mono text-[9px] leading-relaxed text-red-400">
+                {data.detail}
+              </p>
+            )}
           </div>
         ) : (
           <>
