@@ -23,7 +23,6 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
       <head>
         <meta name="theme-color" content="#0f172a" />
         <meta name="mobile-web-app-capable" content="yes" />
-        <link rel="apple-touch-icon" href="/icon-192.png" />
         {/* Prevent FOUC: apply saved theme before paint */}
         <script dangerouslySetInnerHTML={{ __html: `(function(){try{var t=localStorage.getItem('lms_theme');if(t==='light')document.documentElement.classList.add('theme-light');}catch(e){}})();` }} />
       </head>
