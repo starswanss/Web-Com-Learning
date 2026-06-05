@@ -20,5 +20,10 @@ export function proxy(req: NextRequest) {
 }
 
 export const config = {
-  matcher: ['/((?!_next/static|_next/image|favicon.ico|.*\\.svg$).*)'],
+  matcher: [
+    // Run on everything EXCEPT: Next internals, the web manifest, and static
+    // asset files. Without these exclusions the proxy redirects manifest/asset
+    // requests to /login (HTML), which breaks manifest JSON parsing.
+    '/((?!_next/static|_next/image|favicon.ico|manifest.webmanifest|.*\\.(?:svg|png|jpg|jpeg|gif|webp|ico)$).*)',
+  ],
 };
