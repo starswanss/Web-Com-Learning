@@ -42,6 +42,7 @@ export async function POST(req: NextRequest) {
 
   // Step 2: get or create user profile — failure here does NOT block login
   let profile: Record<string, unknown> | null = null;
+  let profileError: string | null = null;
   try {
     const userRef = adminDb.collection('users').doc(uid);
     const snap = await userRef.get();
@@ -72,10 +73,13 @@ export async function POST(req: NextRequest) {
     }
   } catch (err) {
     console.error('[session] profile error:', err);
+    // TEMP DIAGNOSTIC: surface the Firestore error so we can see why the
+    // user-document read/write is failing on production.
+    profileError = err instanceof Error ? `${err.name}: ${err.message}` : String(err);
     // Session cookie is already set — profile will be loaded on next page visit
   }
 
-  return NextResponse.json({ status: 'ok', profile });
+  return NextResponse.json({ status: 'ok', profile, profileError });
 }
 
 export async function GET() {
