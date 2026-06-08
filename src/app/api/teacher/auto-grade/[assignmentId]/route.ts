@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { adminAuth, adminDb } from '@/lib/firebase/admin';
 import { cookies } from 'next/headers';
 import { FieldValue, WriteBatch } from 'firebase-admin/firestore';
+import { invalidateLeaderboards } from '@/lib/leaderboard-cache';
 
 async function getTeacherUid(): Promise<string | null> {
   try {
@@ -190,6 +191,7 @@ export async function POST(
   }
 
   if (opCount > 0) await batch.commit();
+  if (graded > 0) invalidateLeaderboards(); // scores + xp changed
 
   return NextResponse.json({ graded, errors, skipped: 0 });
 }

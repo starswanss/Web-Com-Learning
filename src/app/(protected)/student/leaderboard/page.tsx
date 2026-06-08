@@ -3,6 +3,7 @@
 import { useEffect, useState } from 'react';
 import { useAuth } from '@/context/AuthContext';
 import Link from 'next/link';
+import { cachedFetch } from '@/lib/client-cache';
 
 interface LeaderboardEntry {
   rank: number;
@@ -161,9 +162,9 @@ export default function StudentLeaderboardPage() {
     const sub = saved ? JSON.parse(saved) : null;
     setSubject(sub);
     const url = sub ? `/api/student/leaderboard?subject=${sub.id}` : '/api/student/leaderboard';
-    fetch(url)
-      .then((r) => r.json())
+    cachedFetch<LeaderboardEntry[]>(url)
       .then((data) => setEntries(Array.isArray(data) ? data : []))
+      .catch(() => setEntries([]))
       .finally(() => setFetching(false));
   }, [profile]);
 
@@ -172,8 +173,10 @@ export default function StudentLeaderboardPage() {
   const myName = user?.displayName ?? 'คุณ';
   const myEntry = entries.find((e) => e.isMe);
 
+  // Show only the top 7 (podium 3 + next 4); the viewer's own rank still shows
+  // via the "my rank" card below even when they're outside the top 7.
   const top3 = entries.slice(0, 3);
-  const rest = entries.slice(3);
+  const rest = entries.slice(3, 7);
 
   /* Podium order: 2nd | 1st | 3rd */
   const sizes: ('large' | 'medium' | 'small')[] = ['medium', 'large', 'small'];

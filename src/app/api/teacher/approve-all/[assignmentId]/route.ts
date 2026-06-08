@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { adminAuth, adminDb } from '@/lib/firebase/admin';
 import { cookies } from 'next/headers';
 import { FieldValue } from 'firebase-admin/firestore';
+import { invalidateLeaderboards } from '@/lib/leaderboard-cache';
 
 async function getTeacherUid(): Promise<string | null> {
   try {
@@ -58,6 +59,7 @@ export async function POST(
     }
   });
   await batch.commit();
+  invalidateLeaderboards(); // xp finalized for graded submissions
 
   return NextResponse.json({ approved: snap.size });
 }

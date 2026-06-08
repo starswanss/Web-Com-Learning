@@ -4,6 +4,7 @@ import { cookies } from 'next/headers';
 import { FieldValue } from 'firebase-admin/firestore';
 import { uploadSubmissionFile } from '@/lib/storage';
 import { calcXpGain } from '@/lib/xp';
+import { invalidateLeaderboards } from '@/lib/leaderboard-cache';
 
 async function getStudent() {
   try {
@@ -96,6 +97,8 @@ export async function POST(req: NextRequest) {
       xp: FieldValue.increment(xpGain),
     }),
   ]);
+
+  invalidateLeaderboards(); // submittedCount + xp changed
 
   return NextResponse.json({ id: docRef.id, score: null, feedback: null, graded: false, xpGain }, { status: 201 });
 }

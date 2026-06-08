@@ -3,6 +3,7 @@ import { adminAuth, adminDb } from '@/lib/firebase/admin';
 import { cookies } from 'next/headers';
 import { FieldValue } from 'firebase-admin/firestore';
 import { gradeSubmission, answersToText } from '@/lib/gemini';
+import { invalidateLeaderboards } from '@/lib/leaderboard-cache';
 
 async function getTeacherUid(): Promise<string | null> {
   try {
@@ -91,5 +92,6 @@ export async function POST(
     gradedAt: FieldValue.serverTimestamp(),
   });
 
+  invalidateLeaderboards(); // score changed
   return NextResponse.json(grading);
 }

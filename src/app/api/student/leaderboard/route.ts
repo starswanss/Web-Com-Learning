@@ -9,7 +9,7 @@ import { cachedGlobal } from '@/lib/server-cache';
 // submissions, all class users and bonus points — so 40 students in a class
 // would otherwise repeat that whole scan 40×. Cache the computed rows per
 // (class, subject) for a short window and stamp `isMe` per request.
-const LB_TTL = 30_000;
+const LB_TTL = 300_000; // 5 min; invalidated on grade/bonus/submit/quest-claim
 
 interface LbRow {
   studentId: string;

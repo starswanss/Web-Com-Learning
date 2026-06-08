@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { adminAuth, adminDb } from '@/lib/firebase/admin';
 import { cookies } from 'next/headers';
 import { FieldValue } from 'firebase-admin/firestore';
+import { invalidateLeaderboards } from '@/lib/leaderboard-cache';
 
 async function getStudent() {
   try {
@@ -68,5 +69,6 @@ export async function POST(
     }),
   ]);
 
+  invalidateLeaderboards(); // xp changed → level ranking
   return NextResponse.json({ xpAwarded: xpReward });
 }

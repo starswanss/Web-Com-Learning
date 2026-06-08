@@ -38,3 +38,15 @@ export async function cachedGlobal<T>(
 export function invalidateGlobal(key: string): void {
   store.delete(key);
 }
+
+/**
+ * Drop every cached entry whose key starts with `prefix`. Useful when a single
+ * write affects many cache variants (e.g. all leaderboard subject/class combos).
+ * NOTE: in-memory cache is per serverless instance, so this only clears the
+ * instance handling the request; other warm instances expire on their own TTL.
+ */
+export function invalidatePrefix(prefix: string): void {
+  for (const key of [...store.keys()]) {
+    if (key.startsWith(prefix)) store.delete(key);
+  }
+}

@@ -1,6 +1,9 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { adminAuth, adminDb } from '@/lib/firebase/admin';
 import { cookies } from 'next/headers';
+import { cachedGlobal } from '@/lib/server-cache';
+
+const LB_TTL = 300_000; // 5 min; invalidated on grade/bonus/submit
 
 async function getTeacherUid(): Promise<string | null> {
   try {
@@ -22,12 +25,21 @@ export async function GET(req: NextRequest) {
   const subjectId = searchParams.get('subject');
   const classFilter = searchParams.get('classId');
 
+  const result = await cachedGlobal(
+    `teacher-leaderboard:${uid}:${subjectId ?? 'all'}:${classFilter ?? 'all'}`,
+    LB_TTL,
+    () => computeLeaderboard(uid, subjectId, classFilter),
+  );
+  return NextResponse.json(result);
+}
+
+async function computeLeaderboard(uid: string, subjectId: string | null, classFilter: string | null) {
   const base = adminDb.collection('assignments').where('teacherId', '==', uid);
   const assignmentsSnap = subjectId
     ? await base.where('subjectId', '==', subjectId).get()
     : await base.get();
 
-  if (assignmentsSnap.empty) return NextResponse.json([]);
+  if (assignmentsSnap.empty) return [];
 
   const assignmentIds = assignmentsSnap.docs.map((d) => d.id);
 
@@ -98,5 +110,5 @@ export async function GET(req: NextRequest) {
 
   result.sort((a, b) => b.totalScore - a.totalScore || b.submittedCount - a.submittedCount);
 
-  return NextResponse.json(result.map((s, i) => ({ ...s, rank: i + 1 })));
+  return result.map((s, i) => ({ ...s, rank: i + 1 }));
 }

@@ -3,6 +3,7 @@ import { adminAuth, adminDb } from '@/lib/firebase/admin';
 import { cookies } from 'next/headers';
 import { FieldValue } from 'firebase-admin/firestore';
 import { gradeSubmissionsBatch, gradeSubmission, answersToText } from '@/lib/gemini';
+import { invalidateLeaderboards } from '@/lib/leaderboard-cache';
 
 async function getTeacherUid(): Promise<string | null> {
   try {
@@ -130,6 +131,8 @@ export async function POST(
       await new Promise((res) => setTimeout(res, ROUND_DELAY));
     }
   }
+
+  if (graded > 0) invalidateLeaderboards(); // scores changed
 
   return NextResponse.json({ graded, errors, skipped: allDocs.length - toGrade.length });
 }

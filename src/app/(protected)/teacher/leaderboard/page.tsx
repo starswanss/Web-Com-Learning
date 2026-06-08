@@ -4,6 +4,7 @@ import { useEffect, useState } from 'react';
 import { useAuth } from '@/context/AuthContext';
 import Link from 'next/link';
 import { levelColor, levelBarColor } from '@/lib/xp';
+import { cachedFetch } from '@/lib/client-cache';
 
 interface LeaderboardEntry {
   rank: number;
@@ -170,25 +171,27 @@ export default function TeacherLeaderboardPage() {
     const url = sub ? `/api/teacher/leaderboard?subject=${sub.id}` : '/api/teacher/leaderboard';
     const levelUrl = sub ? `/api/teacher/level-ranking?subject=${sub.id}` : '/api/teacher/level-ranking';
     Promise.all([
-      fetch(url).then(r => r.json()),
-      fetch(levelUrl).then(r => r.json()),
+      cachedFetch<LeaderboardEntry[]>(url),
+      cachedFetch<LevelEntry[]>(levelUrl),
     ]).then(([scoreData, levelData]) => {
       setEntries(Array.isArray(scoreData) ? scoreData : []);
       setLevelEntries(Array.isArray(levelData) ? levelData : []);
-    }).finally(() => setFetching(false));
+    }).catch(() => {}).finally(() => setFetching(false));
   }, [profile]);
 
   if (loading || !profile) return <Spinner />;
 
   const classes = Array.from(new Set(entries.map((e) => e.classId))).sort();
   const filtered = classFilter ? entries.filter((e) => e.classId === classFilter) : entries;
-  const ranked = filtered.map((e, i) => ({ ...e, rank: i + 1 }));
+  // Show only the top 7 (podium 3 + next 4)
+  const ranked = filtered.slice(0, 7).map((e, i) => ({ ...e, rank: i + 1 }));
   const top3 = ranked.slice(0, 3);
   const rest = ranked.slice(3);
 
-  const filteredLevel = classFilter
+  const filteredLevel = (classFilter
     ? levelEntries.filter(e => e.classId === classFilter)
-    : levelEntries;
+    : levelEntries
+  ).slice(0, 7);
 
   /* Arrange podium: 2nd | 1st | 3rd */
   const podiumOrder: ('large' | 'medium' | 'small')[] = ['medium', 'large', 'small'];

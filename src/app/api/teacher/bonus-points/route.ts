@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { adminAuth, adminDb } from '@/lib/firebase/admin';
 import { cookies } from 'next/headers';
 import { FieldValue } from 'firebase-admin/firestore';
+import { invalidateLeaderboards } from '@/lib/leaderboard-cache';
 
 async function getTeacherUid(): Promise<string | null> {
   try {
@@ -60,6 +61,7 @@ export async function POST(req: NextRequest) {
     createdAt: FieldValue.serverTimestamp(),
   });
 
+  invalidateLeaderboards(); // bonus points changed
   return NextResponse.json({ id: ref.id }, { status: 201 });
 }
 
@@ -77,5 +79,6 @@ export async function DELETE(req: NextRequest) {
   }
 
   await snap.ref.delete();
+  invalidateLeaderboards(); // bonus points changed
   return NextResponse.json({ ok: true });
 }

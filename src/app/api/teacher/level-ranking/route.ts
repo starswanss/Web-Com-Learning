@@ -2,6 +2,9 @@ import { NextRequest, NextResponse } from 'next/server';
 import { adminAuth, adminDb } from '@/lib/firebase/admin';
 import { cookies } from 'next/headers';
 import { calcLevel, DEFAULT_SETTINGS, LevelSettings } from '@/lib/xp';
+import { cachedGlobal } from '@/lib/server-cache';
+
+const LR_TTL = 300_000; // 5 min; invalidated on grade/bonus/quest-claim (xp)
 
 async function getTeacherUid(): Promise<string | null> {
   try {
@@ -24,6 +27,15 @@ export async function GET(req: NextRequest) {
 
   const subjectId = new URL(req.url).searchParams.get('subject');
 
+  const result = await cachedGlobal(
+    `level-ranking:${uid}:${subjectId ?? 'all'}`,
+    LR_TTL,
+    () => computeLevelRanking(uid, subjectId),
+  );
+  return NextResponse.json(result);
+}
+
+async function computeLevelRanking(uid: string, subjectId: string | null) {
   const [studentsSnap, settingsSnap] = await Promise.all([
     adminDb.collection('users').where('role', '==', 'student').get(),
     adminDb.doc('levelSettings/global').get(),
@@ -46,7 +58,7 @@ export async function GET(req: NextRequest) {
 
     const assignmentIds = assignmentsSnap.docs.map((d) => d.id);
 
-    if (assignmentIds.length === 0) return NextResponse.json([]);
+    if (assignmentIds.length === 0) return [];
 
     const idSet = new Set<string>();
     const chunks: string[][] = [];
@@ -61,7 +73,7 @@ export async function GET(req: NextRequest) {
     }
 
     allowedStudentIds = idSet;
-    if (allowedStudentIds.size === 0) return NextResponse.json([]);
+    if (allowedStudentIds.size === 0) return [];
   }
 
   const students = studentsSnap.docs
@@ -86,5 +98,5 @@ export async function GET(req: NextRequest) {
 
   students.sort((a, b) => b.xp - a.xp || a.displayName.localeCompare(b.displayName, 'th'));
 
-  return NextResponse.json(students.slice(0, 50));
+  return students.slice(0, 50);
 }
