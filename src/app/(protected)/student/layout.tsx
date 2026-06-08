@@ -1,6 +1,7 @@
 'use client';
 
 import Link from 'next/link';
+import DevToolsGuard from '@/components/DevToolsGuard';
 
 const BOTTOM_NAV = [
   { href: '/student/quests',      icon: '⚡', label: 'เควส' },
@@ -12,6 +13,8 @@ const BOTTOM_NAV = [
 export default function StudentLayout({ children }: { children: React.ReactNode }) {
   return (
     <>
+      <DevToolsGuard />
+
       <div className="sm:pb-0 pb-20">
         {children}
       </div>
