@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { adminAuth, adminDb } from '@/lib/firebase/admin';
 import { cookies } from 'next/headers';
+import { trackReads, flushReadsIfDue } from '@/lib/read-tracker';
 
 export async function GET(
   _req: NextRequest,
@@ -19,6 +20,9 @@ export async function GET(
       .where('studentId', '==', decoded.uid)
       .limit(1)
       .get();
+
+    trackReads(decoded.uid, Math.max(1, snap.size));
+    await flushReadsIfDue();
 
     if (snap.empty) return NextResponse.json(null);
     return NextResponse.json({ id: snap.docs[0].id, ...snap.docs[0].data() });

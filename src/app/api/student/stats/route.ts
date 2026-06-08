@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { adminAuth, adminDb } from '@/lib/firebase/admin';
 import { cookies } from 'next/headers';
+import { trackReads, flushReadsIfDue } from '@/lib/read-tracker';
 
 export async function GET(req: NextRequest) {
   try {
@@ -21,6 +22,10 @@ export async function GET(req: NextRequest) {
       adminDb.collection('assignments').where('classIds', 'array-contains', student.classId).get(),
       adminDb.collection('submissions').where('studentId', '==', decoded.uid).get(),
     ]);
+
+    // 1 user doc + assignments + submissions
+    trackReads(decoded.uid, 1 + assignmentsSnap.size + submissionsSnap.size);
+    await flushReadsIfDue();
 
     const submissions = submissionsSnap.docs.map((d) => ({ id: d.id, ...d.data() })) as Record<string, unknown>[];
     const submissionMap = new Map(submissions.map((s) => [s.assignmentId as string, s]));

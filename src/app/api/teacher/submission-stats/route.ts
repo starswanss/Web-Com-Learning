@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { adminAuth, adminDb } from '@/lib/firebase/admin';
 import { cookies } from 'next/headers';
+import { trackReads, flushReadsIfDue } from '@/lib/read-tracker';
 
 async function getTeacherUid(): Promise<string | null> {
   try {
@@ -113,6 +114,10 @@ export async function GET(req: NextRequest) {
     if (!submittedMap.has(aid)) submittedMap.set(aid, new Set());
     submittedMap.get(aid)!.add(sid);
   });
+
+  // 1 user doc + subjects + assignments + students + submissions
+  trackReads(uid, 1 + subjectsSnap.size + assignmentsSnap.size + studentDocs.length + submissionDocs.length);
+  await flushReadsIfDue();
 
   const stats: AssignmentStat[] = targetAssignments.map(a => {
     const classStudents = students.filter(s => a.classIds.includes(s.classId));

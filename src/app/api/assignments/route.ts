@@ -4,6 +4,7 @@ import { uploadAssignmentAttachment } from '@/lib/storage';
 import { cookies } from 'next/headers';
 import { FieldValue } from 'firebase-admin/firestore';
 import { sendLineNotify, getLineNotifyToken } from '@/lib/line-notify';
+import { trackReads, flushReadsIfDue } from '@/lib/read-tracker';
 
 async function getTeacherUid(): Promise<string | null> {
   try {
@@ -30,6 +31,10 @@ export async function GET(req: NextRequest) {
   const assignments = snap.docs
     .map((d) => ({ id: d.id, ...d.data() }))
     .sort((a: any, b: any) => (b.createdAt?._seconds ?? 0) - (a.createdAt?._seconds ?? 0));
+
+  trackReads(uid, 1 + snap.size); // user doc + assignments
+  await flushReadsIfDue();
+
   return NextResponse.json(assignments);
 }
 

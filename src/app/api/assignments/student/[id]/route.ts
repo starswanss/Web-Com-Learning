@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { adminAuth, adminDb } from '@/lib/firebase/admin';
 import { cookies } from 'next/headers';
+import { trackReads, flushReadsIfDue } from '@/lib/read-tracker';
 
 export async function GET(
   _req: NextRequest,
@@ -20,6 +21,10 @@ export async function GET(
       adminDb.collection('users').doc(decoded.uid).get(),
       adminDb.collection('assignments').doc(id).get(),
     ]);
+
+    // 2 doc reads (user + assignment).
+    trackReads(decoded.uid, 2);
+    await flushReadsIfDue();
 
     if (!userSnap.exists || !assignmentSnap.exists) {
       return NextResponse.json(null);

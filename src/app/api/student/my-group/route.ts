@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { adminAuth, adminDb } from '@/lib/firebase/admin';
 import { cookies } from 'next/headers';
+import { trackReads, flushReadsIfDue } from '@/lib/read-tracker';
 
 async function getStudentInfo(): Promise<{ uid: string; classId: string } | null> {
   try {
@@ -32,7 +33,11 @@ export async function GET(req: NextRequest) {
     .limit(1)
     .get();
 
-  if (groupsSnap.empty) return NextResponse.json(null);
+  if (groupsSnap.empty) {
+    trackReads(student.uid, 2); // user doc + groups query
+    await flushReadsIfDue();
+    return NextResponse.json(null);
+  }
 
   const groupDoc = groupsSnap.docs[0];
   const group = { id: groupDoc.id, ...groupDoc.data() } as {
@@ -56,6 +61,10 @@ export async function GET(req: NextRequest) {
     .get();
 
   const submission = subSnap.empty ? null : { id: subSnap.docs[0].id, ...subSnap.docs[0].data() };
+
+  // user doc + groups + members + groupSubmission
+  trackReads(student.uid, 2 + group.memberIds.length + Math.max(1, subSnap.size));
+  await flushReadsIfDue();
 
   return NextResponse.json({ group: { ...group, members }, submission });
 }

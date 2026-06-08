@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { adminAuth, adminDb } from '@/lib/firebase/admin';
 import { cookies } from 'next/headers';
+import { trackReads, flushReadsIfDue } from '@/lib/read-tracker';
 
 async function getTeacherUid(): Promise<string | null> {
   try {
@@ -66,6 +67,11 @@ export async function GET(
     submitted: submittedPerClass.get(cid) ?? 0,
     total: totalPerClass.get(cid) ?? 0,
   }));
+
+  // 1 user + assignment + submissions + class-student counts
+  const studentCountReads = Array.from(totalPerClass.values()).reduce((a, b) => a + b, 0);
+  trackReads(uid, 2 + submissionsSnap.size + studentCountReads);
+  await flushReadsIfDue();
 
   return NextResponse.json({
     assignment: { id: assignmentId, ...assignmentData },
