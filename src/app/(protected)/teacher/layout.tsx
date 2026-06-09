@@ -5,19 +5,47 @@ import Link from 'next/link';
 import { useAuth } from '@/context/AuthContext';
 import { usePathname } from 'next/navigation';
 
-const NAV_LINKS = [
-  { href: '/teacher/overview',         icon: '📊', label: 'ภาพรวม' },
-  { href: '/teacher/students',         icon: '🎓', label: 'นักเรียน' },
-  { href: '/teacher/members',          icon: '👥', label: 'สมาชิก' },
-  { href: '/teacher/gradebook',        icon: '📒', label: 'Gradebook' },
-  { href: '/teacher/milestones',       icon: '🏁', label: 'Milestone' },
-  { href: '/teacher/quests',           icon: '⚡', label: 'เควส' },
-  { href: '/teacher/leaderboard',      icon: '🏆', label: 'Rank' },
-  { href: '/teacher/analytics',        icon: '📈', label: 'Analytics' },
-  { href: '/teacher/export-report',    icon: '📤', label: 'Export' },
-  { href: '/teacher/submission-stats', icon: '📋', label: 'การส่ง' },
-  { href: '/teacher/level-settings',   icon: '🎚️', label: 'เลเวล' },
-  { href: '/teacher/admin',            icon: '⚙️', label: 'Admin' },
+const NAV_GROUPS = [
+  {
+    title: 'ภาพรวม',
+    items: [
+      { href: '/teacher/overview',         icon: '📊', label: 'ภาพรวม' },
+      { href: '/teacher/analytics',        icon: '📈', label: 'Analytics' },
+      { href: '/teacher/submission-stats', icon: '📋', label: 'การส่งงาน' },
+    ],
+  },
+  {
+    title: 'นักเรียน',
+    items: [
+      { href: '/teacher/students',    icon: '🎓', label: 'นักเรียน' },
+      { href: '/teacher/members',     icon: '👥', label: 'สมาชิก' },
+      { href: '/teacher/gradebook',   icon: '📒', label: 'Gradebook' },
+      { href: '/teacher/leaderboard', icon: '🏆', label: 'อันดับ' },
+    ],
+  },
+  {
+    title: 'เกม & XP',
+    items: [
+      { href: '/teacher/quests',         icon: '⚡', label: 'เควส' },
+      { href: '/teacher/milestones',     icon: '🏁', label: 'Milestone' },
+      { href: '/teacher/level-settings', icon: '🎚️', label: 'ตั้งค่าเลเวล' },
+    ],
+  },
+  {
+    title: 'เนื้อหา & สอน',
+    items: [
+      { href: '/teacher/question-bank', icon: '🏦', label: 'คลังข้อสอบ' },
+      { href: '/teacher/templates',     icon: '🧩', label: 'เทมเพลต' },
+      { href: '/teacher/timetable',     icon: '🗓️', label: 'ตารางสอน' },
+    ],
+  },
+  {
+    title: 'เครื่องมือ',
+    items: [
+      { href: '/teacher/export-report', icon: '📤', label: 'Export รายงาน' },
+      { href: '/teacher/admin',         icon: '⚙️', label: 'Admin' },
+    ],
+  },
 ];
 
 const BOTTOM_SHORTCUTS = [
@@ -184,25 +212,32 @@ export default function TeacherLayout({ children }: { children: React.ReactNode 
           <p className="text-[11px] text-slate-500 mt-0.5">ระบบจัดการการเรียนรู้</p>
         </div>
 
-        {/* Nav links */}
-        <nav className="flex-1 overflow-y-auto py-3 px-2 space-y-0.5">
-          {NAV_LINKS.map((n) => {
-            const isActive = pathname === n.href || pathname.startsWith(n.href + '/');
-            return (
-              <Link
-                key={n.href}
-                href={n.href}
-                className={`flex items-center gap-3 rounded-xl px-3 py-2.5 text-sm font-medium transition-all ${
-                  isActive
-                    ? 'bg-blue-950/70 text-blue-300 border border-blue-800/50 shadow-sm'
-                    : 'text-slate-400 hover:bg-slate-800 hover:text-slate-200'
-                }`}
-              >
-                <span className="text-base leading-none w-5 text-center">{n.icon}</span>
-                <span>{n.label}</span>
-              </Link>
-            );
-          })}
+        {/* Nav links — grouped by category */}
+        <nav className="flex-1 overflow-y-auto py-3 px-2 space-y-4">
+          {NAV_GROUPS.map((group) => (
+            <div key={group.title} className="space-y-0.5">
+              <p className="px-3 pb-1 text-[10px] font-bold uppercase tracking-widest text-slate-600">
+                {group.title}
+              </p>
+              {group.items.map((n) => {
+                const isActive = pathname === n.href || pathname.startsWith(n.href + '/');
+                return (
+                  <Link
+                    key={n.href}
+                    href={n.href}
+                    className={`flex items-center gap-3 rounded-xl px-3 py-2 text-sm font-medium transition-all ${
+                      isActive
+                        ? 'bg-blue-950/70 text-blue-300 border border-blue-800/50 shadow-sm'
+                        : 'text-slate-400 hover:bg-slate-800 hover:text-slate-200'
+                    }`}
+                  >
+                    <span className="text-base leading-none w-5 text-center">{n.icon}</span>
+                    <span>{n.label}</span>
+                  </Link>
+                );
+              })}
+            </div>
+          ))}
         </nav>
 
         {/* Class Notes panel */}
@@ -229,7 +264,7 @@ export default function TeacherLayout({ children }: { children: React.ReactNode 
       {menuOpen && (
         <div className="md:hidden fixed inset-0 z-50 flex flex-col">
           <div className="absolute inset-0 bg-slate-950/80 backdrop-blur-sm" onClick={() => setMenuOpen(false)} />
-          <div className="absolute inset-x-0 bottom-0 rounded-t-2xl border-t border-slate-800 bg-slate-900 px-4 pt-4 pb-8 z-10">
+          <div className="absolute inset-x-0 bottom-0 max-h-[85vh] overflow-y-auto rounded-t-2xl border-t border-slate-800 bg-slate-900 px-4 pt-4 pb-8 z-10">
             <div className="mb-4 flex items-center justify-between">
               <p className="text-sm font-bold text-slate-200">เมนูทั้งหมด</p>
               <button
@@ -241,13 +276,22 @@ export default function TeacherLayout({ children }: { children: React.ReactNode 
                 </svg>
               </button>
             </div>
-            <div className="grid grid-cols-3 gap-2">
-              {NAV_LINKS.map((n) => (
-                <Link key={n.href} href={n.href} onClick={() => setMenuOpen(false)}
-                  className="flex flex-col items-center gap-1.5 rounded-xl border border-slate-800 bg-slate-800/60 px-2 py-4 text-center text-slate-300 transition-all active:bg-slate-700">
-                  <span className="text-xl leading-none">{n.icon}</span>
-                  <span className="text-[11px] font-semibold leading-tight">{n.label}</span>
-                </Link>
+            <div className="space-y-4">
+              {NAV_GROUPS.map((group) => (
+                <div key={group.title}>
+                  <p className="mb-1.5 text-[10px] font-bold uppercase tracking-widest text-slate-600">
+                    {group.title}
+                  </p>
+                  <div className="grid grid-cols-3 gap-2">
+                    {group.items.map((n) => (
+                      <Link key={n.href} href={n.href} onClick={() => setMenuOpen(false)}
+                        className="flex flex-col items-center gap-1.5 rounded-xl border border-slate-800 bg-slate-800/60 px-2 py-4 text-center text-slate-300 transition-all active:bg-slate-700">
+                        <span className="text-xl leading-none">{n.icon}</span>
+                        <span className="text-[11px] font-semibold leading-tight">{n.label}</span>
+                      </Link>
+                    ))}
+                  </div>
+                </div>
               ))}
             </div>
             <button

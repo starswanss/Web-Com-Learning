@@ -53,22 +53,6 @@ const DAY_NAMES_TH   = ['อา', 'จ', 'อ', 'พ', 'พฤ', 'ศ', 'ส'];
 const MONTH_NAMES_TH = ['มกราคม','กุมภาพันธ์','มีนาคม','เมษายน','พฤษภาคม','มิถุนายน','กรกฎาคม','สิงหาคม','กันยายน','ตุลาคม','พฤศจิกายน','ธันวาคม'];
 const WEEKDAY_LABELS = ['จันทร์', 'อังคาร', 'พุธ', 'พฤหัสบดี', 'ศุกร์'];
 
-const NAV_LINKS = [
-  { href: '/teacher/overview',       label: 'ภาพรวม' },
-  { href: '/teacher/students',       label: 'นักเรียน' },
-  { href: '/teacher/members',        label: 'สมาชิก' },
-  { href: '/teacher/milestones',     label: '🏁 Milestone' },
-  { href: '/teacher/quests',         label: '⚡ เควส' },
-  { href: '/teacher/leaderboard',    label: 'Rank' },
-  { href: '/teacher/analytics',      label: 'Analytics' },
-  { href: '/teacher/timetable',      label: 'ตารางสอน' },
-  { href: '/teacher/question-bank',  label: 'Q-Bank' },
-  { href: '/teacher/templates',      label: 'Template' },
-  { href: '/teacher/export-report',    label: 'Export' },
-  { href: '/teacher/submission-stats', label: '📋 การส่ง' },
-  { href: '/teacher/level-settings',   label: '🎚️ เลเวล' },
-  { href: '/teacher/admin',            label: 'Admin' },
-];
 
 /* ───────── Helpers ───────── */
 function dueDateColor(s: number) {
@@ -235,16 +219,6 @@ export default function TeacherPage() {
               <h1 className="truncate text-sm font-bold text-slate-100">{subject?.name ?? 'Computing Science & IT'}</h1>
             </div>
           </div>
-
-          {/* Center: desktop nav */}
-          <nav className="hidden items-center xl:flex">
-            {NAV_LINKS.map(n => (
-              <Link key={n.href} href={n.href}
-                className="rounded-lg px-3 py-1.5 text-[11px] font-medium text-slate-400 transition-all hover:bg-slate-800/70 hover:text-slate-200">
-                {n.label}
-              </Link>
-            ))}
-          </nav>
 
           {/* Right */}
           <div className="flex shrink-0 items-center gap-2">
