@@ -2,6 +2,9 @@ import { NextRequest, NextResponse } from 'next/server';
 import { adminAuth, adminDb } from '@/lib/firebase/admin';
 import { cookies } from 'next/headers';
 import { trackReads, flushReadsIfDue } from '@/lib/read-tracker';
+import { cachedGlobal } from '@/lib/server-cache';
+
+const STATS_TTL = 120_000; // 2 min; invalidated on submit/grade
 
 async function getTeacherUid(): Promise<string | null> {
   try {
@@ -52,6 +55,15 @@ export async function GET(req: NextRequest) {
   const subjectId = url.searchParams.get('subject');
   const assignmentId = url.searchParams.get('assignmentId');
 
+  const stats = await cachedGlobal(
+    `submission-stats:${uid}:${subjectId ?? 'all'}:${assignmentId ?? 'all'}`,
+    STATS_TTL,
+    () => computeStats(uid, subjectId, assignmentId),
+  );
+  return NextResponse.json(stats);
+}
+
+async function computeStats(uid: string, subjectId: string | null, assignmentId: string | null): Promise<AssignmentStat[]> {
   // Fetch active subjects for this teacher to filter out orphaned assignments
   const subjectsSnap = await adminDb.collection('subjects').where('teacherId', '==', uid).get();
   const activeSubjectIds = new Set(subjectsSnap.docs.map(d => d.id));
@@ -79,7 +91,7 @@ export async function GET(req: NextRequest) {
     ? allAssignments.filter(a => a.id === assignmentId)
     : allAssignments;
 
-  if (targetAssignments.length === 0) return NextResponse.json([]);
+  if (targetAssignments.length === 0) return [];
 
   // Collect all unique classIds
   const allClassIds = [...new Set(targetAssignments.flatMap(a => a.classIds))];
@@ -133,5 +145,5 @@ export async function GET(req: NextRequest) {
     };
   });
 
-  return NextResponse.json(stats);
+  return stats;
 }

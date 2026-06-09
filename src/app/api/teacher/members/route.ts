@@ -2,6 +2,10 @@ import { NextRequest, NextResponse } from 'next/server';
 import { adminAuth, adminDb } from '@/lib/firebase/admin';
 import { FieldValue } from 'firebase-admin/firestore';
 import { cookies } from 'next/headers';
+import { cachedGlobal } from '@/lib/server-cache';
+import { invalidateLeaderboards } from '@/lib/leaderboard-cache';
+
+const STATS_TTL = 120_000; // 2 min; invalidated on member changes
 
 async function getTeacherUid(): Promise<string | null> {
   try {
@@ -19,23 +23,25 @@ export async function GET() {
   const uid = await getTeacherUid();
   if (!uid) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
 
-  const snap = await adminDb.collection('users').where('role', '==', 'student').get();
-
-  const members = snap.docs.map(d => {
-    const data = d.data();
-    return {
-      uid: d.id,
-      displayName: (data.displayName as string) ?? '',
-      email: (data.email as string) ?? '',
-      classId: (data.classId as string) ?? '',
-      onboardingComplete: !!(data.onboardingComplete),
-      createdAt: data.createdAt?._seconds ?? null,
-      xp: (data.xp as number) ?? 0,
-    };
-  }).sort((a, b) => {
-    if (a.classId < b.classId) return -1;
-    if (a.classId > b.classId) return 1;
-    return a.displayName.localeCompare(b.displayName, 'th');
+  // Same for every teacher (all students) — one shared cache entry.
+  const members = await cachedGlobal('members:all', STATS_TTL, async () => {
+    const snap = await adminDb.collection('users').where('role', '==', 'student').get();
+    return snap.docs.map(d => {
+      const data = d.data();
+      return {
+        uid: d.id,
+        displayName: (data.displayName as string) ?? '',
+        email: (data.email as string) ?? '',
+        classId: (data.classId as string) ?? '',
+        onboardingComplete: !!(data.onboardingComplete),
+        createdAt: data.createdAt?._seconds ?? null,
+        xp: (data.xp as number) ?? 0,
+      };
+    }).sort((a, b) => {
+      if (a.classId < b.classId) return -1;
+      if (a.classId > b.classId) return 1;
+      return a.displayName.localeCompare(b.displayName, 'th');
+    });
   });
 
   return NextResponse.json(members);
@@ -76,6 +82,7 @@ export async function DELETE(req: NextRequest) {
   claimsSnap.docs.forEach(d => batch.delete(d.ref));
   await batch.commit();
 
+  invalidateLeaderboards(); // roster + stats changed
   return NextResponse.json({ ok: true });
 }
 
@@ -98,5 +105,6 @@ export async function PATCH(req: NextRequest) {
     updatedAt: FieldValue.serverTimestamp(),
   });
 
+  invalidateLeaderboards(); // student's class changed
   return NextResponse.json({ ok: true });
 }

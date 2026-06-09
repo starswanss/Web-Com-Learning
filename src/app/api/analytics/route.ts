@@ -1,6 +1,9 @@
 import { NextResponse } from 'next/server';
 import { adminAuth, adminDb } from '@/lib/firebase/admin';
 import { cookies } from 'next/headers';
+import { cachedGlobal } from '@/lib/server-cache';
+
+const STATS_TTL = 120_000; // 2 min; invalidated on submit/grade
 
 async function getTeacherUid(): Promise<string | null> {
   try {
@@ -20,12 +23,17 @@ export async function GET() {
   const teacherUid = await getTeacherUid();
   if (!teacherUid) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
 
+  const result = await cachedGlobal(`analytics:${teacherUid}`, STATS_TTL, () => computeAnalytics(teacherUid));
+  return NextResponse.json(result);
+}
+
+async function computeAnalytics(teacherUid: string) {
   const assignmentsSnap = await adminDb
     .collection('assignments')
     .where('teacherId', '==', teacherUid)
     .get();
 
-  if (assignmentsSnap.empty) return NextResponse.json({ perClass: {}, assignments: [] });
+  if (assignmentsSnap.empty) return { perClass: {}, assignments: [] };
 
   const assignmentIds = assignmentsSnap.docs.map((d) => d.id);
   const assignmentTitles = Object.fromEntries(
@@ -108,5 +116,5 @@ export async function GET() {
     if (weeksAgo >= 0 && weeksAgo < 8) weeklyTrend[7 - weeksAgo].count++;
   }
 
-  return NextResponse.json({ classStats, assignmentStats, totalSubmissions: allSubmissions.length, scoreDistribution, weeklyTrend });
+  return { classStats, assignmentStats, totalSubmissions: allSubmissions.length, scoreDistribution, weeklyTrend };
 }

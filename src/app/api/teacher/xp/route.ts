@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { adminAuth, adminDb } from '@/lib/firebase/admin';
 import { FieldValue } from 'firebase-admin/firestore';
 import { cookies } from 'next/headers';
+import { invalidateLeaderboards } from '@/lib/leaderboard-cache';
 
 async function getTeacherUid(): Promise<string | null> {
   try {
@@ -39,6 +40,7 @@ export async function PATCH(req: NextRequest) {
       xp: 0,
       updatedAt: FieldValue.serverTimestamp(),
     });
+    invalidateLeaderboards(); // xp changed
     return NextResponse.json({ ok: true, newXp: 0 });
   }
 
@@ -51,6 +53,7 @@ export async function PATCH(req: NextRequest) {
       xp: newXp,
       updatedAt: FieldValue.serverTimestamp(),
     });
+    invalidateLeaderboards(); // xp changed
     return NextResponse.json({ ok: true, newXp });
   }
 

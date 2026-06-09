@@ -1,18 +1,28 @@
 import { invalidatePrefix } from '@/lib/server-cache';
 
 /**
- * Clear every cached leaderboard / ranking variant. Call after any write that
- * changes scores, bonus points, submission counts, or xp (grading, bonus,
- * submitting, quest claims) so the next view recomputes fresh data even while
- * the long TTL is still running.
+ * Clear every cached view that is derived from submissions / scores / xp /
+ * bonus points. Call after any write that changes those (grading, bonus,
+ * submitting, quest claims, member xp edits) so the next view recomputes fresh
+ * data even while the long TTL is still running.
  *
- * Covers the three cache key families:
- *   - student score board   →  leaderboard:{class}:{subject}
- *   - teacher score board   →  teacher-leaderboard:{uid}:{subject}:{class}
- *   - teacher level board   →  level-ranking:{uid}:{subject}
+ * Cache key families cleared:
+ *   leaderboards →  leaderboard: / teacher-leaderboard: / level-ranking:
+ *   teacher stats → submission-stats: / gradebook: / overview: / students:
+ *                   analytics: / members:
+ *
+ * (Name kept for its existing call sites; it now clears all derived stats.)
  */
 export function invalidateLeaderboards(): void {
+  // Leaderboards / rankings
   invalidatePrefix('leaderboard:');
   invalidatePrefix('teacher-leaderboard:');
   invalidatePrefix('level-ranking:');
+  // Teacher stat pages (scan submissions / users)
+  invalidatePrefix('submission-stats:');
+  invalidatePrefix('gradebook:');
+  invalidatePrefix('overview:');
+  invalidatePrefix('students:');
+  invalidatePrefix('analytics:');
+  invalidatePrefix('members:');
 }

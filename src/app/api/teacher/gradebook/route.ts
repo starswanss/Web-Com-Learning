@@ -1,6 +1,9 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { adminAuth, adminDb } from '@/lib/firebase/admin';
 import { cookies } from 'next/headers';
+import { cachedGlobal } from '@/lib/server-cache';
+
+const STATS_TTL = 120_000; // 2 min; invalidated on submit/grade
 
 async function getTeacherUid(): Promise<string | null> {
   try {
@@ -21,6 +24,15 @@ export async function GET(req: NextRequest) {
   const { searchParams } = new URL(req.url);
   const subjectId = searchParams.get('subject');
 
+  const result = await cachedGlobal(
+    `gradebook:${uid}:${subjectId ?? 'all'}`,
+    STATS_TTL,
+    () => computeGradebook(uid, subjectId),
+  );
+  return NextResponse.json(result);
+}
+
+async function computeGradebook(uid: string, subjectId: string | null) {
   // 1. Get all assignments for this teacher
   const assignmentsSnap = await adminDb
     .collection('assignments')
@@ -46,7 +58,7 @@ export async function GET(req: NextRequest) {
   }
 
   if (assignments.length === 0) {
-    return NextResponse.json({ assignments: [], students: [] });
+    return { assignments: [], students: [] };
   }
 
   // Sort by creation date ascending (oldest → newest = left → right)
@@ -122,12 +134,12 @@ export async function GET(req: NextRequest) {
     return a.displayName.localeCompare(b.displayName, 'th');
   });
 
-  return NextResponse.json({
+  return {
     assignments: assignments.map((a) => ({
       id: a.id,
       title: a.title,
       classIds: a.classIds,
     })),
     students,
-  });
+  };
 }

@@ -1,6 +1,9 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { adminAuth, adminDb } from '@/lib/firebase/admin';
 import { cookies } from 'next/headers';
+import { cachedGlobal } from '@/lib/server-cache';
+
+const STATS_TTL = 120_000; // 2 min; invalidated on submit/grade
 
 async function getTeacherUid(): Promise<string | null> {
   try {
@@ -23,13 +26,22 @@ export async function GET(req: NextRequest) {
   const { searchParams } = new URL(req.url);
   const subjectId = searchParams.get('subject');
 
+  const result = await cachedGlobal(
+    `overview:${uid}:${subjectId ?? 'all'}`,
+    STATS_TTL,
+    () => computeOverview(uid, subjectId),
+  );
+  return NextResponse.json(result);
+}
+
+async function computeOverview(uid: string, subjectId: string | null) {
   const base = adminDb.collection('assignments').where('teacherId', '==', uid);
   // Avoid orderBy to eliminate composite index requirement — sort in JS below
   const assignmentsSnap = subjectId
     ? await base.where('subjectId', '==', subjectId).get()
     : await base.get();
 
-  if (assignmentsSnap.empty) return NextResponse.json([]);
+  if (assignmentsSnap.empty) return [];
 
   const assignmentIds = assignmentsSnap.docs.map((d) => d.id);
 
@@ -74,5 +86,5 @@ export async function GET(req: NextRequest) {
 
   result.sort((a, b) => b.createdAt - a.createdAt);
 
-  return NextResponse.json(result);
+  return result;
 }
