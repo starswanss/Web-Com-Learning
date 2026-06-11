@@ -1,6 +1,7 @@
 'use client';
 
 import { useEffect, useState } from 'react';
+import { cachedFetch } from '@/lib/client-cache';
 import { useAuth } from '@/context/AuthContext';
 import { useRouter } from 'next/navigation';
 import Link from 'next/link';
@@ -31,9 +32,9 @@ export default function ExportReportPage() {
     if (profile?.role !== 'teacher') return;
     const sub = JSON.parse(localStorage.getItem('lms_subject') ?? 'null');
     const url = sub ? `/api/teacher/students?subject=${sub.id}` : '/api/teacher/students';
-    fetch(url)
-      .then((r) => r.json())
+    cachedFetch<StudentRow[]>(url)
       .then((d) => setStudents(Array.isArray(d) ? d : []))
+      .catch(() => setStudents([]))
       .finally(() => setFetching(false));
   }, [profile]);
 

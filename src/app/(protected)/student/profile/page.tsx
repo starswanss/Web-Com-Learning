@@ -1,6 +1,7 @@
 'use client';
 
 import { useEffect, useState } from 'react';
+import { cachedFetch } from '@/lib/client-cache';
 import { useRouter } from 'next/navigation';
 import { useAuth } from '@/context/AuthContext';
 import Link from 'next/link';
@@ -68,13 +69,13 @@ export default function StudentProfilePage() {
     const sub = saved ? JSON.parse(saved) : null;
     setSubject(sub);
     const url = sub ? `/api/student/stats?subject=${sub.id}` : '/api/student/stats';
-    fetch(url)
-      .then((r) => r.json())
+    cachedFetch<{ stats?: Stats | null; assignments?: AssignmentEntry[]; badges?: Badge[] }>(url)
       .then((data) => {
         setStats(data.stats ?? null);
         setAssignments(Array.isArray(data.assignments) ? data.assignments : []);
         setBadges(Array.isArray(data.badges) ? data.badges : []);
       })
+      .catch(() => {})
       .finally(() => setFetching(false));
   }, [profile]);
 

@@ -4,6 +4,7 @@ import { useEffect, useState, useRef } from 'react';
 import { useRouter } from 'next/navigation';
 import { useAuth } from '@/context/AuthContext';
 import Link from 'next/link';
+import { cachedFetch } from '@/lib/client-cache';
 
 interface MilestoneData {
   id: string;
@@ -138,9 +139,9 @@ export default function StudentMilestonesPage() {
     setSubject(sub);
     const qs = new URLSearchParams();
     if (sub) qs.set('subject', sub.id);
-    fetch(`/api/student/milestones?${qs}`)
-      .then(r => r.json())
+    cachedFetch<MilestoneData[]>(`/api/student/milestones?${qs}`)
       .then(d => setMilestones(Array.isArray(d) ? d : []))
+      .catch(() => setMilestones([]))
       .finally(() => {
         setFetching(false);
         setTimeout(() => setVisible(true), 100);

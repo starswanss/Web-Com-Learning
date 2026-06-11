@@ -1,6 +1,7 @@
 'use client';
 
 import { useEffect, useState } from 'react';
+import { cachedFetch } from '@/lib/client-cache';
 import { useAuth } from '@/context/AuthContext';
 import Link from 'next/link';
 import { CONTENT_TYPE_LABELS, type ContentType } from '@/types';
@@ -36,9 +37,9 @@ export default function StudentCalendarPage() {
     const saved = localStorage.getItem('lms_subject');
     const sub = saved ? JSON.parse(saved) : null;
     const url = sub ? `/api/assignments/student?subject=${sub.id}` : '/api/assignments/student';
-    fetch(url)
-      .then((r) => r.json())
+    cachedFetch<Assignment[]>(url)
       .then((data) => setAssignments(Array.isArray(data) ? data : []))
+      .catch(() => setAssignments([]))
       .finally(() => setFetching(false));
   }, [profile]);
 
