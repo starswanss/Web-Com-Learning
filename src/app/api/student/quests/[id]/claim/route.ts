@@ -3,6 +3,7 @@ import { adminAuth, adminDb } from '@/lib/firebase/admin';
 import { cookies } from 'next/headers';
 import { FieldValue } from 'firebase-admin/firestore';
 import { invalidateLeaderboards } from '@/lib/leaderboard-cache';
+import { rateLimit } from '@/lib/rate-limit';
 
 async function getStudent() {
   try {
@@ -24,6 +25,10 @@ export async function POST(
 ) {
   const student = await getStudent();
   if (!student) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+
+  if (!rateLimit(`claim:${student.uid}`, 20, 60_000)) {
+    return NextResponse.json({ error: 'รับเควสบ่อยเกินไป กรุณารอสักครู่' }, { status: 429 });
+  }
 
   const { id: questId } = await params;
 

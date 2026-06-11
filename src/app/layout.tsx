@@ -3,6 +3,7 @@ import { Geist } from 'next/font/google';
 import './globals.css';
 import { AuthProvider } from '@/context/AuthContext';
 import { ThemeProvider } from '@/context/ThemeContext';
+import PWARegister from '@/components/PWARegister';
 
 const geist = Geist({ variable: '--font-geist-sans', subsets: ['latin'] });
 
@@ -26,6 +27,7 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
         <script dangerouslySetInnerHTML={{ __html: `(function(){try{var t=localStorage.getItem('lms_theme');if(t==='light')document.documentElement.classList.add('theme-light');}catch(e){}})();` }} />
       </head>
       <body className="h-full bg-slate-950 text-slate-100 antialiased">
+        <PWARegister />
         <ThemeProvider>
           <AuthProvider>{children}</AuthProvider>
         </ThemeProvider>
