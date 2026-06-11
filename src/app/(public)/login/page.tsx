@@ -51,6 +51,13 @@ export default function LoginPage() {
         <p className="mt-6 text-center text-xs text-slate-500">
           เฉพาะบัญชีอีเมลของโรงเรียนเท่านั้น
         </p>
+
+        <div className="mt-8 text-center">
+          <p className="text-[11px] text-slate-500">
+            พัฒนาโดย <span className="font-semibold text-slate-300">นายวชิรวิทย์ วงษ์รักษา</span>
+          </p>
+          <p className="mt-0.5 text-[10px] text-slate-600">โรงเรียนราชสีมาวิทยาลัย</p>
+        </div>
       </div>
     </div>
   );

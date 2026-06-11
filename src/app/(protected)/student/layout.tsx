@@ -2,6 +2,7 @@
 
 import Link from 'next/link';
 import DevToolsGuard from '@/components/DevToolsGuard';
+import Credit from '@/components/Credit';
 
 const BOTTOM_NAV = [
   { href: '/student/quests',      icon: '⚡', label: 'เควส' },
@@ -17,6 +18,7 @@ export default function StudentLayout({ children }: { children: React.ReactNode 
 
       <div className="sm:pb-0 pb-20">
         {children}
+        <Credit />
       </div>
 
       {/* ── Bottom nav bar (mobile) ── */}

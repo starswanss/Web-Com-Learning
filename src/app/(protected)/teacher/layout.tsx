@@ -4,6 +4,7 @@ import { useState, useEffect, useRef, useCallback } from 'react';
 import Link from 'next/link';
 import { useAuth } from '@/context/AuthContext';
 import { usePathname } from 'next/navigation';
+import Credit from '@/components/Credit';
 
 const NAV_GROUPS = [
   {
@@ -258,6 +259,7 @@ export default function TeacherLayout({ children }: { children: React.ReactNode 
       {/* Page content — offset by sidebar width on desktop, bottom pad on mobile */}
       <div className="md:ml-56 pb-20 md:pb-0">
         {children}
+        <Credit />
       </div>
 
       {/* ── Full-menu overlay (mobile only) ── */}
