@@ -1,5 +1,4 @@
 import { NextRequest, NextResponse } from 'next/server';
-import sharp from 'sharp';
 import { downloadFileFromDrive } from '@/lib/google-drive';
 
 export const runtime = 'nodejs'; // sharp needs the Node runtime
@@ -25,8 +24,11 @@ export async function GET(req: NextRequest) {
     const { data, mimeType } = await downloadFileFromDrive(fileId);
 
     // Resize raster images only; leave PDFs and other types untouched.
+    // sharp is loaded lazily so any load/runtime failure simply falls back to
+    // serving the original image (the picture never breaks).
     if (width && /^image\/(jpe?g|png|webp|gif|avif)$/i.test(mimeType)) {
       try {
+        const sharp = (await import('sharp')).default;
         const resized = await sharp(data, { animated: mimeType.includes('gif') })
           .rotate() // respect EXIF orientation
           .resize({ width, withoutEnlargement: true })
