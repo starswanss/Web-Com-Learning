@@ -5,6 +5,7 @@ import { FieldValue } from 'firebase-admin/firestore';
 import { uploadSubmissionFile } from '@/lib/storage';
 import { calcXpGain } from '@/lib/xp';
 import { invalidateLeaderboards } from '@/lib/leaderboard-cache';
+import { rateLimit } from '@/lib/rate-limit';
 
 async function getStudent() {
   try {
@@ -26,6 +27,10 @@ export async function POST(req: NextRequest) {
   const student = await getStudent();
   if (!student) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
 
+  if (!rateLimit(`submit:${student.uid}`, 10, 60_000)) {
+    return NextResponse.json({ error: 'มีการส่งบ่อยเกินไป กรุณารอสักครู่' }, { status: 429 });
+  }
+
   const formData = await req.formData();
   const assignmentId = formData.get('assignmentId') as string;
   const content = (formData.get('content') as string) ?? '';
@@ -36,6 +41,8 @@ export async function POST(req: NextRequest) {
   const preUploadedFileUrl = (formData.get('fileUrl') as string | null) ?? null;
   const tabSwitchRaw = formData.get('tabSwitchCount') as string | null;
   const tabSwitchCount = tabSwitchRaw ? parseInt(tabSwitchRaw, 10) : 0;
+  const burstRaw = formData.get('burstInsertCount') as string | null;
+  const burstInsertCount = burstRaw ? parseInt(burstRaw, 10) : 0;
   const selfScoreRaw = formData.get('selfScore') as string | null;
   const selfScore = selfScoreRaw ? parseInt(selfScoreRaw, 10) : null;
 
@@ -87,6 +94,7 @@ export async function POST(req: NextRequest) {
       feedback: null,
       plagiarismSuspicion: 0,
       tabSwitchCount,
+      burstInsertCount,
       selfScore: selfScore ?? null,
       status: 'submitted',
       xpAwarded: xpGain,

@@ -4,6 +4,7 @@ import { useEffect, useState, use } from 'react';
 import { useRouter, useSearchParams } from 'next/navigation';
 import { useAuth } from '@/context/AuthContext';
 import Link from 'next/link';
+import { driveThumb } from '@/lib/img';
 
 interface Submission {
   id: string;
@@ -17,6 +18,7 @@ interface Submission {
   feedback?: string;
   plagiarismSuspicion?: number;
   tabSwitchCount?: number;
+  burstInsertCount?: number;
   status: string;
   submittedAt?: { _seconds: number };
   reviewedAt?: { _seconds: number };
@@ -438,6 +440,12 @@ export default function SubmissionsPage({ params }: { params: Promise<{ id: stri
                         {(selected.tabSwitchCount ?? 0) > 0 && (
                           <p className="mt-1 text-xs text-orange-400">🔍 ออกจากหน้านี้ระหว่างทำ {selected.tabSwitchCount} ครั้ง</p>
                         )}
+                        {(selected.burstInsertCount ?? 0) > 0 && (
+                          <p className="mt-1 text-xs text-amber-400">
+                            🎤 ป้อนข้อความเป็นก้อน {selected.burstInsertCount} ครั้ง
+                            <span className="ml-1 text-slate-500">(อาจมาจากเสียง/swipe — โปรดพิจารณา)</span>
+                          </p>
+                        )}
                       </div>
                       <div className="flex items-center gap-2">
                         <span className={`rounded-full border px-3 py-1 text-xs ${statusBadge(selected.status)}`}>
@@ -615,6 +623,9 @@ function SubmissionCard({
         {(sub.tabSwitchCount ?? 0) > 0 && (
           <p className="mt-1 text-xs text-orange-400">🔍 เปลี่ยนแท็บ {sub.tabSwitchCount} ครั้ง</p>
         )}
+        {(sub.burstInsertCount ?? 0) > 0 && (
+          <p className="mt-1 text-xs text-amber-400">🎤 ป้อนเป็นก้อน {sub.burstInsertCount} ครั้ง</p>
+        )}
       </button>
       <div className="border-t border-slate-800 px-3 py-1.5">
         <button
@@ -658,7 +669,7 @@ function BlockAnswers({ assignment, answers }: { assignment: Assignment | null; 
             ) : block.type === 'image-upload' && typeof answer === 'string' && answer ? (
               <div className="space-y-1">
                 {/* eslint-disable-next-line @next/next/no-img-element */}
-                <img src={answer} alt="คำตอบนักเรียน" className="max-h-64 rounded-xl border border-slate-700 object-contain bg-slate-800/30" />
+                <img src={driveThumb(answer, 800)} alt="คำตอบนักเรียน" className="max-h-64 rounded-xl border border-slate-700 object-contain bg-slate-800/30" />
                 <a href={answer} target="_blank" rel="noopener noreferrer" className="text-[10px] text-blue-400 hover:text-blue-300">
                   เปิดภาพเต็ม ↗
                 </a>
@@ -756,7 +767,7 @@ function KnowledgePreview({ assignment }: { assignment: Assignment }) {
             return block.url ? (
               <div key={block.id}>
                 {/* eslint-disable-next-line @next/next/no-img-element */}
-                <img src={block.url} alt={block.caption ?? ''} className="max-h-80 w-full rounded-xl border border-slate-700 object-contain bg-slate-800/30" />
+                <img src={driveThumb(block.url, 1000)} alt={block.caption ?? ''} className="max-h-80 w-full rounded-xl border border-slate-700 object-contain bg-slate-800/30" />
                 {block.caption && <p className="mt-1 text-center text-xs text-slate-500">{block.caption}</p>}
               </div>
             ) : null;

@@ -6,6 +6,7 @@ import { useAuth } from '@/context/AuthContext';
 import Link from 'next/link';
 import type { FormBlock, InfographicColor } from '@/types';
 import { invalidate } from '@/lib/client-cache';
+import { driveThumb } from '@/lib/img';
 
 interface Assignment {
   id: string;
@@ -85,6 +86,8 @@ export default function SubmissionPage({ params }: { params: Promise<{ id: strin
   const [result, setResult] = useState<{ score: number; feedback: string } | null>(null);
   const [pasteBlocked, setPasteBlocked] = useState(false);
   const [tabSwitchCount, setTabSwitchCount] = useState(0);
+  const [burstCount, setBurstCount] = useState(0);
+  const burstRef = useRef(0);
   const [tabWarning, setTabWarning] = useState(false);
   const [timeLeft, setTimeLeft] = useState<number | null>(null);
   const [selfScore, setSelfScore] = useState(70);
@@ -135,6 +138,29 @@ export default function SubmissionPage({ params }: { params: Promise<{ id: strin
     document.addEventListener('visibilitychange', handleVisibility);
     return () => document.removeEventListener('visibilitychange', handleVisibility);
   }, [submission, assignment, quizStarted]);
+
+  // Detect "burst" text insertion — a whole word/phrase appearing in one input
+  // event (the signature of voice dictation, but also swipe-typing/autocomplete,
+  // so this is a soft signal for the teacher, NOT a hard block). Single-key
+  // typing inserts 1 char at a time and is never counted. Paste is blocked
+  // separately. IME composition (normal Thai/EN mobile typing) is excluded.
+  useEffect(() => {
+    if (submission) return; // only while still answering
+    const BURST_MIN = 5; // chars inserted at once to count as a burst
+    function onBeforeInput(e: Event) {
+      const ie = e as InputEvent;
+      const target = e.target as HTMLElement | null;
+      if (!target || !target.matches('textarea, input[type="text"]')) return;
+      const data = ie.data ?? '';
+      if ((ie.inputType === 'insertText' || ie.inputType === 'insertReplacementText')
+          && data.length >= BURST_MIN) {
+        burstRef.current += 1;
+        setBurstCount(burstRef.current);
+      }
+    }
+    document.addEventListener('beforeinput', onBeforeInput, true);
+    return () => document.removeEventListener('beforeinput', onBeforeInput, true);
+  }, [submission]);
 
   useEffect(() => {
     if (!id) return;
@@ -287,6 +313,7 @@ export default function SubmissionPage({ params }: { params: Promise<{ id: strin
       const fd = new FormData();
       fd.append('assignmentId', id);
       fd.append('tabSwitchCount', String(tabSwitchCount));
+      fd.append('burstInsertCount', String(burstCount));
       fd.append('selfScore', String(selfScore));
       if (hasBlocks) {
         fd.append('answers', JSON.stringify(answers));
@@ -310,8 +337,11 @@ export default function SubmissionPage({ params }: { params: Promise<{ id: strin
       // Clear saved draft after successful submission, and drop the cached
       // dashboard assignment list so it reflects this submission immediately.
       localStorage.removeItem(`lms_draft_${id}`);
+      // Drop every cached student view that reflects this submission.
       invalidate('/api/student/dashboard');
       invalidate('/api/assignments/student');
+      invalidate('/api/student/stats');
+      invalidate('/api/student/milestones');
       setSubmission({
         id: data.id,
         content,
@@ -776,7 +806,7 @@ function BlockRenderer({
                   </span>
                   {imgSrc && (
                     // eslint-disable-next-line @next/next/no-img-element
-                    <img src={imgSrc} alt="" className="h-12 w-12 shrink-0 rounded-lg border border-slate-700 object-cover" />
+                    <img src={driveThumb(imgSrc, 200)} alt="" className="h-12 w-12 shrink-0 rounded-lg border border-slate-700 object-cover" />
                   )}
                   {opt}
                 </label>
@@ -827,7 +857,7 @@ function BlockRenderer({
                   </span>
                   {imgSrc && (
                     // eslint-disable-next-line @next/next/no-img-element
-                    <img src={imgSrc} alt="" className="h-12 w-12 shrink-0 rounded-lg border border-slate-700 object-cover" />
+                    <img src={driveThumb(imgSrc, 200)} alt="" className="h-12 w-12 shrink-0 rounded-lg border border-slate-700 object-cover" />
                   )}
                   {opt}
                 </label>
@@ -1227,7 +1257,7 @@ function AnswerReview({
               <p className="text-sm text-slate-600 italic">ไม่ได้ตอบ</p>
             ) : block.type === 'image-upload' && typeof answer === 'string' && answer ? (
               // eslint-disable-next-line @next/next/no-img-element
-              <img src={answer} alt="คำตอบ" className="max-h-48 rounded-xl border border-slate-700 object-contain" />
+              <img src={driveThumb(answer, 600)} alt="คำตอบ" className="max-h-48 rounded-xl border border-slate-700 object-contain" />
             ) : block.type === 'image-upload' ? (
               <p className="text-sm text-slate-600 italic">ไม่ได้อัปโหลดรูป</p>
             ) : block.type === 'true-false' && Array.isArray(answer) ? (() => {
@@ -1535,7 +1565,7 @@ function DriveImageAttachment({
       {url ? (
         <div className="space-y-2">
           {/* eslint-disable-next-line @next/next/no-img-element */}
-          <img src={url} alt="รูปที่แนบ" className="max-h-48 w-full rounded-xl border border-emerald-800/50 bg-slate-800/40 object-contain" />
+          <img src={driveThumb(url, 600)} alt="รูปที่แนบ" className="max-h-48 w-full rounded-xl border border-emerald-800/50 bg-slate-800/40 object-contain" />
           <div className="flex items-center justify-between">
             <span className="flex items-center gap-1.5 text-xs text-emerald-400">
               <svg className="h-3.5 w-3.5" viewBox="0 0 24 24" fill="currentColor"><path d="M20.283 10.356h-8.327v3.451h4.792c-.446 2.193-2.313 3.453-4.792 3.453a5.27 5.27 0 0 1-5.279-5.28 5.27 5.27 0 0 1 5.279-5.279c1.259 0 2.397.447 3.29 1.178l2.6-2.599c-1.584-1.381-3.615-2.233-5.89-2.233a8.908 8.908 0 0 0-8.934 8.934 8.908 8.908 0 0 0 8.934 8.934c4.467 0 8.529-3.249 8.529-8.934 0-.528-.081-1.097-.202-1.625z"/></svg>
