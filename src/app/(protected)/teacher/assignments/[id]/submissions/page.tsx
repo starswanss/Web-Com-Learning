@@ -113,6 +113,12 @@ export default function SubmissionsPage({ params }: { params: Promise<{ id: stri
   const [batchResult, setBatchResult] = useState<string | null>(null);
   const [deleting, setDeleting] = useState<string | null>(null);
   const [classFilter, setClassFilter] = useState<string | null>(null);
+  const [viewAll, setViewAll] = useState(false);
+
+  function updateSubmission(updated: Submission) {
+    setSubmissions((prev) => prev.map((s) => (s.id === updated.id ? updated : s)));
+    if (selected?.id === updated.id) setSelected(updated);
+  }
 
   useEffect(() => {
     if (!loading && profile?.role !== 'teacher') router.push('/dashboard');
@@ -316,6 +322,16 @@ export default function SubmissionsPage({ params }: { params: Promise<{ id: stri
               {batchGrading ? 'กำลังตรวจ…' : `ตรวจ AI (${pendingCount} รอตรวจ)`}
             </button>
             <button
+              onClick={() => setViewAll((v) => !v)}
+              className={`rounded-lg border px-3 py-1.5 text-xs font-semibold transition-all ${
+                viewAll
+                  ? 'border-blue-600 bg-blue-950/50 text-blue-300'
+                  : 'border-slate-600 bg-slate-800 text-slate-300 hover:border-slate-500'
+              }`}
+            >
+              {viewAll ? '📋 ตรวจทีละคน' : '📑 ดูงานทั้งหมด'}
+            </button>
+            <button
               onClick={() => exportCSV(assignment, submissions)}
               disabled={submissions.length === 0}
               className="rounded-lg border border-slate-600 bg-slate-800 px-3 py-1.5 text-xs text-slate-300 transition-all hover:border-slate-500 disabled:opacity-40"
@@ -372,6 +388,21 @@ export default function SubmissionsPage({ params }: { params: Promise<{ id: stri
           <div className="flex items-center justify-center py-20">
             <div className="h-6 w-6 animate-spin rounded-full border-2 border-slate-700 border-t-slate-300" />
           </div>
+        ) : viewAll ? (
+          /* ── Review-all mode: every student's work with an inline score box ── */
+          visible.length === 0 ? (
+            <div className="rounded-xl border border-dashed border-slate-800 py-16 text-center">
+              <p className="text-sm text-slate-500">
+                {classFilter ? `ยังไม่มีการส่งงานจากห้อง ${classFilter}` : 'ยังไม่มีการส่งงาน'}
+              </p>
+            </div>
+          ) : (
+            <div className="space-y-4">
+              {visible.map((sub) => (
+                <GradeAllRow key={sub.id} sub={sub} assignment={assignment} onGraded={updateSubmission} />
+              ))}
+            </div>
+          )
         ) : (
           <div className="flex gap-4 h-[calc(100vh-112px)]">
             {/* Submission list */}
@@ -552,6 +583,107 @@ const GROUP_COLORS: Record<string, { label: string; count: string; divider: stri
   blue:    { label: 'text-blue-400',    count: 'bg-blue-950/60 border-blue-800 text-blue-400',       divider: 'bg-blue-800/40' },
   emerald: { label: 'text-emerald-400', count: 'bg-emerald-950/60 border-emerald-800 text-emerald-400', divider: 'bg-emerald-800/40' },
 };
+
+function GradeAllRow({
+  sub, assignment, onGraded,
+}: {
+  sub: Submission;
+  assignment: Assignment | null;
+  onGraded: (updated: Submission) => void;
+}) {
+  const [score, setScore] = useState(sub.score !== undefined ? String(sub.score) : '');
+  const [feedback, setFeedback] = useState(sub.feedback ?? '');
+  const [saving, setSaving] = useState(false);
+  const [savedAt, setSavedAt] = useState(false);
+  const [err, setErr] = useState<string | null>(null);
+
+  async function save() {
+    const parsed = Number(score);
+    if (isNaN(parsed) || parsed < 0 || parsed > 100) { setErr('คะแนน 0–100'); return; }
+    setSaving(true); setErr(null);
+    try {
+      const res = await fetch(`/api/teacher/grade/${sub.id}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ score: parsed, feedback }),
+      });
+      if (!res.ok) throw new Error();
+      onGraded({ ...sub, score: parsed, feedback, status: 'reviewed' });
+      setSavedAt(true); setTimeout(() => setSavedAt(false), 2000);
+    } catch { setErr('บันทึกไม่สำเร็จ'); }
+    finally { setSaving(false); }
+  }
+
+  return (
+    <div className="rounded-2xl border border-slate-800 bg-slate-900 p-5">
+      {/* Student header */}
+      <div className="mb-3 flex items-center justify-between gap-3 flex-wrap">
+        <div>
+          <p className="font-medium text-slate-100">{sub.studentName}</p>
+          <p className="text-xs text-slate-500">{sub.classId}</p>
+        </div>
+        <div className="flex items-center gap-2">
+          {(sub.tabSwitchCount ?? 0) > 0 && (
+            <span className="text-[11px] text-orange-400">🔍 {sub.tabSwitchCount}</span>
+          )}
+          {(sub.burstInsertCount ?? 0) > 0 && (
+            <span className="text-[11px] text-amber-400">🎤 {sub.burstInsertCount}</span>
+          )}
+          <span className={`rounded-full border px-2.5 py-0.5 text-[11px] ${statusBadge(sub.status)}`}>
+            {statusLabel(sub.status)}
+          </span>
+        </div>
+      </div>
+
+      {/* Answer */}
+      <div className="mb-3 rounded-xl border border-slate-800 bg-slate-950/40 p-4">
+        {sub.answers && Object.keys(sub.answers).length > 0 ? (
+          <BlockAnswers assignment={assignment} answers={sub.answers} />
+        ) : sub.content ? (
+          <p className="whitespace-pre-wrap text-sm text-slate-300">{sub.content}</p>
+        ) : (
+          <p className="text-sm text-slate-500 italic">ไม่มีคำตอบ</p>
+        )}
+        {sub.driveWebViewLink && (
+          <a href={sub.driveWebViewLink} target="_blank" rel="noopener noreferrer"
+            className="mt-3 inline-flex items-center gap-1.5 text-xs text-blue-400 hover:text-blue-300">
+            📎 ดูไฟล์แนบ
+          </a>
+        )}
+      </div>
+
+      {/* Score + feedback row */}
+      <div className="flex flex-wrap items-end gap-3">
+        <div>
+          <label className="mb-1 block text-[11px] text-slate-400">คะแนน (0–100)</label>
+          <input
+            type="number" min={0} max={100} value={score}
+            onChange={(e) => setScore(e.target.value)}
+            placeholder="เช่น 85"
+            className="w-24 rounded-lg border border-slate-700 bg-slate-800 px-3 py-2 text-sm text-slate-100 focus:border-blue-500 focus:outline-none"
+          />
+        </div>
+        <div className="min-w-[200px] flex-1">
+          <label className="mb-1 block text-[11px] text-slate-400">Feedback</label>
+          <input
+            type="text" value={feedback}
+            onChange={(e) => setFeedback(e.target.value)}
+            placeholder="ความคิดเห็น (ถ้ามี)"
+            className="w-full rounded-lg border border-slate-700 bg-slate-800 px-3 py-2 text-sm text-slate-100 placeholder-slate-600 focus:border-blue-500 focus:outline-none"
+          />
+        </div>
+        <button
+          onClick={save}
+          disabled={saving}
+          className="rounded-lg bg-blue-600 px-5 py-2 text-sm font-semibold text-white transition-all hover:bg-blue-500 disabled:opacity-50 active:scale-95"
+        >
+          {saving ? '…' : savedAt ? '✓ บันทึกแล้ว' : 'บันทึก'}
+        </button>
+        {err && <span className="text-xs text-red-400">{err}</span>}
+      </div>
+    </div>
+  );
+}
 
 function SubmissionGroup({
   label, color, items, selected, deleting, onOpen, onDelete,
