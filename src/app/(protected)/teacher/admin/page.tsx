@@ -9,6 +9,10 @@ import Image from 'next/image';
 interface StudentFixed { studentId: string; displayName: string; xpAdded: number }
 interface BackfillResult { fixed: number; totalXpAwarded: number; studentsFixed: StudentFixed[]; applied: boolean }
 
+// ── Backfill group-score types ──────────────────────────────────────────────────
+interface GroupStudent { studentId: string; displayName: string; count: number }
+interface GroupBackfillResult { groupSubmissions: number; recordsCreated: number; students: GroupStudent[]; applied: boolean }
+
 function currentThaiYear() {
   return new Date().getFullYear() + 543;
 }
@@ -24,6 +28,13 @@ export default function TeacherAdminPage() {
   const [bfFetching, setBfFetching] = useState(false);
   const [bfApplying, setBfApplying] = useState(false);
   const [bfError, setBfError] = useState<string | null>(null);
+
+  // Backfill group-score state
+  const [gsPreview, setGsPreview] = useState<GroupBackfillResult | null>(null);
+  const [gsResult, setGsResult] = useState<GroupBackfillResult | null>(null);
+  const [gsFetching, setGsFetching] = useState(false);
+  const [gsApplying, setGsApplying] = useState(false);
+  const [gsError, setGsError] = useState<string | null>(null);
   const [result, setResult] = useState<{ reset: number; year: number; yearFolderId: string | null } | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [confirmed, setConfirmed] = useState(false);
@@ -126,6 +137,34 @@ export default function TeacherAdminPage() {
       setBfResult(data); setBfPreview(null);
     } catch (e) { setBfError(e instanceof Error ? e.message : 'เกิดข้อผิดพลาด'); }
     finally { setBfApplying(false); }
+  }
+
+  async function handleGsPreview() {
+    setGsFetching(true); setGsError(null); setGsPreview(null); setGsResult(null);
+    try {
+      const res = await fetch('/api/admin/backfill-group-scores');
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error ?? 'ไม่สำเร็จ');
+      setGsPreview(data);
+    } catch (e) { setGsError(e instanceof Error ? e.message : 'เกิดข้อผิดพลาด'); }
+    finally { setGsFetching(false); }
+  }
+
+  async function handleGsApply() {
+    if (!gsPreview || gsPreview.recordsCreated === 0) return;
+    if (!confirm(`ยืนยัน: ลิงก์คะแนนงานกลุ่มให้นักเรียน ${gsPreview.students.length} คน (${gsPreview.recordsCreated} รายการ)?`)) return;
+    setGsApplying(true); setGsError(null);
+    try {
+      const res = await fetch('/api/admin/backfill-group-scores', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ apply: true }),
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error ?? 'ไม่สำเร็จ');
+      setGsResult(data); setGsPreview(null);
+    } catch (e) { setGsError(e instanceof Error ? e.message : 'เกิดข้อผิดพลาด'); }
+    finally { setGsApplying(false); }
   }
 
   async function handleReset() {
@@ -341,6 +380,78 @@ export default function TeacherAdminPage() {
                     <span className="text-sm font-semibold text-emerald-400">+{s.xpAdded.toLocaleString()} XP</span>
                   </div>
                 ))}
+              </div>
+            </div>
+          )}
+        </section>
+
+        {/* Backfill group scores */}
+        <section className="rounded-2xl border border-emerald-900/60 bg-emerald-950/10 p-6 space-y-5">
+          <div>
+            <h2 className="text-base font-semibold text-emerald-400">👥 ลิงก์คะแนนงานกลุ่มที่ตรวจแล้ว</h2>
+            <p className="mt-1 text-sm text-slate-400">
+              งานกลุ่มที่ตรวจไปแล้ว<strong className="text-white">ก่อนการแก้ไข</strong> คะแนนยังไม่โผล่ในหน้านักเรียนรายคน/Gradebook/Rank
+              — สแกนแล้วสร้าง record คะแนนให้สมาชิกแต่ละคน (XP ได้รับตั้งแต่ตอนตรวจอยู่แล้ว ไม่แจกซ้ำ)
+            </p>
+          </div>
+
+          <div className="rounded-xl border border-slate-700 bg-slate-800/40 p-4 text-xs text-slate-400 space-y-1">
+            <ul className="list-disc list-inside space-y-0.5">
+              <li>กด <strong className="text-slate-200">Preview</strong> เพื่อดูก่อน — ยังไม่แก้ข้อมูล</li>
+              <li>กด <strong className="text-slate-200">Apply</strong> เพื่อเขียนจริง (ปลอดภัย ทำซ้ำได้ — skip คนที่มี record แล้ว)</li>
+              <li>ลิงก์เฉพาะ <strong className="text-slate-200">คะแนน</strong> · ไม่แตะ XP (กันแจกซ้ำ)</li>
+            </ul>
+          </div>
+
+          {!gsResult && (
+            <div className="flex gap-3 flex-wrap">
+              <button
+                onClick={handleGsPreview}
+                disabled={gsFetching || gsApplying}
+                className="rounded-xl border border-blue-700 bg-blue-950/40 px-5 py-2 text-sm font-medium text-blue-300 hover:border-blue-500 disabled:opacity-50 transition-all"
+              >
+                {gsFetching ? 'กำลังสแกน…' : '🔍 Preview'}
+              </button>
+              {gsPreview && gsPreview.recordsCreated > 0 && (
+                <button
+                  onClick={handleGsApply}
+                  disabled={gsApplying}
+                  className="rounded-xl bg-emerald-600 px-5 py-2 text-sm font-medium text-white hover:bg-emerald-500 disabled:opacity-50 transition-all"
+                >
+                  {gsApplying ? 'กำลังอัปเดต…' : `👥 Apply (${gsPreview.recordsCreated} รายการ)`}
+                </button>
+              )}
+            </div>
+          )}
+
+          {gsError && <p className="text-sm text-red-400">{gsError}</p>}
+
+          {gsPreview && gsPreview.recordsCreated === 0 && (
+            <p className="text-sm text-emerald-400">✅ ไม่พบงานกลุ่มที่ต้องลิงก์คะแนน — ครบแล้ว</p>
+          )}
+
+          {gsPreview && gsPreview.recordsCreated > 0 && (
+            <div className="space-y-2">
+              <p className="text-xs text-slate-400">
+                งานกลุ่มที่ตรวจแล้ว <strong className="text-white">{gsPreview.groupSubmissions}</strong>
+                · ต้องสร้าง <strong className="text-white">{gsPreview.recordsCreated}</strong> รายการ
+                · นักเรียน <strong className="text-emerald-400">{gsPreview.students.length}</strong> คน
+              </p>
+              <div className="max-h-48 overflow-y-auto rounded-xl border border-slate-700 divide-y divide-slate-800">
+                {gsPreview.students.map((s) => (
+                  <div key={s.studentId} className="flex items-center justify-between px-4 py-2">
+                    <p className="text-sm text-slate-300">{s.displayName}</p>
+                    <span className="text-sm font-semibold text-emerald-400">{s.count} งาน</span>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+
+          {gsResult && (
+            <div className="space-y-2">
+              <div className="rounded-xl border border-emerald-800 bg-emerald-950/30 px-4 py-3 text-sm text-emerald-400">
+                ✅ ลิงก์คะแนนสำเร็จ — {gsResult.recordsCreated} รายการ · {gsResult.students.length} คน
               </div>
             </div>
           )}

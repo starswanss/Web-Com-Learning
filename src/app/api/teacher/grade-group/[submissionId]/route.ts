@@ -49,10 +49,25 @@ export async function PATCH(
   if (!groupSnap.exists) return NextResponse.json({ error: 'Group not found' }, { status: 404 });
 
   const memberIds = (groupSnap.data()!.memberIds as string[]) ?? [];
+  const groupClassId = (groupSnap.data()!.classId as string) ?? (sub.classId as string) ?? '';
 
   const previousXp = (sub.xpAwarded as number) ?? 0;
   const newXp = score * 10;
   const xpDelta = newXp - previousXp;
+
+  // Look up each member's name/class and any existing per-student submission so
+  // the group score lands on each individual's record (gradebook, leaderboard,
+  // the student's own dashboard all read the `submissions` collection).
+  const [memberDocs, existingSubs] = await Promise.all([
+    Promise.all(memberIds.map((mid) => adminDb.collection('users').doc(mid).get())),
+    Promise.all(memberIds.map((mid) =>
+      adminDb.collection('submissions')
+        .where('assignmentId', '==', sub.assignmentId)
+        .where('studentId', '==', mid)
+        .limit(1)
+        .get(),
+    )),
+  ]);
 
   const batch = adminDb.batch();
 
@@ -65,14 +80,48 @@ export async function PATCH(
     reviewedAt: FieldValue.serverTimestamp(),
   });
 
-  // Award XP to every group member
-  if (xpDelta !== 0) {
-    for (const memberId of memberIds) {
+  memberIds.forEach((memberId, i) => {
+    // Award XP to the member (XP itself is tracked on the user doc).
+    if (xpDelta !== 0) {
       batch.update(adminDb.collection('users').doc(memberId), {
         xp: FieldValue.increment(xpDelta),
       });
     }
-  }
+
+    // Mirror the group grade onto the member's individual submission record.
+    const data = memberDocs[i].data() ?? {};
+    const existing = existingSubs[i];
+    if (!existing.empty) {
+      batch.update(existing.docs[0].ref, {
+        score,
+        feedback: feedback ?? '',
+        status: 'reviewed',
+        xpAwarded: newXp,
+        reviewedAt: FieldValue.serverTimestamp(),
+      });
+    } else {
+      batch.set(adminDb.collection('submissions').doc(), {
+        assignmentId: sub.assignmentId,
+        studentId: memberId,
+        studentName: (data.displayName as string) ?? '',
+        classId: (data.classId as string) ?? groupClassId,
+        content: sub.content ?? null,
+        answers: sub.answers ?? null,
+        driveWebViewLink: (sub.fileUrl as string) ?? (sub.driveWebViewLink as string) ?? null,
+        score,
+        feedback: feedback ?? '',
+        status: 'reviewed',
+        // xpAwarded set so the XP-backfill never re-awards (XP already granted above)
+        xpAwarded: newXp,
+        plagiarismSuspicion: 0,
+        tabSwitchCount: 0,
+        groupId: sub.groupId,
+        groupSubmissionId: submissionId,
+        submittedAt: sub.submittedAt ?? FieldValue.serverTimestamp(),
+        reviewedAt: FieldValue.serverTimestamp(),
+      });
+    }
+  });
 
   await batch.commit();
   invalidateLeaderboards(); // score + xp for all members
