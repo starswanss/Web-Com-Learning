@@ -115,9 +115,93 @@ export default function SubmissionsPage({ params }: { params: Promise<{ id: stri
   const [classFilter, setClassFilter] = useState<string | null>(null);
   const [viewAll, setViewAll] = useState(false);
 
+  // Review-all mode: centralised score/feedback drafts so "save all" can grade
+  // everyone at once.
+  const [gradeDraft, setGradeDraft] = useState<Record<string, { score: string; feedback: string }>>({});
+  const [savingIds, setSavingIds] = useState<Set<string>>(new Set());
+  const [savedIds, setSavedIds] = useState<Set<string>>(new Set());
+  const [rowErr, setRowErr] = useState<Record<string, string>>({});
+  const [savingAll, setSavingAll] = useState(false);
+  const [saveAllMsg, setSaveAllMsg] = useState<string | null>(null);
+
   function updateSubmission(updated: Submission) {
     setSubmissions((prev) => prev.map((s) => (s.id === updated.id ? updated : s)));
     if (selected?.id === updated.id) setSelected(updated);
+  }
+
+  // Seed drafts for any submission not yet edited (without clobbering edits).
+  useEffect(() => {
+    if (!viewAll) return;
+    setGradeDraft((prev) => {
+      const next = { ...prev };
+      for (const s of submissions) {
+        if (!(s.id in next)) {
+          next[s.id] = { score: s.score != null ? String(s.score) : '', feedback: s.feedback ?? '' };
+        }
+      }
+      return next;
+    });
+  }, [viewAll, submissions]);
+
+  function setDraft(id: string, patch: Partial<{ score: string; feedback: string }>) {
+    setGradeDraft((d) => {
+      const cur = d[id] ?? { score: '', feedback: '' };
+      return { ...d, [id]: { ...cur, ...patch } };
+    });
+  }
+
+  // Grade one submission from its draft. Returns the updated Submission on
+  // success, or null on validation/network failure.
+  async function gradeFromDraft(sub: Submission): Promise<Submission | null> {
+    const d = gradeDraft[sub.id] ?? { score: '', feedback: '' };
+    const parsed = Number(d.score);
+    if (d.score === '' || isNaN(parsed) || parsed < 0 || parsed > 100) {
+      setRowErr((e) => ({ ...e, [sub.id]: 'คะแนน 0–100' }));
+      return null;
+    }
+    setRowErr((e) => { const n = { ...e }; delete n[sub.id]; return n; });
+    try {
+      const res = await fetch(`/api/teacher/grade/${sub.id}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ score: parsed, feedback: d.feedback }),
+      });
+      if (!res.ok) throw new Error();
+      return { ...sub, score: parsed, feedback: d.feedback, status: 'reviewed' };
+    } catch {
+      setRowErr((e) => ({ ...e, [sub.id]: 'บันทึกไม่สำเร็จ' }));
+      return null;
+    }
+  }
+
+  async function saveOne(sub: Submission) {
+    setSavingIds((s) => new Set(s).add(sub.id));
+    const updated = await gradeFromDraft(sub);
+    if (updated) {
+      updateSubmission(updated);
+      setSavedIds((s) => new Set(s).add(sub.id));
+      setTimeout(() => setSavedIds((s) => { const n = new Set(s); n.delete(sub.id); return n; }), 2000);
+    }
+    setSavingIds((s) => { const n = new Set(s); n.delete(sub.id); return n; });
+  }
+
+  async function saveAll(targets: Submission[]) {
+    // Only rows with a filled-in score are graded; blanks are skipped.
+    const toGrade = targets.filter((s) => (gradeDraft[s.id]?.score ?? '') !== '');
+    if (toGrade.length === 0) { setSaveAllMsg('ยังไม่มีคะแนนที่จะบันทึก'); return; }
+    setSavingAll(true); setSaveAllMsg(null);
+    setSavingIds(new Set(toGrade.map((s) => s.id)));
+
+    const results = await Promise.all(toGrade.map((s) => gradeFromDraft(s)));
+    const updates = results.filter((r): r is Submission => r !== null);
+    if (updates.length > 0) {
+      const map = new Map(updates.map((u) => [u.id, u]));
+      setSubmissions((prev) => prev.map((s) => map.get(s.id) ?? s));
+    }
+    const failed = toGrade.length - updates.length;
+    setSaveAllMsg(`บันทึกสำเร็จ ${updates.length} คน${failed > 0 ? ` · ไม่สำเร็จ ${failed}` : ''}`);
+    setSavingIds(new Set());
+    setSavingAll(false);
   }
 
   useEffect(() => {
@@ -396,13 +480,65 @@ export default function SubmissionsPage({ params }: { params: Promise<{ id: stri
                 {classFilter ? `ยังไม่มีการส่งงานจากห้อง ${classFilter}` : 'ยังไม่มีการส่งงาน'}
               </p>
             </div>
-          ) : (
-            <div className="space-y-4">
-              {visible.map((sub) => (
-                <GradeAllRow key={sub.id} sub={sub} assignment={assignment} onGraded={updateSubmission} />
-              ))}
-            </div>
-          )
+          ) : (() => {
+            // Pending (รอตรวจ) first, then รอบันทึก, then ตรวจแล้ว
+            const order: Record<string, number> = { submitted: 0, graded: 1, reviewed: 2 };
+            const groups = [
+              { key: 'submitted', label: 'รอตรวจ', color: 'amber' },
+              { key: 'graded', label: 'รอบันทึกคะแนน', color: 'blue' },
+              { key: 'reviewed', label: 'ตรวจแล้ว', color: 'emerald' },
+            ];
+            const byStatus = (st: string) => visible.filter((s) => s.status === st);
+            const ungrouped = visible.filter((s) => !(s.status in order));
+            return (
+              <div className="space-y-5">
+                {/* Save-all bar */}
+                <div className="sticky top-0 z-10 flex items-center justify-between gap-3 rounded-xl border border-slate-700 bg-slate-900/95 px-4 py-2.5 backdrop-blur-sm">
+                  <span className="text-xs text-slate-400">
+                    {saveAllMsg ?? `กรอกคะแนนแล้วกดบันทึกทั้งหมด — ${visible.length} คน`}
+                  </span>
+                  <button
+                    onClick={() => saveAll(visible)}
+                    disabled={savingAll}
+                    className="rounded-lg bg-blue-600 px-4 py-2 text-sm font-semibold text-white transition-all hover:bg-blue-500 disabled:opacity-50 active:scale-95"
+                  >
+                    {savingAll ? 'กำลังบันทึก…' : '💾 บันทึกคะแนนทั้งหมด'}
+                  </button>
+                </div>
+
+                {groups.map((g) => {
+                  const items = byStatus(g.key);
+                  if (items.length === 0) return null;
+                  return (
+                    <div key={g.key} className="space-y-3">
+                      <div className={`flex items-center gap-2 border-b pb-1.5 ${GROUP_COLORS[g.color].divider}`}>
+                        <span className={`text-[11px] font-bold uppercase tracking-wider ${GROUP_COLORS[g.color].label}`}>{g.label}</span>
+                        <span className={`rounded-full border px-2 py-0.5 text-[10px] font-bold ${GROUP_COLORS[g.color].count}`}>{items.length}</span>
+                      </div>
+                      {items.map((sub) => (
+                        <GradeAllRow
+                          key={sub.id} sub={sub} assignment={assignment}
+                          draft={gradeDraft[sub.id] ?? { score: '', feedback: '' }}
+                          onChange={(field, value) => setDraft(sub.id, { [field]: value })}
+                          onSave={() => saveOne(sub)}
+                          saving={savingIds.has(sub.id)} saved={savedIds.has(sub.id)} err={rowErr[sub.id]}
+                        />
+                      ))}
+                    </div>
+                  );
+                })}
+                {ungrouped.map((sub) => (
+                  <GradeAllRow
+                    key={sub.id} sub={sub} assignment={assignment}
+                    draft={gradeDraft[sub.id] ?? { score: '', feedback: '' }}
+                    onChange={(field, value) => setDraft(sub.id, { [field]: value })}
+                    onSave={() => saveOne(sub)}
+                    saving={savingIds.has(sub.id)} saved={savedIds.has(sub.id)} err={rowErr[sub.id]}
+                  />
+                ))}
+              </div>
+            );
+          })()
         ) : (
           <div className="flex gap-4 h-[calc(100vh-112px)]">
             {/* Submission list */}
@@ -585,34 +721,19 @@ const GROUP_COLORS: Record<string, { label: string; count: string; divider: stri
 };
 
 function GradeAllRow({
-  sub, assignment, onGraded,
+  sub, assignment, draft, onChange, onSave, saving, saved, err,
 }: {
   sub: Submission;
   assignment: Assignment | null;
-  onGraded: (updated: Submission) => void;
+  draft: { score: string; feedback: string };
+  onChange: (field: 'score' | 'feedback', value: string) => void;
+  onSave: () => void;
+  saving: boolean;
+  saved: boolean;
+  err?: string;
 }) {
-  const [score, setScore] = useState(sub.score !== undefined ? String(sub.score) : '');
-  const [feedback, setFeedback] = useState(sub.feedback ?? '');
-  const [saving, setSaving] = useState(false);
-  const [savedAt, setSavedAt] = useState(false);
-  const [err, setErr] = useState<string | null>(null);
-
-  async function save() {
-    const parsed = Number(score);
-    if (isNaN(parsed) || parsed < 0 || parsed > 100) { setErr('คะแนน 0–100'); return; }
-    setSaving(true); setErr(null);
-    try {
-      const res = await fetch(`/api/teacher/grade/${sub.id}`, {
-        method: 'PATCH',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ score: parsed, feedback }),
-      });
-      if (!res.ok) throw new Error();
-      onGraded({ ...sub, score: parsed, feedback, status: 'reviewed' });
-      setSavedAt(true); setTimeout(() => setSavedAt(false), 2000);
-    } catch { setErr('บันทึกไม่สำเร็จ'); }
-    finally { setSaving(false); }
-  }
+  const score = draft.score;
+  const feedback = draft.feedback;
 
   return (
     <div className="rounded-2xl border border-slate-800 bg-slate-900 p-5">
@@ -658,7 +779,7 @@ function GradeAllRow({
           <label className="mb-1 block text-[11px] text-slate-400">คะแนน (0–100)</label>
           <input
             type="number" min={0} max={100} value={score}
-            onChange={(e) => setScore(e.target.value)}
+            onChange={(e) => onChange('score', e.target.value)}
             placeholder="เช่น 85"
             className="w-24 rounded-lg border border-slate-700 bg-slate-800 px-3 py-2 text-sm text-slate-100 focus:border-blue-500 focus:outline-none"
           />
@@ -667,17 +788,17 @@ function GradeAllRow({
           <label className="mb-1 block text-[11px] text-slate-400">Feedback</label>
           <input
             type="text" value={feedback}
-            onChange={(e) => setFeedback(e.target.value)}
+            onChange={(e) => onChange('feedback', e.target.value)}
             placeholder="ความคิดเห็น (ถ้ามี)"
             className="w-full rounded-lg border border-slate-700 bg-slate-800 px-3 py-2 text-sm text-slate-100 placeholder-slate-600 focus:border-blue-500 focus:outline-none"
           />
         </div>
         <button
-          onClick={save}
+          onClick={onSave}
           disabled={saving}
           className="rounded-lg bg-blue-600 px-5 py-2 text-sm font-semibold text-white transition-all hover:bg-blue-500 disabled:opacity-50 active:scale-95"
         >
-          {saving ? '…' : savedAt ? '✓ บันทึกแล้ว' : 'บันทึก'}
+          {saving ? '…' : saved ? '✓ บันทึกแล้ว' : 'บันทึก'}
         </button>
         {err && <span className="text-xs text-red-400">{err}</span>}
       </div>
