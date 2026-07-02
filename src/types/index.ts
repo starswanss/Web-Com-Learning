@@ -29,7 +29,8 @@ export type BlockType =
   | 'image-upload'
   | 'true-false'
   | 'matching'
-  | 'fill-blank';
+  | 'fill-blank'
+  | 'link';
 
 export type InfographicColor = 'blue' | 'green' | 'purple' | 'orange' | 'red' | 'slate';
 
@@ -49,12 +50,15 @@ export interface TrueFalseItem { statement: string; correctAnswer: boolean }
 export interface TrueFalseBlock extends BaseBlock { type: 'true-false'; question: string; items: TrueFalseItem[]; required?: boolean }
 export interface MatchingBlock  extends BaseBlock { type: 'matching';    question: string; leftItems: string[]; rightItems: string[]; correctPairs: number[]; required?: boolean }
 export interface FillBlankBlock extends BaseBlock { type: 'fill-blank';  question: string; correctAnswers: string[]; required?: boolean }
+// Link answer — the ONLY block where students may paste text (global paste-block
+// is bypassed for this field), intended for submitting a URL.
+export interface LinkBlock extends BaseBlock { type: 'link'; question: string; required?: boolean }
 
 export type FormBlock =
   | HeadingBlock | ParagraphBlock | ImageBlock | PdfBlock | InfographicBlock
   | ShortAnswerBlock | LongAnswerBlock
   | MultipleChoiceBlock | CheckboxBlock | OrderingBlock | ImageUploadBlock
-  | TrueFalseBlock | MatchingBlock | FillBlankBlock;
+  | TrueFalseBlock | MatchingBlock | FillBlankBlock | LinkBlock;
 
 // ── Content type ──────────────────────────────────────────────────────────────
 

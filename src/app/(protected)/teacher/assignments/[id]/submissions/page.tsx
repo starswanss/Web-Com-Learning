@@ -907,7 +907,7 @@ function BlockAnswers({ assignment, answers }: { assignment: Assignment | null; 
     );
   }
   const questionBlocks = (assignment.blocks as AssignmentBlock[]).filter((b) =>
-    ['short-answer', 'long-answer', 'multiple-choice', 'checkbox', 'ordering', 'image-upload', 'true-false', 'matching', 'fill-blank'].includes(b.type)
+    ['short-answer', 'long-answer', 'multiple-choice', 'checkbox', 'ordering', 'image-upload', 'true-false', 'matching', 'fill-blank', 'link'].includes(b.type)
   );
   return (
     <div className="space-y-5">
@@ -974,6 +974,11 @@ function BlockAnswers({ assignment, answers }: { assignment: Assignment | null; 
                   </div>
                 ))}
               </div>
+            ) : block.type === 'link' && typeof answer === 'string' && answer ? (
+              <a href={answer} target="_blank" rel="noopener noreferrer"
+                className="text-sm text-cyan-400 underline break-all hover:text-cyan-300">
+                🔗 {answer}
+              </a>
             ) : Array.isArray(answer) ? (
               <div className="flex flex-wrap gap-2">
                 {answer.map((a) => (

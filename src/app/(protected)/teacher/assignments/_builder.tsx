@@ -6,7 +6,7 @@ import type {
   HeadingBlock, ParagraphBlock, ImageBlock, PdfBlock, InfographicBlock,
   ShortAnswerBlock, LongAnswerBlock,
   MultipleChoiceBlock, CheckboxBlock, OrderingBlock, ImageUploadBlock,
-  TrueFalseBlock, TrueFalseItem, MatchingBlock, FillBlankBlock,
+  TrueFalseBlock, TrueFalseItem, MatchingBlock, FillBlankBlock, LinkBlock,
 } from '@/types';
 
 export { type FormBlock, type BlockType };
@@ -31,6 +31,7 @@ export function makeBlock(type: BlockType): FormBlock {
     case 'true-false':     return { id: uid(), type, question: '', items: [{ statement: '', correctAnswer: true }, { statement: '', correctAnswer: false }], required: false };
     case 'matching':       return { id: uid(), type, question: '', leftItems: ['', ''], rightItems: ['', ''], correctPairs: [0, 1], required: false };
     case 'fill-blank':     return { id: uid(), type, question: '___ คือ ___', correctAnswers: ['', ''], required: false };
+    case 'link':           return { id: uid(), type, question: '', required: false };
   }
 }
 
@@ -61,6 +62,7 @@ export const BLOCK_LABELS: { type: BlockType; label: string; icon: string }[] = 
   { type: 'true-false',    label: 'ถูก/ผิด',             icon: '✓✗' },
   { type: 'matching',      label: 'จับคู่',               icon: '⟷'  },
   { type: 'fill-blank',    label: 'เติมคำ',               icon: '_'   },
+  { type: 'link',          label: 'เพิ่มลิงก์ (วางได้)',  icon: '🔗'  },
 ];
 
 /* ── Auto-grow textarea helper ─────────────────────────────────── */
@@ -860,6 +862,18 @@ export function BlockEditor({ block, onChange }: { block: FormBlock; onChange: (
 
     case 'fill-blank':
       return <FillBlankEditor block={block as FillBlankBlock} onChange={onChange} />;
+
+    case 'link':
+      return (
+        <div>
+          <QuestionHeader question={(block as LinkBlock).question} required={block.required}
+            onQuestion={v => onChange({ ...block, question: v } as LinkBlock)}
+            onRequired={v => onChange({ ...block, required: v } as LinkBlock)} />
+          <div className="rounded-lg border border-dashed border-cyan-800/60 bg-cyan-950/20 px-3 py-2 text-xs text-cyan-400">
+            🔗 ช่องใส่ลิงก์ — นักเรียน<strong>วางข้อความ (paste) ได้เฉพาะช่องนี้</strong>
+          </div>
+        </div>
+      );
   }
 }
 

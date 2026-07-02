@@ -297,7 +297,7 @@ export default function GroupSubmissionsPage({ params }: { params: Promise<{ id:
 
 function BlockAnswers({ blocks, answers }: { blocks: FormBlock[]; answers: Record<string, string | string[]> }) {
   const questionBlocks = blocks.filter(b =>
-    ['short-answer', 'long-answer', 'multiple-choice', 'checkbox', 'ordering', 'image-upload', 'true-false', 'matching', 'fill-blank'].includes(b.type)
+    ['short-answer', 'long-answer', 'multiple-choice', 'checkbox', 'ordering', 'image-upload', 'true-false', 'matching', 'fill-blank', 'link'].includes(b.type)
   );
 
   // Fallback when no block definitions available — show raw key/value
@@ -390,6 +390,11 @@ function BlockAnswers({ blocks, answers }: { blocks: FormBlock[]; answers: Recor
                   </div>
                 ))}
               </div>
+            ) : block.type === 'link' && typeof answer === 'string' && answer ? (
+              <a href={answer} target="_blank" rel="noopener noreferrer"
+                className="text-sm text-cyan-400 underline break-all hover:text-cyan-300">
+                🔗 {answer}
+              </a>
             ) : Array.isArray(answer) ? (
               <div className="flex flex-wrap gap-2">
                 {answer.map((a, j) => (

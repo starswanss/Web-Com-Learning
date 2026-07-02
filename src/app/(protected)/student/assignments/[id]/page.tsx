@@ -981,6 +981,27 @@ function BlockRenderer({
       );
     }
 
+    case 'link':
+      return (
+        <div>
+          <label className="mb-2 block text-sm font-medium text-slate-300">
+            {block.question || 'วางลิงก์ของคุณ'}
+            {block.required && <span className="ml-1 text-red-400">*</span>}
+          </label>
+          <input
+            type="text"
+            inputMode="url"
+            value={(answers[block.id] as string) ?? ''}
+            onChange={(e) => setAnswer(block.id, e.target.value)}
+            // Paste is intentionally ALLOWED here (no onPaste/onDrop blockers) —
+            // this is the only field where students may paste a link.
+            placeholder="วางลิงก์ที่นี่ เช่น https://..."
+            className="input"
+          />
+          <p className="mt-1 text-[11px] text-cyan-500">🔗 ช่องนี้วางข้อความ (paste) ได้</p>
+        </div>
+      );
+
     default:
       return null;
   }
@@ -1239,7 +1260,7 @@ function AnswerReview({
   answers: Record<string, string | string[]>;
 }) {
   const questionBlocks = blocks.filter((b) =>
-    ['short-answer', 'long-answer', 'multiple-choice', 'checkbox', 'ordering', 'image-upload', 'true-false', 'matching', 'fill-blank'].includes(b.type)
+    ['short-answer', 'long-answer', 'multiple-choice', 'checkbox', 'ordering', 'image-upload', 'true-false', 'matching', 'fill-blank', 'link'].includes(b.type)
   );
   if (questionBlocks.length === 0) return null;
 
@@ -1314,6 +1335,11 @@ function AnswerReview({
                   </div>
                 ))}
               </div>
+            ) : block.type === 'link' && typeof answer === 'string' && answer ? (
+              <a href={answer} target="_blank" rel="noopener noreferrer"
+                className="text-sm text-cyan-400 underline break-all hover:text-cyan-300">
+                🔗 {answer}
+              </a>
             ) : Array.isArray(answer) ? (
               <div className="flex flex-wrap gap-2">
                 {answer.map((a) => (
