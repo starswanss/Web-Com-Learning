@@ -42,6 +42,13 @@ export default function GroupsPage({ params }: { params: Promise<{ id: string }>
   const [newGroupMembers, setNewGroupMembers] = useState<string[]>([]);
   const [adding, setAdding] = useState(false);
 
+  // Copy-from-previous dialog
+  const [showCopy, setShowCopy] = useState(false);
+  const [copySources, setCopySources] = useState<Array<{ assignmentId: string; title: string; classIds: string[]; groupCount: number }>>([]);
+  const [copyLoading, setCopyLoading] = useState(false);
+  const [copyClear, setCopyClear] = useState(true);
+  const [copyingId, setCopyingId] = useState<string | null>(null);
+
   // Edit state
   const [editId, setEditId] = useState<string | null>(null);
   const [editName, setEditName] = useState('');
@@ -109,6 +116,34 @@ export default function GroupsPage({ params }: { params: Promise<{ id: string }>
       setMsg(data.error ?? 'ไม่สำเร็จ');
     }
     setRandomizing(false);
+  }
+
+  async function openCopy() {
+    setShowCopy(true); setCopyLoading(true); setMsg(null);
+    try {
+      const res = await fetch(`/api/teacher/groups/copy?assignmentId=${assignmentId}`);
+      const data = await res.json();
+      setCopySources(Array.isArray(data) ? data : []);
+    } catch { setCopySources([]); }
+    finally { setCopyLoading(false); }
+  }
+
+  async function handleCopy(sourceAssignmentId: string) {
+    setCopyingId(sourceAssignmentId); setMsg(null);
+    const res = await fetch('/api/teacher/groups/copy', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ assignmentId, sourceAssignmentId, clearExisting: copyClear }),
+    });
+    const data = await res.json();
+    if (res.ok) {
+      setMsg(`คัดลอกกลุ่มสำเร็จ ${data.copied} กลุ่ม${data.skipped ? ` · ข้าม ${data.skipped} (ห้องไม่ตรง)` : ''}`);
+      setShowCopy(false);
+      await load();
+    } else {
+      setMsg(data.error ?? 'ไม่สำเร็จ');
+    }
+    setCopyingId(null);
   }
 
   async function handleAddGroup() {
@@ -188,6 +223,12 @@ export default function GroupsPage({ params }: { params: Promise<{ id: string }>
               📋 ดูงานกลุ่ม
             </Link>
             <button
+              onClick={openCopy}
+              className="rounded-lg border border-cyan-700 bg-cyan-950/40 px-3 py-1.5 text-xs text-cyan-300 hover:border-cyan-500 transition-all"
+            >
+              📋 ใช้กลุ่มเดิม
+            </button>
+            <button
               onClick={() => { setShowRandomize(true); setMsg(null); }}
               className="rounded-lg border border-purple-700 bg-purple-950/40 px-3 py-1.5 text-xs text-purple-300 hover:border-purple-500 transition-all"
             >
@@ -247,6 +288,57 @@ export default function GroupsPage({ params }: { params: Promise<{ id: string }>
           </>
         )}
       </main>
+
+      {/* Copy-from-previous Dialog */}
+      {showCopy && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center">
+          <div className="absolute inset-0 bg-black/60 backdrop-blur-sm" onClick={() => setShowCopy(false)} />
+          <div className="relative z-10 w-full max-w-md rounded-2xl border border-slate-700 bg-slate-900 p-6 shadow-2xl">
+            <h2 className="text-base font-semibold text-slate-100 mb-1">📋 ใช้กลุ่มเดิมจากใบงานอื่น</h2>
+            <p className="text-xs text-slate-500 mb-4">
+              คัดลอกกลุ่ม (ชื่อ + สมาชิก) จากใบงานที่เคยจัดกลุ่มไว้ — เฉพาะกลุ่มที่ห้องตรงกับใบงานนี้
+            </p>
+
+            <label className="mb-3 flex items-center gap-2 text-xs text-slate-400">
+              <input type="checkbox" checked={copyClear} onChange={e => setCopyClear(e.target.checked)} className="accent-cyan-500" />
+              ลบกลุ่มเดิมในใบงานนี้ก่อนคัดลอก
+            </label>
+
+            {copyLoading ? (
+              <div className="flex justify-center py-8">
+                <div className="h-5 w-5 animate-spin rounded-full border-2 border-slate-700 border-t-slate-300" />
+              </div>
+            ) : copySources.length === 0 ? (
+              <p className="py-6 text-center text-sm text-slate-500">ยังไม่มีใบงานอื่นที่จัดกลุ่มไว้</p>
+            ) : (
+              <div className="max-h-72 space-y-2 overflow-y-auto">
+                {copySources.map((s) => (
+                  <button
+                    key={s.assignmentId}
+                    onClick={() => handleCopy(s.assignmentId)}
+                    disabled={copyingId !== null}
+                    className="flex w-full items-center justify-between gap-3 rounded-xl border border-slate-700 bg-slate-800/60 px-4 py-3 text-left transition-all hover:border-cyan-600 hover:bg-slate-800 disabled:opacity-50"
+                  >
+                    <div className="min-w-0">
+                      <p className="truncate text-sm font-medium text-slate-200">{s.title}</p>
+                      <p className="text-[11px] text-slate-500">
+                        {s.groupCount} กลุ่ม · ห้อง {s.classIds.join(', ') || '—'}
+                      </p>
+                    </div>
+                    <span className="shrink-0 text-xs font-semibold text-cyan-400">
+                      {copyingId === s.assignmentId ? 'กำลังคัดลอก…' : 'ใช้กลุ่มนี้ →'}
+                    </span>
+                  </button>
+                ))}
+              </div>
+            )}
+
+            <button onClick={() => setShowCopy(false)} className="mt-4 w-full rounded-xl border border-slate-700 py-2.5 text-sm text-slate-400 hover:text-slate-200">
+              ปิด
+            </button>
+          </div>
+        </div>
+      )}
 
       {/* Randomize Dialog */}
       {showRandomize && (
