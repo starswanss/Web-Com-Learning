@@ -305,7 +305,7 @@ export default function SubmissionPage({ params }: { params: Promise<{ id: strin
       });
       if (requiredMissing) return setError('กรุณาตอบคำถามที่จำเป็นให้ครบ');
     } else {
-      if (!content.trim() && !attachedImageUrl) return setError('กรุณาพิมพ์คำตอบหรืออัปโหลดรูปภาพ');
+      if (!content.trim()) return setError('กรุณาพิมพ์คำตอบ');
     }
 
     setSubmitting(true);
@@ -460,6 +460,27 @@ export default function SubmissionPage({ params }: { params: Promise<{ id: strin
           </div>
         ) : assignment?.isGroupWork && groupSubmission ? (
           <GroupSubmissionView submission={groupSubmission} group={myGroup!} assignment={assignment} />
+        ) : assignment?.contentType === 'knowledge' ? (
+          /* Knowledge sheet — read-only, no submission */
+          <div className="space-y-5">
+            {hasBlocks && assignment ? (
+              <BlockForm
+                blocks={assignment.blocks!}
+                answers={answers}
+                setAnswer={setAnswer}
+                toggleCheckbox={toggleCheckbox}
+                onPaste={blockPaste}
+                onDrop={blockDrop}
+              />
+            ) : (
+              <div className="rounded-2xl border border-slate-800 bg-slate-900 p-6 text-sm text-slate-400">
+                อ่านเนื้อหาด้านบน
+              </div>
+            )}
+            <div className="rounded-xl border border-emerald-800/50 bg-emerald-950/20 px-4 py-3 text-center text-sm font-medium text-emerald-400">
+              📖 ใบความรู้ — สำหรับอ่านศึกษา ไม่ต้องส่งงาน
+            </div>
+          </div>
         ) : (
           <form onSubmit={handleSubmit} className="space-y-5">
             {assignment?.isGroupWork && myGroup && (
@@ -533,11 +554,6 @@ export default function SubmissionPage({ params }: { params: Promise<{ id: strin
                 />
               </div>
             )}
-
-            <DriveImageAttachment
-              url={attachedImageUrl}
-              onUrl={setAttachedImageUrl}
-            />
 
             {error && (
               <div className="rounded-xl border border-red-800 bg-red-950/50 px-4 py-3 text-sm text-red-400">

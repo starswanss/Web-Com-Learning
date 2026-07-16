@@ -59,6 +59,11 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: 'Forbidden' }, { status: 403 });
   }
 
+  // Knowledge sheets are read-only — they can't be submitted.
+  if (assignment.contentType === 'knowledge') {
+    return NextResponse.json({ error: 'ใบความรู้ไม่ต้องส่งงาน' }, { status: 400 });
+  }
+
   if (assignment.isOpen === false) {
     return NextResponse.json({ error: 'Assignment is closed' }, { status: 423 });
   }
