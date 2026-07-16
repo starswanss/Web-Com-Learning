@@ -313,8 +313,8 @@ export default function StudentPage() {
                 <section className="overflow-hidden rounded-2xl border border-slate-800/80 bg-slate-900">
                   <div className="flex items-center gap-3 border-b border-slate-800/80 bg-blue-500/5 px-5 py-3.5">
                     <div className="h-4 w-0.5 rounded-full bg-blue-500" />
-                    <h2 className="text-[11px] font-bold uppercase tracking-widest text-blue-400">งานที่ต้องทำ</h2>
-                    <span className="rounded-full bg-slate-800 px-2 py-0.5 text-[10px] font-semibold text-slate-400">{pending.length}</span>
+                    <h2 className="text-sm font-bold uppercase tracking-wide text-blue-400">งานที่ต้องทำ</h2>
+                    <span className="rounded-full bg-slate-800 px-2.5 py-0.5 text-xs font-semibold text-slate-400">{pending.length}</span>
                   </div>
 
                   {pending.length === 0 ? (
@@ -330,18 +330,18 @@ export default function StudentPage() {
                         return (
                           <div key={ct}>
                             {/* Content-type header inside the section */}
-                            <div className={`flex items-center gap-2 px-5 py-2 ${
+                            <div className={`flex items-center gap-2 px-5 py-2.5 ${
                               ct === 'knowledge' ? 'bg-emerald-500/5' :
                               ct === 'worksheet'  ? 'bg-blue-500/5'    :
                                                     'bg-purple-500/5'
                             }`}>
-                              <span className="text-xs">{meta.icon}</span>
-                              <span className={`text-[10px] font-bold uppercase tracking-widest ${
+                              <span className="text-base">{meta.icon}</span>
+                              <span className={`text-sm font-bold uppercase tracking-wide ${
                                 ct === 'knowledge' ? 'text-emerald-500' :
                                 ct === 'worksheet'  ? 'text-blue-500'    :
                                                       'text-purple-500'
                               }`}>{meta.label}</span>
-                              <span className="rounded-full bg-slate-800 px-1.5 py-0.5 text-[9px] text-slate-500">{total}</span>
+                              <span className="rounded-full bg-slate-800 px-2 py-0.5 text-[11px] text-slate-500">{total}</span>
                             </div>
                             {Array.from(unitGroups.entries()).map(([unit, items]) => (
                               <div key={unit}>
@@ -352,8 +352,8 @@ export default function StudentPage() {
                                       ct === 'worksheet'  ? 'bg-blue-500'    :
                                                             'bg-purple-500'
                                     }`} />
-                                    <span className="text-[11px] font-bold text-slate-300">{unit}</span>
-                                    <span className="rounded-full border border-slate-700/60 bg-slate-800/60 px-2 py-0.5 text-[10px] text-slate-400">
+                                    <span className="text-sm font-bold text-slate-300">{unit}</span>
+                                    <span className="rounded-full border border-slate-700/60 bg-slate-800/60 px-2 py-0.5 text-xs text-slate-400">
                                       {items.length} รายการ
                                     </span>
                                   </div>
@@ -373,8 +373,8 @@ export default function StudentPage() {
                   <section className="overflow-hidden rounded-2xl border border-slate-800/80 bg-slate-900">
                     <div className="flex items-center gap-3 border-b border-slate-800/80 bg-amber-500/5 px-5 py-3.5">
                       <div className="h-4 w-0.5 rounded-full bg-amber-400" />
-                      <h2 className="text-[11px] font-bold uppercase tracking-widest text-amber-400">รอตรวจ</h2>
-                      <span className="rounded-full bg-slate-800 px-2 py-0.5 text-[10px] font-semibold text-slate-400">{submitted.length}</span>
+                      <h2 className="text-sm font-bold uppercase tracking-wide text-amber-400">รอตรวจ</h2>
+                      <span className="rounded-full bg-slate-800 px-2.5 py-0.5 text-xs font-semibold text-slate-400">{submitted.length}</span>
                     </div>
                     <div className="divide-y divide-slate-800/50">
                       {Array.from(submittedByUnit.entries()).map(([unit, items]) => (
@@ -382,8 +382,8 @@ export default function StudentPage() {
                           {unit && (
                             <div className="flex items-center gap-3 border-b border-slate-800/40 bg-slate-950/40 px-5 py-2.5">
                               <div className="h-5 w-1 shrink-0 rounded-full bg-amber-400" />
-                              <span className="text-[11px] font-bold text-slate-300">{unit}</span>
-                              <span className="rounded-full border border-slate-700/60 bg-slate-800/60 px-2 py-0.5 text-[10px] text-slate-400">{items.length} รายการ</span>
+                              <span className="text-sm font-bold text-slate-300">{unit}</span>
+                              <span className="rounded-full border border-slate-700/60 bg-slate-800/60 px-2 py-0.5 text-xs text-slate-400">{items.length} รายการ</span>
                             </div>
                           )}
                           {items.map(a => <AssignmentRow key={a.id} assignment={a} />)}
@@ -398,8 +398,8 @@ export default function StudentPage() {
                   <section className="overflow-hidden rounded-2xl border border-slate-800/80 bg-slate-900">
                     <div className="flex items-center gap-3 border-b border-slate-800/80 bg-emerald-500/5 px-5 py-3.5">
                       <div className="h-4 w-0.5 rounded-full bg-emerald-500" />
-                      <h2 className="text-[11px] font-bold uppercase tracking-widest text-emerald-400">ตรวจแล้ว</h2>
-                      <span className="rounded-full bg-slate-800 px-2 py-0.5 text-[10px] font-semibold text-slate-400">{graded.length}</span>
+                      <h2 className="text-sm font-bold uppercase tracking-wide text-emerald-400">ตรวจแล้ว</h2>
+                      <span className="rounded-full bg-slate-800 px-2.5 py-0.5 text-xs font-semibold text-slate-400">{graded.length}</span>
                     </div>
                     <div className="divide-y divide-slate-800/50">
                       {Array.from(gradedByUnit.entries()).map(([unit, items]) => (
@@ -407,8 +407,8 @@ export default function StudentPage() {
                           {unit && (
                             <div className="flex items-center gap-3 border-b border-slate-800/40 bg-slate-950/40 px-5 py-2.5">
                               <div className="h-5 w-1 shrink-0 rounded-full bg-emerald-500" />
-                              <span className="text-[11px] font-bold text-slate-300">{unit}</span>
-                              <span className="rounded-full border border-slate-700/60 bg-slate-800/60 px-2 py-0.5 text-[10px] text-slate-400">{items.length} รายการ</span>
+                              <span className="text-sm font-bold text-slate-300">{unit}</span>
+                              <span className="rounded-full border border-slate-700/60 bg-slate-800/60 px-2 py-0.5 text-xs text-slate-400">{items.length} รายการ</span>
                             </div>
                           )}
                           {items.map(a => <AssignmentRow key={a.id} assignment={a} />)}
@@ -472,7 +472,7 @@ export default function StudentPage() {
                 {/* Calendar */}
                 <div className="overflow-hidden rounded-2xl border border-slate-800/80 bg-slate-900">
                   <div className="flex items-center justify-between border-b border-slate-800/80 px-5 py-3.5">
-                    <h2 className="text-[11px] font-bold uppercase tracking-widest text-slate-400">ปฏิทิน</h2>
+                    <h2 className="text-sm font-bold uppercase tracking-wide text-slate-400">ปฏิทิน</h2>
                     <div className="flex items-center gap-1">
                       <button onClick={() => { if(calMonth===0){setCalYear(y=>y-1);setCalMonth(11);}else setCalMonth(m=>m-1); setSelectedDay(null); }}
                         className="rounded border border-slate-800 px-2 py-0.5 text-[10px] text-slate-500 hover:text-slate-300 transition-all">←</button>
@@ -694,64 +694,64 @@ function AssignmentRow({ assignment: a }: { assignment: AssignmentWithSubmission
 
   return (
     <Link href={`/student/assignments/${a.id}`}
-      className={`flex items-center gap-4 border-l-2 ${accentBorder} px-5 py-3.5 transition-colors hover:bg-slate-800/20`}>
+      className={`flex items-center gap-4 border-l-2 ${accentBorder} px-5 py-4 transition-colors hover:bg-slate-800/20`}>
       <div className="min-w-0 flex-1">
-        <div className="mb-1 flex flex-wrap gap-1">
+        <div className="mb-1.5 flex flex-wrap gap-1.5">
           {m && (
-            <span className={`inline-flex items-center gap-1 rounded-md border px-1.5 py-0.5 text-[9px] font-bold ${m.color}`}>
+            <span className={`inline-flex items-center gap-1 rounded-md border px-2 py-0.5 text-[11px] font-bold ${m.color}`}>
               {m.icon} {m.label}
             </span>
           )}
           {isQuiz && a.quizPhase === 'pre' && (
-            <span className="inline-flex items-center rounded-full border border-sky-800/60 bg-sky-950/30 px-2 py-0.5 text-[9px] font-bold text-sky-400">ก่อนเรียน</span>
+            <span className="inline-flex items-center rounded-full border border-sky-800/60 bg-sky-950/30 px-2 py-0.5 text-[11px] font-bold text-sky-400">ก่อนเรียน</span>
           )}
           {isQuiz && a.quizPhase === 'post' && (
-            <span className="inline-flex items-center rounded-full border border-violet-800/60 bg-violet-950/30 px-2 py-0.5 text-[9px] font-bold text-violet-400">หลังเรียน</span>
+            <span className="inline-flex items-center rounded-full border border-violet-800/60 bg-violet-950/30 px-2 py-0.5 text-[11px] font-bold text-violet-400">หลังเรียน</span>
           )}
         </div>
-        <p className="font-medium text-slate-100 truncate">{a.title}</p>
-        <div className="mt-1 flex flex-wrap items-center gap-2">
+        <p className="text-base sm:text-lg font-semibold text-slate-100 truncate">{a.title}</p>
+        <div className="mt-1.5 flex flex-wrap items-center gap-x-3 gap-y-1">
           {!a.submission && a.isOpen === false && (
-            <span className="text-[9px] text-slate-500">🔒 {isQuiz ? 'ยังไม่เปิดสอบ' : 'ยังไม่เปิด'}</span>
+            <span className="text-xs text-slate-500">🔒 {isQuiz ? 'ยังไม่เปิดสอบ' : 'ยังไม่เปิด'}</span>
           )}
           {!a.submission && dueStatus && (
-            <span className={`flex items-center gap-1 text-[9px] ${dueStatus.text}`}>
-              <span className={`h-1 w-1 rounded-full ${dueStatus.dot}`}/>
+            <span className={`flex items-center gap-1.5 text-xs font-medium ${dueStatus.text}`}>
+              <span className={`h-1.5 w-1.5 rounded-full ${dueStatus.dot}`}/>
               ส่ง {formatDateShort(a.dueDate?._seconds)} · เหลือ {dueStatus.label}
             </span>
           )}
           {a.submission && (
-            <span className="text-[9px] text-slate-600">ส่งแล้ว · {formatDateShort(a.dueDate?._seconds)}</span>
+            <span className="text-xs text-slate-500">ส่งแล้ว · {formatDateShort(a.dueDate?._seconds)}</span>
           )}
           {a.submission?.feedback && (
-            <p className="mt-0.5 line-clamp-1 text-[9px] italic text-slate-600">{a.submission.feedback}</p>
+            <p className="line-clamp-1 text-xs italic text-slate-500">{a.submission.feedback}</p>
           )}
         </div>
       </div>
 
       <div className="shrink-0">
         {hasScore && (
-          <span className={`rounded-xl border px-3 py-1.5 text-sm font-black ${scoreColor(a.submission!.score!)}`}>
+          <span className={`rounded-xl border px-4 py-2 text-lg font-black ${scoreColor(a.submission!.score!)}`}>
             {a.submission!.score}
           </span>
         )}
         {!a.submission && a.isOpen === false && (
-          <span className="rounded-xl border border-slate-700/60 bg-slate-800/40 px-3 py-1.5 text-[10px] font-semibold text-slate-500">
+          <span className="rounded-xl border border-slate-700/60 bg-slate-800/40 px-4 py-2.5 text-sm font-semibold text-slate-500">
             🔒
           </span>
         )}
         {!a.submission && a.isOpen !== false && (
           a.contentType === 'knowledge'
-            ? <span className="rounded-xl border border-emerald-800/60 bg-emerald-950/30 px-3 py-1.5 text-[10px] font-semibold text-emerald-400">เปิดดู →</span>
-            : <span className="rounded-xl border border-blue-800/60 bg-blue-950/30 px-3 py-1.5 text-[10px] font-semibold text-blue-400">ส่งงาน →</span>
+            ? <span className="rounded-xl border border-emerald-600 bg-emerald-600/90 px-5 py-3 text-sm font-bold text-white shadow-sm">เปิดดู →</span>
+            : <span className="rounded-xl border border-blue-500 bg-blue-600 px-5 py-3 text-sm font-bold text-white shadow-md shadow-blue-900/40">ทำงานนี้ →</span>
         )}
         {a.submission && !hasScore && a.contentType !== 'knowledge' && (
-          <span className="rounded-xl border border-amber-800/60 bg-amber-950/30 px-3 py-1.5 text-[10px] font-semibold text-amber-400">
+          <span className="rounded-xl border border-amber-800/60 bg-amber-950/30 px-4 py-2.5 text-sm font-semibold text-amber-400">
             รอตรวจ
           </span>
         )}
         {a.submission && a.contentType === 'knowledge' && !hasScore && (
-          <span className="rounded-xl border border-emerald-900/40 bg-emerald-950/20 px-3 py-1.5 text-[10px] font-semibold text-emerald-600">
+          <span className="rounded-xl border border-emerald-900/40 bg-emerald-950/20 px-4 py-2.5 text-sm font-semibold text-emerald-600">
             อ่านแล้ว ✓
           </span>
         )}
