@@ -9,10 +9,13 @@ import type { FormBlock } from '@/types';
 interface GroupEntry {
   id: string;
   name: string;
+  classId: string;
   memberIds: string[];
   memberNames: string[];
   submission: GroupSub | null;
 }
+
+type StatusFilter = 'all' | 'none' | 'submitted' | 'reviewed';
 
 interface GroupSub {
   id: string;
@@ -66,6 +69,8 @@ export default function GroupSubmissionsPage({ params }: { params: Promise<{ id:
   const [feedback, setFeedback] = useState('');
   const [saving, setSaving] = useState(false);
   const [saveMsg, setSaveMsg] = useState<string | null>(null);
+  const [statusFilter, setStatusFilter] = useState<StatusFilter>('all');
+  const [classFilter, setClassFilter] = useState<string | null>(null);
 
   useEffect(() => {
     if (!loading && profile?.role !== 'teacher') router.push('/dashboard');
@@ -133,6 +138,25 @@ export default function GroupSubmissionsPage({ params }: { params: Promise<{ id:
 
   const pendingCount = groups.filter(g => g.submission?.status === 'submitted').length;
   const reviewedCount = groups.filter(g => g.submission?.status === 'reviewed').length;
+  const noneCount = groups.filter(g => !g.submission).length;
+
+  // Classes present, for the class filter.
+  const classes = Array.from(new Set(groups.map(g => g.classId).filter(Boolean))).sort();
+
+  const statusOf = (g: GroupEntry): StatusFilter =>
+    !g.submission ? 'none' : g.submission.status === 'reviewed' ? 'reviewed' : 'submitted';
+
+  const filtered = groups.filter(g =>
+    (statusFilter === 'all' || statusOf(g) === statusFilter) &&
+    (!classFilter || g.classId === classFilter),
+  );
+
+  const STATUS_CHIPS: { key: StatusFilter; label: string; count: number; active: string }[] = [
+    { key: 'all',       label: 'ทั้งหมด',   count: groups.length,  active: 'border-blue-600 bg-blue-950/50 text-blue-300' },
+    { key: 'none',      label: 'ยังไม่ส่ง', count: noneCount,      active: 'border-slate-500 bg-slate-800 text-slate-200' },
+    { key: 'submitted', label: 'รอตรวจ',    count: pendingCount,   active: 'border-amber-600 bg-amber-950/50 text-amber-300' },
+    { key: 'reviewed',  label: 'ตรวจแล้ว',  count: reviewedCount,  active: 'border-emerald-600 bg-emerald-950/50 text-emerald-300' },
+  ];
 
   return (
     <div className="min-h-screen bg-slate-950">
@@ -157,7 +181,53 @@ export default function GroupSubmissionsPage({ params }: { params: Promise<{ id:
         {fetching ? (
           <div className="flex justify-center py-20"><div className="h-6 w-6 animate-spin rounded-full border-2 border-slate-700 border-t-slate-300" /></div>
         ) : (
-          <div className="flex gap-4 h-[calc(100vh-120px)]">
+          <>
+          {/* Filter bar */}
+          {groups.length > 0 && (
+            <div className="mb-4 space-y-2">
+              {/* Status filter */}
+              <div className="flex flex-wrap items-center gap-2">
+                {STATUS_CHIPS.map(c => (
+                  <button
+                    key={c.key}
+                    onClick={() => setStatusFilter(c.key)}
+                    className={`rounded-lg border px-3 py-1.5 text-xs font-semibold transition-all ${
+                      statusFilter === c.key ? c.active : 'border-slate-700 text-slate-400 hover:border-slate-600 hover:text-slate-300'
+                    }`}
+                  >
+                    {c.label} <span className="opacity-70">{c.count}</span>
+                  </button>
+                ))}
+              </div>
+              {/* Class filter */}
+              {classes.length > 1 && (
+                <div className="flex flex-wrap items-center gap-2">
+                  <span className="text-[10px] font-bold uppercase tracking-widest text-slate-600">ห้อง:</span>
+                  <button
+                    onClick={() => setClassFilter(null)}
+                    className={`rounded-lg border px-3 py-1 text-xs font-semibold transition-all ${
+                      classFilter === null ? 'border-blue-700 bg-blue-950/50 text-blue-300' : 'border-slate-700 text-slate-500 hover:border-slate-600 hover:text-slate-300'
+                    }`}
+                  >
+                    ทั้งหมด
+                  </button>
+                  {classes.map(c => (
+                    <button
+                      key={c}
+                      onClick={() => setClassFilter(classFilter === c ? null : c)}
+                      className={`rounded-lg border px-3 py-1 text-xs font-semibold transition-all ${
+                        classFilter === c ? 'border-blue-700 bg-blue-950/50 text-blue-300' : 'border-slate-700 text-slate-500 hover:border-slate-600 hover:text-slate-300'
+                      }`}
+                    >
+                      {c}
+                    </button>
+                  ))}
+                </div>
+              )}
+            </div>
+          )}
+
+          <div className="flex gap-4 h-[calc(100vh-180px)]">
             {/* Group list */}
             <div className="w-72 shrink-0 overflow-y-auto pr-1 space-y-2">
               {groups.length === 0 ? (
@@ -165,7 +235,11 @@ export default function GroupSubmissionsPage({ params }: { params: Promise<{ id:
                   <p className="text-sm text-slate-500">ยังไม่มีกลุ่ม</p>
                   <Link href={`/teacher/assignments/${assignmentId}/groups`} className="mt-2 block text-xs text-blue-400 hover:text-blue-300">→ ไปจัดกลุ่ม</Link>
                 </div>
-              ) : groups.map(g => (
+              ) : filtered.length === 0 ? (
+                <div className="rounded-xl border border-dashed border-slate-800 py-12 text-center">
+                  <p className="text-sm text-slate-500">ไม่มีกลุ่มตรงเงื่อนไข</p>
+                </div>
+              ) : filtered.map(g => (
                 <div
                   key={g.id}
                   onClick={() => openGroup(g)}
@@ -289,6 +363,7 @@ export default function GroupSubmissionsPage({ params }: { params: Promise<{ id:
               )}
             </div>
           </div>
+          </>
         )}
       </main>
     </div>
