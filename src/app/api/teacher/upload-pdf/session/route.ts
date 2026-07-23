@@ -42,7 +42,9 @@ export async function POST(req: NextRequest) {
     const folderId = await ensureMediaFolder('PDFs');
     const ext = (filename?.split('.').pop() ?? 'pdf').toLowerCase();
     const safeName = `${Date.now()}-${Math.random().toString(36).slice(2, 8)}.${ext}`;
-    const uploadUrl = await createResumableUploadSession(folderId, safeName, mimeType, size);
+    // Pass the browser's origin so Google allows the client's direct PUT (CORS).
+    const clientOrigin = req.headers.get('origin') ?? new URL(req.url).origin;
+    const uploadUrl = await createResumableUploadSession(folderId, safeName, mimeType, size, clientOrigin);
     return NextResponse.json({ uploadUrl });
   } catch (err) {
     console.error('[upload-pdf/session]', err instanceof Error ? err.message : err);

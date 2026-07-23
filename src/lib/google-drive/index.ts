@@ -114,21 +114,27 @@ export async function createResumableUploadSession(
   filename: string,
   mimeType: string,
   size: number,
+  clientOrigin?: string,
 ): Promise<string> {
   const auth = getOAuth2Client();
   const { token } = await auth.getAccessToken();
   if (!token) throw new Error('Could not obtain Drive access token');
 
+  const headers: Record<string, string> = {
+    Authorization: `Bearer ${token}`,
+    'Content-Type': 'application/json; charset=UTF-8',
+    'X-Upload-Content-Type': mimeType,
+    'X-Upload-Content-Length': String(size),
+  };
+  // Binds the session to the browser's origin so Google returns CORS headers on
+  // the client's PUT. Without it the direct upload is blocked by CORS.
+  if (clientOrigin) headers.Origin = clientOrigin;
+
   const res = await fetch(
     'https://www.googleapis.com/upload/drive/v3/files?uploadType=resumable&fields=id',
     {
       method: 'POST',
-      headers: {
-        Authorization: `Bearer ${token}`,
-        'Content-Type': 'application/json; charset=UTF-8',
-        'X-Upload-Content-Type': mimeType,
-        'X-Upload-Content-Length': String(size),
-      },
+      headers,
       body: JSON.stringify({ name: filename, parents: [folderId] }),
     },
   );
