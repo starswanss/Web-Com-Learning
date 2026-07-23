@@ -1,13 +1,17 @@
 import { google } from 'googleapis';
 import { Readable } from 'stream';
 
-function getDriveClient() {
+function getOAuth2Client() {
   const auth = new google.auth.OAuth2(
     process.env.GOOGLE_DRIVE_CLIENT_ID,
     process.env.GOOGLE_DRIVE_CLIENT_SECRET
   );
   auth.setCredentials({ refresh_token: process.env.GOOGLE_DRIVE_REFRESH_TOKEN });
-  return google.drive({ version: 'v3', auth });
+  return auth;
+}
+
+function getDriveClient() {
+  return google.drive({ version: 'v3', auth: getOAuth2Client() });
 }
 
 async function getOrCreateFolder(name: string, parentId?: string): Promise<string> {
@@ -95,6 +99,55 @@ export async function uploadAssignmentFile(
 ): Promise<{ fileId: string; webViewLink: string }> {
   const { assignmentsId } = await ensureClassFolders(classId);
   return uploadFileToDrive(assignmentsId, buffer, mimeType, filename);
+}
+
+/**
+ * Start a Google Drive **resumable** upload and return the session URL.
+ *
+ * The browser then PUTs the file bytes straight to that URL, so the payload
+ * never passes through our serverless function — this is what allows uploads
+ * larger than the hosting platform's ~4.5 MB request-body limit. The session
+ * URL is pre-authorised, so no access token is exposed to the client.
+ */
+export async function createResumableUploadSession(
+  folderId: string,
+  filename: string,
+  mimeType: string,
+  size: number,
+): Promise<string> {
+  const auth = getOAuth2Client();
+  const { token } = await auth.getAccessToken();
+  if (!token) throw new Error('Could not obtain Drive access token');
+
+  const res = await fetch(
+    'https://www.googleapis.com/upload/drive/v3/files?uploadType=resumable&fields=id',
+    {
+      method: 'POST',
+      headers: {
+        Authorization: `Bearer ${token}`,
+        'Content-Type': 'application/json; charset=UTF-8',
+        'X-Upload-Content-Type': mimeType,
+        'X-Upload-Content-Length': String(size),
+      },
+      body: JSON.stringify({ name: filename, parents: [folderId] }),
+    },
+  );
+
+  if (!res.ok) {
+    throw new Error(`Drive resumable session failed (${res.status}): ${await res.text()}`);
+  }
+  const location = res.headers.get('location');
+  if (!location) throw new Error('Drive did not return an upload session URL');
+  return location;
+}
+
+/** Make an uploaded file publicly readable (called after a direct upload). */
+export async function makeFilePublic(fileId: string): Promise<void> {
+  const drive = getDriveClient();
+  await drive.permissions.create({
+    fileId,
+    requestBody: { role: 'reader', type: 'anyone' },
+  });
 }
 
 /** Get or create Root > LMS Media > {subfolder} */

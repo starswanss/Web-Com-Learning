@@ -190,18 +190,57 @@ function PdfEditor({ block, onChange }: { block: PdfBlock; onChange: (b: FormBlo
   const [uploading, setUploading] = useState(false);
   const [uploadError, setUploadError] = useState<string | null>(null);
 
+  // Files above this go straight to Google Drive — the hosting platform rejects
+  // request bodies larger than ~4.5 MB before they ever reach our API route.
+  const DIRECT_UPLOAD_THRESHOLD = 4 * 1024 * 1024;
+
   async function handleFile(file: File) {
     setUploading(true);
     setUploadError(null);
     try {
-      const form = new FormData();
-      form.append('file', file);
-      const res = await fetch('/api/teacher/upload-pdf', { method: 'POST', body: form });
-      let json: { url?: string; error?: string } = {};
-      try { json = await res.json(); } catch { /* non-JSON error response */ }
-      if (!res.ok) throw new Error(json.error ?? 'อัปโหลดไม่สำเร็จ กรุณาลองใหม่');
-      if (!json.url) throw new Error('ไม่ได้รับ URL จากเซิร์ฟเวอร์');
-      onChange({ ...block, url: json.url });
+      let url: string | undefined;
+
+      if (file.size > DIRECT_UPLOAD_THRESHOLD) {
+        // 1) ask our server for a pre-authorised Drive upload session
+        const sessRes = await fetch('/api/teacher/upload-pdf/session', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ filename: file.name, mimeType: file.type, size: file.size }),
+        });
+        const sess = await sessRes.json().catch(() => ({}));
+        if (!sessRes.ok) throw new Error(sess.error ?? 'เริ่มอัปโหลดไม่สำเร็จ');
+
+        // 2) upload the bytes straight to Google (bypasses our server)
+        const putRes = await fetch(sess.uploadUrl, {
+          method: 'PUT',
+          headers: { 'Content-Type': file.type },
+          body: file,
+        });
+        if (!putRes.ok) throw new Error('อัปโหลดไปยัง Google Drive ไม่สำเร็จ');
+        const uploaded = await putRes.json().catch(() => ({}));
+        if (!uploaded.id) throw new Error('ไม่ได้รับรหัสไฟล์จาก Google Drive');
+
+        // 3) make it public and get the viewable URL
+        const finRes = await fetch('/api/teacher/upload-pdf/session', {
+          method: 'PATCH',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ fileId: uploaded.id }),
+        });
+        const fin = await finRes.json().catch(() => ({}));
+        if (!finRes.ok) throw new Error(fin.error ?? 'ตั้งค่าไฟล์ไม่สำเร็จ');
+        url = fin.url;
+      } else {
+        const form = new FormData();
+        form.append('file', file);
+        const res = await fetch('/api/teacher/upload-pdf', { method: 'POST', body: form });
+        let json: { url?: string; error?: string } = {};
+        try { json = await res.json(); } catch { /* non-JSON error response */ }
+        if (!res.ok) throw new Error(json.error ?? 'อัปโหลดไม่สำเร็จ กรุณาลองใหม่');
+        url = json.url;
+      }
+
+      if (!url) throw new Error('ไม่ได้รับ URL จากเซิร์ฟเวอร์');
+      onChange({ ...block, url });
     } catch (err) {
       setUploadError(err instanceof Error ? err.message : 'อัปโหลดไม่สำเร็จ');
     } finally {
