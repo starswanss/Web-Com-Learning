@@ -19,14 +19,21 @@ async function getTeacherUid(): Promise<string | null> {
   }
 }
 
+// Grading many submissions in one request blows past the platform's function
+// timeout (a 504). We grade a bounded slice per call and report what's left so
+// the client can keep calling until everything is done.
+export const maxDuration = 60;
+
 export async function POST(
-  _req: NextRequest,
+  req: NextRequest,
   { params }: { params: Promise<{ assignmentId: string }> }
 ) {
   const uid = await getTeacherUid();
   if (!uid) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
 
   const { assignmentId } = await params;
+  const body = await req.json().catch(() => ({}));
+  const limit = Math.min(Math.max(Number(body?.limit) || 10, 1), 30);
 
   const [assignmentSnap, submissionsSnap] = await Promise.all([
     adminDb.collection('assignments').doc(assignmentId).get(),
@@ -64,14 +71,19 @@ export async function POST(
   let graded = 0;
   let errors = 0;
 
+  // Only take a bounded slice this call — the rest is reported as `remaining`
+  // and picked up by the next call from the client.
+  const batchItems = gradableItems.slice(0, limit);
+  const remaining = gradableItems.length - batchItems.length;
+
   const CHUNK_SIZE = 5;
   const CONCURRENCY = 2;   // chunks processed in parallel per round
-  const ROUND_DELAY = 2_000; // ms between rounds
+  const ROUND_DELAY = 1_000; // ms between rounds
 
   // Split into chunks of CHUNK_SIZE
   const chunks: typeof gradableItems[] = [];
-  for (let i = 0; i < gradableItems.length; i += CHUNK_SIZE) {
-    chunks.push(gradableItems.slice(i, i + CHUNK_SIZE));
+  for (let i = 0; i < batchItems.length; i += CHUNK_SIZE) {
+    chunks.push(batchItems.slice(i, i + CHUNK_SIZE));
   }
 
   async function processChunk(chunk: typeof gradableItems) {
@@ -134,5 +146,11 @@ export async function POST(
 
   if (graded > 0) invalidateLeaderboards(); // scores changed
 
-  return NextResponse.json({ graded, errors, skipped: allDocs.length - toGrade.length });
+  return NextResponse.json({
+    graded,
+    errors,
+    remaining,
+    pending: gradableItems.length,
+    skipped: allDocs.length - toGrade.length,
+  });
 }

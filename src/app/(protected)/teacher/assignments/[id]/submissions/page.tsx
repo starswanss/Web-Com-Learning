@@ -322,10 +322,29 @@ export default function SubmissionsPage({ params }: { params: Promise<{ id: stri
   async function handleBatchGrade() {
     setBatchGrading(true); setBatchResult(null);
     try {
-      const res = await fetch(`/api/teacher/batch-grade/${id}`, { method: 'POST' });
-      if (!res.ok) throw new Error();
-      const data = await res.json();
-      setBatchResult(`ตรวจสำเร็จ ${data.graded} คน, ข้าม ${data.skipped} คน${data.errors ? `, ผิดพลาด ${data.errors} คน` : ''}`);
+      // Grade in bounded rounds — one request per round — so a large class
+      // never exceeds the serverless function timeout (which returned 504).
+      let totalGraded = 0;
+      let totalErrors = 0;
+      let skipped = 0;
+      for (let round = 0; round < 60; round++) {
+        const res = await fetch(`/api/teacher/batch-grade/${id}`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ limit: 10 }),
+        });
+        if (!res.ok) throw new Error();
+        const data = await res.json();
+        totalGraded += data.graded ?? 0;
+        totalErrors += data.errors ?? 0;
+        skipped = data.skipped ?? skipped;
+        setBatchResult(
+          `กำลังตรวจ… ${totalGraded} คน${data.remaining ? ` · เหลือ ${data.remaining}` : ''}`
+        );
+        // Done, or this round made no progress (avoid looping forever).
+        if (!data.remaining || (data.graded ?? 0) === 0) break;
+      }
+      setBatchResult(`ตรวจสำเร็จ ${totalGraded} คน, ข้าม ${skipped} คน${totalErrors ? `, ผิดพลาด ${totalErrors} คน` : ''}`);
       // Reload submissions to reflect new scores
       const reload = await fetch(`/api/teacher/submissions/${id}`).then((r) => r.json());
       setSubmissions(Array.isArray(reload.submissions) ? reload.submissions : []);
