@@ -322,29 +322,53 @@ export default function SubmissionsPage({ params }: { params: Promise<{ id: stri
   async function handleBatchGrade() {
     setBatchGrading(true); setBatchResult(null);
     try {
-      // Grade in bounded rounds — one request per round — so a large class
-      // never exceeds the serverless function timeout (which returned 504).
+      // Grade in small bounded rounds — one request per round — so no single
+      // call exceeds the serverless function timeout (which returned 504).
+      // A round that fails doesn't discard the work already saved: we report
+      // progress and let the teacher continue.
       let totalGraded = 0;
       let totalErrors = 0;
       let skipped = 0;
-      for (let round = 0; round < 60; round++) {
-        const res = await fetch(`/api/teacher/batch-grade/${id}`, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ limit: 10 }),
-        });
-        if (!res.ok) throw new Error();
-        const data = await res.json();
+      let stoppedEarly = false;
+
+      for (let round = 0; round < 100; round++) {
+        let data: { graded?: number; errors?: number; remaining?: number; skipped?: number } | null = null;
+
+        // Try the round; on failure retry once with a smaller slice.
+        for (const limit of [5, 2]) {
+          try {
+            const res = await fetch(`/api/teacher/batch-grade/${id}`, {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ limit }),
+            });
+            if (!res.ok) throw new Error(String(res.status));
+            data = await res.json();
+            break;
+          } catch {
+            data = null; // try the smaller slice, then give up on this round
+          }
+        }
+
+        if (!data) { stoppedEarly = true; break; }
+
         totalGraded += data.graded ?? 0;
         totalErrors += data.errors ?? 0;
         skipped = data.skipped ?? skipped;
-        setBatchResult(
-          `กำลังตรวจ… ${totalGraded} คน${data.remaining ? ` · เหลือ ${data.remaining}` : ''}`
-        );
+        setBatchResult(`กำลังตรวจ… ${totalGraded} คน${data.remaining ? ` · เหลือ ${data.remaining}` : ''}`);
+
         // Done, or this round made no progress (avoid looping forever).
         if (!data.remaining || (data.graded ?? 0) === 0) break;
+
+        // Small pause so we don't hammer the AI rate limit.
+        await new Promise((r) => setTimeout(r, 800));
       }
-      setBatchResult(`ตรวจสำเร็จ ${totalGraded} คน, ข้าม ${skipped} คน${totalErrors ? `, ผิดพลาด ${totalErrors} คน` : ''}`);
+
+      setBatchResult(
+        stoppedEarly
+          ? `ตรวจไปแล้ว ${totalGraded} คน — หยุดกลางคัน กรุณากด "ตรวจ AI" อีกครั้งเพื่อตรวจต่อ`
+          : `ตรวจสำเร็จ ${totalGraded} คน, ข้าม ${skipped} คน${totalErrors ? `, ผิดพลาด ${totalErrors} คน` : ''}`
+      );
       // Reload submissions to reflect new scores
       const reload = await fetch(`/api/teacher/submissions/${id}`).then((r) => r.json());
       setSubmissions(Array.isArray(reload.submissions) ? reload.submissions : []);

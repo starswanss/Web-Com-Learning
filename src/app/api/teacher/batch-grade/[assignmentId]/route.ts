@@ -33,7 +33,9 @@ export async function POST(
 
   const { assignmentId } = await params;
   const body = await req.json().catch(() => ({}));
-  const limit = Math.min(Math.max(Number(body?.limit) || 10, 1), 30);
+  // Small default: one chunk per request keeps each call well inside the
+  // function timeout, even when a batch falls back to per-student grading.
+  const limit = Math.min(Math.max(Number(body?.limit) || 5, 1), 20);
 
   const [assignmentSnap, submissionsSnap] = await Promise.all([
     adminDb.collection('assignments').doc(assignmentId).get(),
@@ -130,7 +132,7 @@ export async function POST(
           console.error('[batch-grade] individual fallback failed:', item.id, indivErr instanceof Error ? indivErr.message : indivErr);
           errors += 1;
         }
-        await new Promise((r) => setTimeout(r, 3_000));
+        await new Promise((r) => setTimeout(r, 1_000));
       }
     }
   }
