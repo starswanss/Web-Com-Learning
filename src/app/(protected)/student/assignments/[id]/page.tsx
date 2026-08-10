@@ -616,7 +616,7 @@ export default function SubmissionPage({ params }: { params: Promise<{ id: strin
 
 // ── Block form renderer ────────────────────────────────────────────────────────
 
-function BlockForm({
+export function BlockForm({
   blocks,
   answers,
   setAnswer,

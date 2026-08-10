@@ -448,6 +448,12 @@ export default function SubmissionsPage({ params }: { params: Promise<{ id: stri
             >
               {batchGrading ? 'กำลังตรวจ…' : `ตรวจ AI (${pendingCount} รอตรวจ)`}
             </button>
+            <Link
+              href={`/teacher/assignments/${id}/preview`}
+              className="rounded-lg border border-cyan-700 bg-cyan-950/40 px-3 py-1.5 text-xs font-semibold text-cyan-300 transition-all hover:border-cyan-500"
+            >
+              👁 มุมมองนักเรียน
+            </Link>
             <button
               onClick={() => setViewAll((v) => !v)}
               className={`rounded-lg border px-3 py-1.5 text-xs font-semibold transition-all ${
