@@ -14,6 +14,7 @@ const LB_TTL = 300_000; // 5 min; invalidated on grade/bonus/submit/quest-claim
 interface LbRow {
   studentId: string;
   avgScore: number | null;
+  sumScore: number;
   submittedCount: number;
   bonusPoints: number;
   medalCount: number;
@@ -123,19 +124,20 @@ async function computeLeaderboard(classId: string, subjectId: string | null): Pr
   }
 
   const ranked = Array.from(studentMap.entries()).map(([sid, s]) => {
-    const avgScore = s.scores.length > 0
-      ? Math.round(s.scores.reduce((a, b) => a + b, 0) / s.scores.length)
-      : null;
+    // Sum of scores from graded work (ผลรวมคะแนนงานที่ตรวจแล้ว) — the ranking metric.
+    const sumScore = s.scores.reduce((a, b) => a + b, 0);
+    const avgScore = s.scores.length > 0 ? Math.round(sumScore / s.scores.length) : null;
     const bonus = bonusMap.get(sid);
     const bonusPoints = bonus?.total ?? 0;
     const medalCount = bonus?.medalCount ?? 0;
     return {
       studentId: sid,
       avgScore,
+      sumScore,
       submittedCount: s.submittedCount,
       bonusPoints,
       medalCount,
-      totalScore: (avgScore ?? 0) + bonusPoints,
+      totalScore: sumScore + bonusPoints,
     };
   });
 

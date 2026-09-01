@@ -965,7 +965,7 @@ function BlockAnswers({ assignment, answers }: { assignment: Assignment | null; 
         const q = 'question' in block ? (block as { question: string }).question : block.id;
         return (
           <div key={block.id}>
-            <p className="text-xs font-medium text-slate-400 mb-1">ข้อ {i + 1}. {q}</p>
+            <p className="mb-1 whitespace-pre-wrap text-xs font-medium text-slate-400">ข้อ {i + 1}. {q}</p>
             {answer === undefined ? (
               <p className="text-sm text-slate-600 italic">ไม่ได้ตอบ</p>
             ) : block.type === 'image-upload' && typeof answer === 'string' && answer ? (

@@ -90,18 +90,19 @@ async function computeLeaderboard(uid: string, subjectId: string | null, classFi
   }
 
   const result = Array.from(studentMap.values()).map((s) => {
-    const avgScore = s.scores.length > 0
-      ? Math.round(s.scores.reduce((a, b) => a + b, 0) / s.scores.length)
-      : null;
+    // Sum of scores from graded work (ผลรวมคะแนนงานที่ตรวจแล้ว) — the ranking metric.
+    const sumScore = s.scores.reduce((a, b) => a + b, 0);
+    const avgScore = s.scores.length > 0 ? Math.round(sumScore / s.scores.length) : null;
     const bonus = bonusMap.get(s.studentId);
     const bonusPoints = bonus?.total ?? 0;
-    const totalScore = (avgScore ?? 0) + bonusPoints;
+    const totalScore = sumScore + bonusPoints;
     return {
       studentId: s.studentId,
       studentName: s.studentName,
       classId: s.classId,
       submittedCount: s.submittedCount,
       avgScore,
+      sumScore,
       bonusPoints,
       medals: bonus?.medals ?? [],
       totalScore,

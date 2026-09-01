@@ -541,7 +541,7 @@ export default function SubmissionPage({ params }: { params: Promise<{ id: strin
             ) : (
               /* Legacy plain-text form */
               <div>
-                <label className="mb-2 block text-sm font-medium text-slate-300">คำตอบของคุณ</label>
+                <label className="mb-2 block whitespace-pre-wrap text-sm font-medium text-slate-300">คำตอบของคุณ</label>
                 <textarea
                   value={content}
                   onChange={(e) => setContent(e.target.value)}
@@ -746,7 +746,7 @@ function BlockRenderer({
     case 'short-answer':
       return (
         <div>
-          <label className="mb-2 block text-sm font-medium text-slate-300">
+          <label className="mb-2 block whitespace-pre-wrap text-sm font-medium text-slate-300">
             {block.question}
             {block.required && <span className="ml-1 text-red-400">*</span>}
           </label>
@@ -766,7 +766,7 @@ function BlockRenderer({
     case 'long-answer':
       return (
         <div>
-          <label className="mb-2 block text-sm font-medium text-slate-300">
+          <label className="mb-2 block whitespace-pre-wrap text-sm font-medium text-slate-300">
             {block.question}
             {block.required && <span className="ml-1 text-red-400">*</span>}
           </label>
@@ -787,7 +787,7 @@ function BlockRenderer({
       const selected = (answers[block.id] as string) ?? '';
       return (
         <div>
-          <p className="mb-3 text-sm font-medium text-slate-300">
+          <p className="mb-3 whitespace-pre-wrap text-sm font-medium text-slate-300">
             {block.question}
             {block.required && <span className="ml-1 text-red-400">*</span>}
           </p>
@@ -837,7 +837,7 @@ function BlockRenderer({
       const checked = (answers[block.id] as string[]) ?? [];
       return (
         <div>
-          <p className="mb-3 text-sm font-medium text-slate-300">
+          <p className="mb-3 whitespace-pre-wrap text-sm font-medium text-slate-300">
             {block.question}
             {block.required && <span className="ml-1 text-red-400">*</span>}
           </p>
@@ -899,7 +899,7 @@ function BlockRenderer({
       const tfAnswers = (answers[block.id] as string[]) ?? [];
       return (
         <div>
-          <p className="mb-3 text-sm font-medium text-slate-300">
+          <p className="mb-3 whitespace-pre-wrap text-sm font-medium text-slate-300">
             {tfBlock.question}
             {tfBlock.required && <span className="ml-1 text-red-400">*</span>}
           </p>
@@ -935,7 +935,7 @@ function BlockRenderer({
       const mAnswers = (answers[block.id] as string[]) ?? [];
       return (
         <div>
-          <p className="mb-3 text-sm font-medium text-slate-300">
+          <p className="mb-3 whitespace-pre-wrap text-sm font-medium text-slate-300">
             {mBlock.question}
             {mBlock.required && <span className="ml-1 text-red-400">*</span>}
           </p>
@@ -969,7 +969,7 @@ function BlockRenderer({
       const parts = fbBlock.question.split('___');
       return (
         <div>
-          <p className="mb-3 text-sm font-medium text-slate-300">
+          <p className="mb-3 whitespace-pre-wrap text-sm font-medium text-slate-300">
             {fbBlock.required && <span className="mr-1 text-red-400">*</span>}
             เติมคำในช่องว่าง
           </p>
@@ -1000,7 +1000,7 @@ function BlockRenderer({
     case 'link':
       return (
         <div>
-          <label className="mb-2 block text-sm font-medium text-slate-300">
+          <label className="mb-2 block whitespace-pre-wrap text-sm font-medium text-slate-300">
             {block.question || 'วางลิงก์ของคุณ'}
             {block.required && <span className="ml-1 text-red-400">*</span>}
           </label>
@@ -1067,7 +1067,7 @@ function ImageUploadBlockRenderer({
 
   return (
     <div onPaste={handlePaste}>
-      <label className="mb-2 block text-sm font-medium text-slate-300">
+      <label className="mb-2 block whitespace-pre-wrap text-sm font-medium text-slate-300">
         {block.question}
         {block.required && <span className="ml-1 text-red-400">*</span>}
       </label>
@@ -1160,7 +1160,7 @@ function OrderingBlockRenderer({
 
   return (
     <div>
-      <p className="mb-3 text-sm font-medium text-slate-300">
+      <p className="mb-3 whitespace-pre-wrap text-sm font-medium text-slate-300">
         {block.question}
         {block.required && <span className="ml-1 text-red-400">*</span>}
       </p>
@@ -1287,7 +1287,7 @@ function AnswerReview({
         const q = 'question' in block ? block.question : '';
         return (
           <div key={block.id}>
-            <p className="text-xs font-medium text-slate-500 mb-1">
+            <p className="mb-1 whitespace-pre-wrap text-xs font-medium text-slate-500">
               ข้อ {i + 1}. {q}
             </p>
             {answer === undefined ? (
