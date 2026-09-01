@@ -1,6 +1,8 @@
 import Groq from 'groq-sdk';
 
-const MODEL = 'llama-3.3-70b-versatile';
+// Groq current production model. If Groq decommissions it, swap for the latest
+// from https://console.groq.com/docs/models (error was 404 model_not_found).
+const MODEL = process.env.GROQ_MODEL || 'llama-3.1-8b-instant';
 
 function getGroq() {
   return new Groq({ apiKey: process.env.GROQ_API_KEY });
