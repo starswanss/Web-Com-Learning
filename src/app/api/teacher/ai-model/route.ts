@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { adminAuth, adminDb } from '@/lib/firebase/admin';
 import { cookies } from 'next/headers';
-import { getModelId, setModelId, isModelEnvLocked, testModel } from '@/lib/gemini';
+import { getModelId, setModelId, isModelEnvLocked, testModel, listModels } from '@/lib/gemini';
 
 async function getTeacherUid(): Promise<string | null> {
   try {
@@ -25,14 +25,17 @@ const SUGGESTED = [
   'gemma2-9b-it',
 ];
 
-// GET — current model + whether it's env-locked + quick-pick suggestions
+// GET — current model, env-lock, quick picks, and the models this account can
+// actually access (fetched live from Groq; empty if that call fails).
 export async function GET() {
   const uid = await getTeacherUid();
   if (!uid) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+  const [model, available] = await Promise.all([getModelId(), listModels()]);
   return NextResponse.json({
-    model: await getModelId(),
+    model,
     envLocked: isModelEnvLocked(),
     suggestions: SUGGESTED,
+    available,
   });
 }
 

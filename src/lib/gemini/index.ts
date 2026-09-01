@@ -38,6 +38,22 @@ export function isModelEnvLocked(): boolean {
   return !!process.env.GROQ_MODEL;
 }
 
+/** List chat models this Groq account can actually access. */
+export async function listModels(): Promise<string[]> {
+  try {
+    const res = await getGroq().models.list();
+    const ids = (res.data ?? [])
+      .map((m: { id?: string }) => m.id)
+      .filter((id): id is string => !!id)
+      // Drop non-chat models (speech, safety) — only text-grading models are useful.
+      .filter((id) => !/whisper|tts|playai|guard|embed/i.test(id))
+      .sort();
+    return ids;
+  } catch {
+    return [];
+  }
+}
+
 /** Try a tiny completion to verify a model works for this account. */
 export async function testModel(model: string): Promise<{ ok: boolean; error?: string }> {
   try {

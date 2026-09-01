@@ -33,6 +33,7 @@ export default function TeacherAdminPage() {
   const [aiModel, setAiModel] = useState('');
   const [aiModelInput, setAiModelInput] = useState('');
   const [aiSuggestions, setAiSuggestions] = useState<string[]>([]);
+  const [aiAvailable, setAiAvailable] = useState<string[]>([]);
   const [aiEnvLocked, setAiEnvLocked] = useState(false);
   const [aiMsg, setAiMsg] = useState<{ ok: boolean; text: string } | null>(null);
   const [aiBusy, setAiBusy] = useState<'test' | 'save' | null>(null);
@@ -76,6 +77,7 @@ export default function TeacherAdminPage() {
         if (!d) return;
         setAiModel(d.model ?? ''); setAiModelInput(d.model ?? '');
         setAiSuggestions(Array.isArray(d.suggestions) ? d.suggestions : []);
+        setAiAvailable(Array.isArray(d.available) ? d.available : []);
         setAiEnvLocked(!!d.envLocked);
       });
   }, []);
@@ -369,7 +371,28 @@ export default function TeacherAdminPage() {
                 กำลังใช้: <strong className="text-slate-100">{aiModel || '—'}</strong>
               </div>
 
-              {aiSuggestions.length > 0 && (
+              {/* Models this Groq account can actually use (live). */}
+              {aiAvailable.length > 0 ? (
+                <div>
+                  <p className="mb-1.5 text-[11px] font-semibold text-emerald-400">✓ model ที่บัญชีคุณใช้ได้ ({aiAvailable.length}) — คลิกเพื่อเลือก</p>
+                  <div className="flex flex-wrap gap-2">
+                    {aiAvailable.map((m) => (
+                      <button key={m} onClick={() => setAiModelInput(m)}
+                        className={`rounded-lg border px-2.5 py-1 text-xs font-medium transition-all ${
+                          aiModelInput === m ? 'border-violet-600 bg-violet-950/50 text-violet-300' : 'border-emerald-800/60 bg-emerald-950/20 text-emerald-300 hover:border-emerald-600'
+                        }`}>
+                        {m}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+              ) : (
+                <div className="rounded-xl border border-amber-800/60 bg-amber-950/20 px-4 py-2.5 text-xs text-amber-400">
+                  ดึงรายชื่อ model จาก Groq ไม่ได้ — อาจเป็นเพราะ API key ผิด/หมดสิทธิ์ ลองพิมพ์ชื่อเองด้านล่างแล้วกดทดสอบ
+                </div>
+              )}
+
+              {aiSuggestions.length > 0 && aiAvailable.length === 0 && (
                 <div className="flex flex-wrap gap-2">
                   {aiSuggestions.map((m) => (
                     <button key={m} onClick={() => setAiModelInput(m)}
