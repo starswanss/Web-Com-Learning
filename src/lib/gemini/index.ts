@@ -1,11 +1,55 @@
 import Groq from 'groq-sdk';
+import { adminDb } from '@/lib/firebase/admin';
+import { cachedGlobal, invalidateGlobal } from '@/lib/server-cache';
 
-// Groq current production model. If Groq decommissions it, swap for the latest
-// from https://console.groq.com/docs/models (error was 404 model_not_found).
-const MODEL = process.env.GROQ_MODEL || 'llama-3.1-8b-instant';
+// Fallback model if none is configured. The active model is chosen at runtime:
+//   1) GROQ_MODEL env var (hard override)  2) system/aiConfig.model in Firestore
+//   3) this default. So the teacher can change it from the Admin page — no
+//   code change or redeploy — when Groq decommissions a model.
+const DEFAULT_MODEL = 'llama-3.1-8b-instant';
+export const AI_MODEL_CACHE_KEY = 'ai-model';
 
 function getGroq() {
   return new Groq({ apiKey: process.env.GROQ_API_KEY });
+}
+
+/** Resolve the Groq model to use (env override → saved config → default). */
+export async function getModelId(): Promise<string> {
+  if (process.env.GROQ_MODEL) return process.env.GROQ_MODEL;
+  return cachedGlobal(AI_MODEL_CACHE_KEY, 60_000, async () => {
+    try {
+      const snap = await adminDb.doc('system/aiConfig').get();
+      const m = snap.exists ? (snap.data()?.model as string | undefined) : undefined;
+      return m && m.trim() ? m.trim() : DEFAULT_MODEL;
+    } catch {
+      return DEFAULT_MODEL;
+    }
+  });
+}
+
+/** Persist the chosen model and refresh the cache so it takes effect at once. */
+export async function setModelId(model: string): Promise<void> {
+  await adminDb.doc('system/aiConfig').set({ model: model.trim() }, { merge: true });
+  invalidateGlobal(AI_MODEL_CACHE_KEY);
+}
+
+/** True when GROQ_MODEL env is set (which overrides the Admin setting). */
+export function isModelEnvLocked(): boolean {
+  return !!process.env.GROQ_MODEL;
+}
+
+/** Try a tiny completion to verify a model works for this account. */
+export async function testModel(model: string): Promise<{ ok: boolean; error?: string }> {
+  try {
+    await getGroq().chat.completions.create({
+      model,
+      messages: [{ role: 'user', content: 'ping' }],
+      max_tokens: 1,
+    });
+    return { ok: true };
+  } catch (err) {
+    return { ok: false, error: err instanceof Error ? err.message : String(err) };
+  }
 }
 
 export interface GradingResult {
@@ -109,9 +153,10 @@ Rules:
 Scoring guide: 90-100 excellent, 70-89 good, 50-69 adequate, 30-49 incomplete, 0-29 very poor or copied.
 Short answers (<30 words) should score at most 40 unless the question is trivial.`;
 
+  const model = await getModelId();
   const completion = await withRetry(() =>
     getGroq().chat.completions.create({
-      model: MODEL,
+      model,
       messages: [{ role: 'user', content: prompt }],
       temperature: 0.3,
     })
@@ -168,9 +213,10 @@ Rules:
 - Short answers (<30 words) score at most 40 unless the question is trivial
 - Grade each student independently`;
 
+  const model = await getModelId();
   const completion = await withRetry(() =>
     getGroq().chat.completions.create({
-      model: MODEL,
+      model,
       messages: [{ role: 'user', content: prompt }],
       temperature: 0.3,
     })

@@ -29,6 +29,14 @@ export default function TeacherAdminPage() {
   const [bfApplying, setBfApplying] = useState(false);
   const [bfError, setBfError] = useState<string | null>(null);
 
+  // AI model state
+  const [aiModel, setAiModel] = useState('');
+  const [aiModelInput, setAiModelInput] = useState('');
+  const [aiSuggestions, setAiSuggestions] = useState<string[]>([]);
+  const [aiEnvLocked, setAiEnvLocked] = useState(false);
+  const [aiMsg, setAiMsg] = useState<{ ok: boolean; text: string } | null>(null);
+  const [aiBusy, setAiBusy] = useState<'test' | 'save' | null>(null);
+
   // Backfill group-score state
   const [gsPreview, setGsPreview] = useState<GroupBackfillResult | null>(null);
   const [gsResult, setGsResult] = useState<GroupBackfillResult | null>(null);
@@ -62,7 +70,42 @@ export default function TeacherAdminPage() {
     fetch('/api/teacher/line-notify')
       .then((r) => r.ok ? r.json() : null)
       .then((d) => { if (d?.lineNotifyToken) setLineToken(d.lineNotifyToken); });
+    fetch('/api/teacher/ai-model')
+      .then((r) => r.ok ? r.json() : null)
+      .then((d) => {
+        if (!d) return;
+        setAiModel(d.model ?? ''); setAiModelInput(d.model ?? '');
+        setAiSuggestions(Array.isArray(d.suggestions) ? d.suggestions : []);
+        setAiEnvLocked(!!d.envLocked);
+      });
   }, []);
+
+  async function handleAiTest() {
+    setAiBusy('test'); setAiMsg(null);
+    try {
+      const res = await fetch('/api/teacher/ai-model', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ model: aiModelInput }),
+      });
+      const d = await res.json();
+      setAiMsg(d.ok ? { ok: true, text: 'ใช้งานได้ ✓' } : { ok: false, text: d.error ?? 'ใช้ไม่ได้' });
+    } catch { setAiMsg({ ok: false, text: 'ทดสอบไม่สำเร็จ' }); }
+    finally { setAiBusy(null); }
+  }
+
+  async function handleAiSave() {
+    setAiBusy('save'); setAiMsg(null);
+    try {
+      const res = await fetch('/api/teacher/ai-model', {
+        method: 'PUT', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ model: aiModelInput }),
+      });
+      const d = await res.json();
+      if (res.ok) { setAiModel(d.model); setAiMsg({ ok: true, text: `บันทึกแล้ว — ใช้ ${d.model}` }); }
+      else setAiMsg({ ok: false, text: d.error ?? 'บันทึกไม่สำเร็จ' });
+    } catch { setAiMsg({ ok: false, text: 'บันทึกไม่สำเร็จ' }); }
+    finally { setAiBusy(null); }
+  }
 
   if (loading || !profile || profile.role !== 'teacher') return <Spinner />;
 
@@ -303,6 +346,63 @@ export default function TeacherAdminPage() {
               )}
             </div>
           </div>
+        </section>
+
+        {/* AI grading model */}
+        <section className="rounded-2xl border border-violet-900/60 bg-violet-950/10 p-6 space-y-4">
+          <div>
+            <h2 className="text-base font-semibold text-violet-300">🤖 AI ตรวจงาน (Groq model)</h2>
+            <p className="mt-1 text-sm text-slate-400">
+              เปลี่ยน model ที่ใช้ตรวจงานได้ที่นี่ — ถ้า Groq เลิก model เดิม (error <code className="text-slate-300">model_not_found</code>)
+              ให้เลือก/พิมพ์ model ใหม่แล้วกดทดสอบ · ดูรายชื่อได้ที่{' '}
+              <a href="https://console.groq.com/docs/models" target="_blank" rel="noopener noreferrer" className="text-violet-400 underline">console.groq.com/docs/models</a>
+            </p>
+          </div>
+
+          {aiEnvLocked ? (
+            <div className="rounded-xl border border-amber-800 bg-amber-950/20 px-4 py-3 text-sm text-amber-400">
+              model ถูกกำหนดจาก env <code>GROQ_MODEL</code> = <strong className="text-white">{aiModel}</strong> — แก้ที่ Vercel Environment Variables
+            </div>
+          ) : (
+            <>
+              <div className="rounded-xl border border-slate-700 bg-slate-800/40 px-4 py-2.5 text-xs text-slate-400">
+                กำลังใช้: <strong className="text-slate-100">{aiModel || '—'}</strong>
+              </div>
+
+              {aiSuggestions.length > 0 && (
+                <div className="flex flex-wrap gap-2">
+                  {aiSuggestions.map((m) => (
+                    <button key={m} onClick={() => setAiModelInput(m)}
+                      className={`rounded-lg border px-2.5 py-1 text-xs font-medium transition-all ${
+                        aiModelInput === m ? 'border-violet-600 bg-violet-950/50 text-violet-300' : 'border-slate-700 text-slate-400 hover:border-slate-600'
+                      }`}>
+                      {m}
+                    </button>
+                  ))}
+                </div>
+              )}
+
+              <input
+                value={aiModelInput}
+                onChange={(e) => setAiModelInput(e.target.value)}
+                placeholder="ชื่อ model เช่น llama-3.1-8b-instant"
+                className="w-full rounded-xl border border-slate-700 bg-slate-800 px-4 py-2.5 text-sm text-slate-100 placeholder-slate-600 focus:border-violet-500 focus:outline-none"
+              />
+
+              <div className="flex flex-wrap items-center gap-3">
+                <button onClick={handleAiTest} disabled={!aiModelInput.trim() || aiBusy !== null}
+                  className="rounded-xl border border-blue-700 bg-blue-950/40 px-5 py-2 text-sm font-medium text-blue-300 hover:border-blue-500 disabled:opacity-50 transition-all">
+                  {aiBusy === 'test' ? 'กำลังทดสอบ…' : '🧪 ทดสอบ'}
+                </button>
+                <button onClick={handleAiSave} disabled={!aiModelInput.trim() || aiBusy !== null || aiModelInput.trim() === aiModel}
+                  className="rounded-xl bg-violet-600 px-5 py-2 text-sm font-medium text-white hover:bg-violet-500 disabled:opacity-50 transition-all">
+                  {aiBusy === 'save' ? 'กำลังบันทึก…' : 'บันทึก & ใช้ model นี้'}
+                </button>
+                {aiMsg && <span className={`text-sm ${aiMsg.ok ? 'text-emerald-400' : 'text-red-400'}`}>{aiMsg.text}</span>}
+              </div>
+              <p className="text-[11px] text-slate-600">💡 กด "บันทึก" จะทดสอบ model ให้อัตโนมัติก่อน — ถ้าใช้ไม่ได้จะไม่บันทึก</p>
+            </>
+          )}
         </section>
 
         {/* Backfill XP */}
