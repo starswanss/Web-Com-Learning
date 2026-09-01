@@ -34,7 +34,10 @@ function isRateLimit(err: unknown): boolean {
   return msg.includes('429') || msg.includes('rate_limit') || msg.includes('quota');
 }
 
-async function withRetry<T>(fn: () => Promise<T>, retries = 2, delayMs = 15_000): Promise<T> {
+// Keep total wait small — the grading route runs under a 60s function timeout,
+// and the client already retries whole rounds, so long internal waits only
+// risk a 504.
+async function withRetry<T>(fn: () => Promise<T>, retries = 1, delayMs = 5_000): Promise<T> {
   for (let attempt = 0; attempt <= retries; attempt++) {
     try {
       return await fn();

@@ -72,6 +72,7 @@ export async function POST(
 
   let graded = 0;
   let errors = 0;
+  let lastError: string | null = null; // first real AI error, surfaced to the UI
 
   // Only take a bounded slice this call — the rest is reported as `remaining`
   // and picked up by the next call from the client.
@@ -130,6 +131,7 @@ export async function POST(
           graded += 1;
         } catch (indivErr) {
           console.error('[batch-grade] individual fallback failed:', item.id, indivErr instanceof Error ? indivErr.message : indivErr);
+          if (!lastError) lastError = indivErr instanceof Error ? indivErr.message : String(indivErr);
           errors += 1;
         }
         await new Promise((r) => setTimeout(r, 1_000));
@@ -154,5 +156,6 @@ export async function POST(
     remaining,
     pending: gradableItems.length,
     skipped: allDocs.length - toGrade.length,
+    errorDetail: lastError,
   });
 }

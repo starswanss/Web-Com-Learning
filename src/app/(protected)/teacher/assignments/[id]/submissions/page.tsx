@@ -330,9 +330,10 @@ export default function SubmissionsPage({ params }: { params: Promise<{ id: stri
       let totalErrors = 0;
       let skipped = 0;
       let stoppedEarly = false;
+      let aiError: string | null = null;
 
       for (let round = 0; round < 100; round++) {
-        let data: { graded?: number; errors?: number; remaining?: number; skipped?: number } | null = null;
+        let data: { graded?: number; errors?: number; remaining?: number; skipped?: number; errorDetail?: string | null } | null = null;
 
         // Try the round; on failure retry once with a smaller slice.
         for (const limit of [5, 2]) {
@@ -355,6 +356,7 @@ export default function SubmissionsPage({ params }: { params: Promise<{ id: stri
         totalGraded += data.graded ?? 0;
         totalErrors += data.errors ?? 0;
         skipped = data.skipped ?? skipped;
+        if (data.errorDetail) aiError = data.errorDetail;
         setBatchResult(`กำลังตรวจ… ${totalGraded} คน${data.remaining ? ` · เหลือ ${data.remaining}` : ''}`);
 
         // Done, or this round made no progress (avoid looping forever).
@@ -365,9 +367,11 @@ export default function SubmissionsPage({ params }: { params: Promise<{ id: stri
       }
 
       setBatchResult(
-        stoppedEarly
+        totalGraded === 0 && aiError
+          ? `ตรวจ AI ไม่สำเร็จ: ${aiError}`
+          : stoppedEarly
           ? `ตรวจไปแล้ว ${totalGraded} คน — หยุดกลางคัน กรุณากด "ตรวจ AI" อีกครั้งเพื่อตรวจต่อ`
-          : `ตรวจสำเร็จ ${totalGraded} คน, ข้าม ${skipped} คน${totalErrors ? `, ผิดพลาด ${totalErrors} คน` : ''}`
+          : `ตรวจสำเร็จ ${totalGraded} คน, ข้าม ${skipped} คน${totalErrors ? `, ผิดพลาด ${totalErrors} คน` : ''}${aiError ? ` · (${aiError})` : ''}`
       );
       // Reload submissions to reflect new scores
       const reload = await fetch(`/api/teacher/submissions/${id}`).then((r) => r.json());

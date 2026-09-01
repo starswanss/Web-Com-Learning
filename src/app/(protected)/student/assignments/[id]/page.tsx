@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useState, useRef, FormEvent, use } from 'react';
+import { useEffect, useState, useRef, useMemo, FormEvent, use } from 'react';
 import { useRouter } from 'next/navigation';
 import { useAuth } from '@/context/AuthContext';
 import Link from 'next/link';
@@ -930,38 +930,14 @@ function BlockRenderer({
       );
     }
 
-    case 'matching': {
-      const mBlock = block as Extract<FormBlock, { type: 'matching' }>;
-      const mAnswers = (answers[block.id] as string[]) ?? [];
+    case 'matching':
       return (
-        <div>
-          <p className="mb-3 whitespace-pre-wrap text-sm font-medium text-slate-300">
-            {mBlock.question}
-            {mBlock.required && <span className="ml-1 text-red-400">*</span>}
-          </p>
-          <div className="space-y-2">
-            {mBlock.leftItems.map((leftItem, i) => (
-              <div key={i} className="flex items-center gap-3">
-                <div className="flex-1 rounded-xl border border-slate-700 bg-slate-800 px-3 py-2.5 text-sm text-slate-300">
-                  {leftItem}
-                </div>
-                <span className="text-slate-600 text-sm shrink-0">→</span>
-                <select
-                  value={mAnswers[i] ?? ''}
-                  onChange={e => { const n = [...mAnswers]; n[i] = e.target.value; setAnswer(block.id, n); }}
-                  className="flex-1 rounded-xl border border-slate-700 bg-slate-800 px-3 py-2.5 text-sm text-slate-300 focus:outline-none focus:border-blue-600"
-                >
-                  <option value="">-- เลือก --</option>
-                  {mBlock.rightItems.map((rightItem, j) => (
-                    <option key={j} value={rightItem}>{rightItem}</option>
-                  ))}
-                </select>
-              </div>
-            ))}
-          </div>
-        </div>
+        <MatchingBlockRenderer
+          block={block as Extract<FormBlock, { type: 'matching' }>}
+          answers={answers}
+          setAnswer={setAnswer}
+        />
       );
-    }
 
     case 'fill-blank': {
       const fbBlock = block as Extract<FormBlock, { type: 'fill-blank' }>;
@@ -1021,6 +997,60 @@ function BlockRenderer({
     default:
       return null;
   }
+}
+
+/* Matching question — the right-hand options are shuffled (stable per open) so
+   they aren't shown in the answer order, making it harder to guess. Shuffling
+   only affects display: answers are stored as the chosen text, so grading is
+   unaffected. */
+function MatchingBlockRenderer({
+  block, answers, setAnswer,
+}: {
+  block: Extract<FormBlock, { type: 'matching' }>;
+  answers: Record<string, string | string[]>;
+  setAnswer: (id: string, v: string | string[]) => void;
+}) {
+  const mAnswers = (answers[block.id] as string[]) ?? [];
+
+  const shuffledRight = useMemo(() => {
+    const arr = [...block.rightItems];
+    for (let i = arr.length - 1; i > 0; i--) {
+      const j = Math.floor(Math.random() * (i + 1));
+      [arr[i], arr[j]] = [arr[j], arr[i]];
+    }
+    return arr;
+    // Shuffle once per mount (per block); don't reshuffle while answering.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [block.id]);
+
+  return (
+    <div>
+      <p className="mb-3 whitespace-pre-wrap text-sm font-medium text-slate-300">
+        {block.question}
+        {block.required && <span className="ml-1 text-red-400">*</span>}
+      </p>
+      <div className="space-y-2">
+        {block.leftItems.map((leftItem, i) => (
+          <div key={i} className="flex items-center gap-3">
+            <div className="flex-1 rounded-xl border border-slate-700 bg-slate-800 px-3 py-2.5 text-sm text-slate-300">
+              {leftItem}
+            </div>
+            <span className="text-slate-600 text-sm shrink-0">→</span>
+            <select
+              value={mAnswers[i] ?? ''}
+              onChange={e => { const n = [...mAnswers]; n[i] = e.target.value; setAnswer(block.id, n); }}
+              className="flex-1 rounded-xl border border-slate-700 bg-slate-800 px-3 py-2.5 text-sm text-slate-300 focus:outline-none focus:border-blue-600"
+            >
+              <option value="">-- เลือก --</option>
+              {shuffledRight.map((rightItem, j) => (
+                <option key={j} value={rightItem}>{rightItem}</option>
+              ))}
+            </select>
+          </div>
+        ))}
+      </div>
+    </div>
+  );
 }
 
 function ImageUploadBlockRenderer({
