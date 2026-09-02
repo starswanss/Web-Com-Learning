@@ -114,6 +114,12 @@ async function withRetry<T>(fn: () => Promise<T>, retries = 1, delayMs = 5_000):
   throw new Error('Max retries exceeded');
 }
 
+// Cap answer length before sending to the AI — long pastes waste tokens (and
+// Groq's free tier limits tokens-per-day). A ม.3 answer rarely needs more.
+function capText(s: string, max = 1500): string {
+  return s.length > max ? s.slice(0, max) + ' …[ตัดเนื่องจากยาวเกิน]' : s;
+}
+
 function parseJson<T>(text: string, arrayFallback: boolean): T {
   try {
     return JSON.parse(text) as T;
@@ -152,7 +158,7 @@ Instructions: ${assignmentDescription}${rubricBlock}
 
 Student's answer:
 """
-${studentContent}
+${capText(studentContent)}
 """${comparisonBlock}
 
 Respond ONLY with a JSON object in this exact shape — no markdown, no extra text:
@@ -207,7 +213,7 @@ export async function gradeSubmissionsBatch(
   const rubricBlock = rubric ? `\n\nCriteria from teacher:\n${rubric}` : '';
 
   const studentBlocks = submissions
-    .map((s, i) => `[Student ${i + 1}]\n${s.content}`)
+    .map((s, i) => `[Student ${i + 1}]\n${capText(s.content)}`)
     .join('\n\n---\n\n');
 
   const prompt = `You are a teacher assistant for a Thai secondary school Computing Science class (ม.3 / Grade 9).
