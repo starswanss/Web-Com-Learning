@@ -157,7 +157,7 @@ export async function makeFilePublic(fileId: string): Promise<void> {
 }
 
 /** Get or create Root > LMS Media > {subfolder} */
-export async function ensureMediaFolder(subfolder: 'Icons' | 'PDFs'): Promise<string> {
+export async function ensureMediaFolder(subfolder: 'Icons' | 'PDFs' | 'Images'): Promise<string> {
   const root = process.env.GOOGLE_DRIVE_ROOT_FOLDER_ID!;
   const mediaFolder = await getOrCreateFolder('LMS Media', root);
   return getOrCreateFolder(subfolder, mediaFolder);

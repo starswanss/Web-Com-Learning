@@ -15,6 +15,40 @@ export const ALL_CLASSES = Array.from({ length: 18 }, (_, i) => `ม.3/${i + 1}`
 
 export function uid() { return Math.random().toString(36).slice(2, 9); }
 
+/**
+ * Upload a content image straight to Google Drive and return a small proxy URL.
+ * Storing images as base64 data URLs inside the assignment made the blocks JSON
+ * huge, so saving hit the ~4.5 MB request-body limit and failed. The bytes now
+ * go directly to Drive (bypassing that limit) and only a short URL is stored.
+ */
+async function uploadImageToDrive(file: File): Promise<string> {
+  const sessRes = await fetch('/api/teacher/upload-image/session', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ filename: file.name, mimeType: file.type, size: file.size }),
+  });
+  const sess = await sessRes.json().catch(() => ({}));
+  if (!sessRes.ok) throw new Error(sess.error ?? 'เริ่มอัปโหลดไม่สำเร็จ');
+
+  const putRes = await fetch(sess.uploadUrl, {
+    method: 'PUT',
+    headers: { 'Content-Type': file.type },
+    body: file,
+  });
+  if (!putRes.ok) throw new Error('อัปโหลดไปยัง Google Drive ไม่สำเร็จ');
+  const uploaded = await putRes.json().catch(() => ({}));
+  if (!uploaded.id) throw new Error('ไม่ได้รับรหัสไฟล์จาก Google Drive');
+
+  const finRes = await fetch('/api/teacher/upload-image/session', {
+    method: 'PATCH',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ fileId: uploaded.id }),
+  });
+  const fin = await finRes.json().catch(() => ({}));
+  if (!finRes.ok) throw new Error(fin.error ?? 'ตั้งค่าไฟล์ไม่สำเร็จ');
+  return fin.url as string;
+}
+
 export function makeBlock(type: BlockType): FormBlock {
   switch (type) {
     case 'heading':         return { id: uid(), type, text: 'หัวข้อใหม่' };
@@ -117,11 +151,20 @@ function ParagraphEditor({ block, onChange }: { block: ParagraphBlock; onChange:
 
 function ImageEditor({ block, onChange }: { block: ImageBlock; onChange: (b: FormBlock) => void }) {
   const fileRef = useRef<HTMLInputElement>(null);
+  const [uploading, setUploading] = useState(false);
+  const [uploadError, setUploadError] = useState<string | null>(null);
 
-  function handleFile(file: File) {
-    const reader = new FileReader();
-    reader.onload = e => onChange({ ...block, url: e.target?.result as string });
-    reader.readAsDataURL(file);
+  async function handleFile(file: File) {
+    if (!file.type.startsWith('image/')) { setUploadError('ต้องเป็นไฟล์รูปภาพ'); return; }
+    setUploading(true); setUploadError(null);
+    try {
+      const url = await uploadImageToDrive(file);
+      onChange({ ...block, url });
+    } catch (err) {
+      setUploadError(err instanceof Error ? err.message : 'อัปโหลดไม่สำเร็จ');
+    } finally {
+      setUploading(false);
+    }
   }
 
   function handlePaste(e: React.ClipboardEvent) {
@@ -149,19 +192,22 @@ function ImageEditor({ block, onChange }: { block: ImageBlock; onChange: (b: For
         <button
           type="button"
           onClick={() => fileRef.current?.click()}
-          className="shrink-0 rounded-xl border border-slate-700 px-3 py-2 text-xs text-slate-400 hover:border-slate-500 hover:text-slate-200 transition-all"
+          disabled={uploading}
+          className="shrink-0 rounded-xl border border-slate-700 px-3 py-2 text-xs text-slate-400 hover:border-slate-500 hover:text-slate-200 transition-all disabled:opacity-50"
           title="อัปโหลดรูปจากเครื่อง"
         >
-          📁 อัปโหลด
+          {uploading ? 'กำลังอัปโหลด…' : '📁 อัปโหลด'}
         </button>
         <input
           type="file" accept="image/*" className="hidden" ref={fileRef}
-          onChange={e => { const f = e.target.files?.[0]; if (f) handleFile(f); }}
+          onChange={e => { const f = e.target.files?.[0]; e.target.value = ''; if (f) handleFile(f); }}
         />
       </div>
 
+      {uploadError && <p className="text-xs text-red-400">⚠ {uploadError}</p>}
+
       {/* Paste hint */}
-      {!block.url && (
+      {!block.url && !uploading && (
         <div
           className="flex cursor-pointer items-center justify-center rounded-xl border border-dashed border-slate-700 py-6 text-xs text-slate-600 hover:border-slate-500 hover:text-slate-400 transition-all"
           onClick={() => fileRef.current?.click()}
@@ -437,21 +483,29 @@ function OptionsEditor({
   type: 'multiple-choice' | 'checkbox';
 }) {
   const fileRefs = useRef<(HTMLInputElement | null)[]>([]);
+  const [uploadingIdx, setUploadingIdx] = useState<number | null>(null);
 
   const imgs = optionImages.length >= options.length
     ? optionImages
     : Array(options.length).fill(null);
 
-  function setImage(i: number, dataUrl: string | null) {
+  function setImage(i: number, url: string | null) {
     const next = [...imgs];
-    next[i] = dataUrl;
+    next[i] = url;
     onChange(options, next);
   }
 
-  function handleFile(i: number, file: File) {
-    const reader = new FileReader();
-    reader.onload = e => setImage(i, e.target?.result as string);
-    reader.readAsDataURL(file);
+  async function handleFile(i: number, file: File) {
+    if (!file.type.startsWith('image/')) return;
+    setUploadingIdx(i);
+    try {
+      const url = await uploadImageToDrive(file);
+      setImage(i, url);
+    } catch {
+      /* keep option without an image on failure */
+    } finally {
+      setUploadingIdx(null);
+    }
   }
 
   function updateText(i: number, val: string) {
@@ -543,18 +597,19 @@ function OptionsEditor({
               {/* Image upload */}
               <button type="button"
                 onClick={() => fileRefs.current[i]?.click()}
+                disabled={uploadingIdx === i}
                 title="อัปโหลดรูปประกอบตัวเลือก"
-                className={`shrink-0 rounded-lg border px-2 py-1 text-[10px] transition-all ${
+                className={`shrink-0 rounded-lg border px-2 py-1 text-[10px] transition-all disabled:opacity-50 ${
                   img
                     ? 'border-blue-700 bg-blue-950/40 text-blue-400'
                     : 'border-slate-700 text-slate-500 hover:border-slate-600 hover:text-slate-300'
                 }`}>
-                🖼
+                {uploadingIdx === i ? '…' : '🖼'}
               </button>
               <input
                 type="file" accept="image/*" className="hidden"
                 ref={el => { fileRefs.current[i] = el; }}
-                onChange={e => { const f = e.target.files?.[0]; if (f) handleFile(i, f); }}
+                onChange={e => { const f = e.target.files?.[0]; e.target.value = ''; if (f) handleFile(i, f); }}
               />
               {img && (
                 <button type="button" onClick={() => setImage(i, null)}
