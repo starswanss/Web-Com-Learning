@@ -43,6 +43,7 @@ interface Submission {
   driveWebViewLink?: string;
   score?: number;
   feedback?: string;
+  questionComments?: Record<string, string>;
   plagiarismSuspicion?: number;
   status: string;
 }
@@ -1253,7 +1254,7 @@ function SubmissionView({
           คำตอบที่ส่ง
         </p>
         {hasAnswers && assignment?.blocks ? (
-          <AnswerReview blocks={assignment.blocks} answers={s.answers!} />
+          <AnswerReview blocks={assignment.blocks} answers={s.answers!} comments={s.questionComments} />
         ) : (
           <p className="whitespace-pre-wrap text-sm text-slate-300">{s.content || '—'}</p>
         )}
@@ -1301,9 +1302,11 @@ function SubmissionView({
 function AnswerReview({
   blocks,
   answers,
+  comments,
 }: {
   blocks: FormBlock[];
   answers: Record<string, string | string[]>;
+  comments?: Record<string, string>;
 }) {
   const questionBlocks = blocks.filter((b) =>
     ['short-answer', 'long-answer', 'multiple-choice', 'checkbox', 'ordering', 'image-upload', 'true-false', 'matching', 'fill-blank', 'link'].includes(b.type)
@@ -1399,6 +1402,13 @@ function AnswerReview({
               </div>
             ) : (
               <p className="whitespace-pre-wrap text-sm text-slate-300">{answer}</p>
+            )}
+
+            {/* Teacher's comment for this question */}
+            {comments?.[block.id] && (
+              <p className="mt-2 rounded-lg border border-blue-900/60 bg-blue-950/30 px-3 py-1.5 text-xs text-blue-200">
+                💬 ครู: {comments[block.id]}
+              </p>
             )}
           </div>
         );

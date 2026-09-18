@@ -16,6 +16,7 @@ interface Submission {
   answers?: Record<string, string | string[]>;
   score?: number;
   feedback?: string;
+  questionComments?: Record<string, string>;
   plagiarismSuspicion?: number;
   tabSwitchCount?: number;
   burstInsertCount?: number;
@@ -104,6 +105,7 @@ export default function SubmissionsPage({ params }: { params: Promise<{ id: stri
   const [selected, setSelected] = useState<Submission | null>(null);
   const [score, setScore] = useState('');
   const [feedback, setFeedback] = useState('');
+  const [qComments, setQComments] = useState<Record<string, string>>({});
   const [saving, setSaving] = useState(false);
   const [saveError, setSaveError] = useState<string | null>(null);
   const [quickGrading, setQuickGrading] = useState(false);
@@ -224,6 +226,7 @@ export default function SubmissionsPage({ params }: { params: Promise<{ id: stri
             setSelected(target);
             setScore(target.score !== undefined ? String(target.score) : '');
             setFeedback(target.feedback ?? '');
+            setQComments(target.questionComments ?? {});
           }
         }
       })
@@ -234,6 +237,7 @@ export default function SubmissionsPage({ params }: { params: Promise<{ id: stri
     setSelected(sub);
     setScore(sub.score !== undefined ? String(sub.score) : '');
     setFeedback(sub.feedback ?? '');
+    setQComments(sub.questionComments ?? {});
     setSaveError(null);
     setBatchResult(null);
   }
@@ -247,10 +251,10 @@ export default function SubmissionsPage({ params }: { params: Promise<{ id: stri
       const res = await fetch(`/api/teacher/grade/${selected.id}`, {
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ score: parsed, feedback }),
+        body: JSON.stringify({ score: parsed, feedback, questionComments: qComments }),
       });
       if (!res.ok) throw new Error();
-      const updated: Submission = { ...selected, score: parsed, feedback, status: 'reviewed' };
+      const updated: Submission = { ...selected, score: parsed, feedback, questionComments: qComments, status: 'reviewed' };
       setSubmissions((prev) => prev.map((s) => (s.id === selected.id ? updated : s)));
       setSelected(updated);
     } catch { setSaveError('บันทึกไม่สำเร็จ กรุณาลองใหม่'); }
@@ -313,7 +317,7 @@ export default function SubmissionsPage({ params }: { params: Promise<{ id: stri
       setSubmissions(Array.isArray(reload.submissions) ? reload.submissions : []);
       if (selected) {
         const refreshed = reload.submissions?.find((s: Submission) => s.id === selected.id);
-        if (refreshed) { setSelected(refreshed); setScore(String(refreshed.score ?? '')); setFeedback(refreshed.feedback ?? ''); }
+        if (refreshed) { setSelected(refreshed); setScore(String(refreshed.score ?? '')); setFeedback(refreshed.feedback ?? ''); setQComments(refreshed.questionComments ?? {}); }
       }
     } catch { setBatchResult('ตรวจเฉลยไม่สำเร็จ: ไม่สามารถเชื่อมต่อได้'); }
     finally { setAutoGrading(false); }
@@ -378,7 +382,7 @@ export default function SubmissionsPage({ params }: { params: Promise<{ id: stri
       setSubmissions(Array.isArray(reload.submissions) ? reload.submissions : []);
       if (selected) {
         const refreshed = reload.submissions?.find((s: Submission) => s.id === selected.id);
-        if (refreshed) { setSelected(refreshed); setScore(String(refreshed.score ?? '')); setFeedback(refreshed.feedback ?? ''); }
+        if (refreshed) { setSelected(refreshed); setScore(String(refreshed.score ?? '')); setFeedback(refreshed.feedback ?? ''); setQComments(refreshed.questionComments ?? {}); }
       }
     } catch { setBatchResult('ตรวจ AI ไม่สำเร็จ: ไม่สามารถเชื่อมต่อได้'); }
     finally { setBatchGrading(false); }
@@ -694,9 +698,17 @@ export default function SubmissionsPage({ params }: { params: Promise<{ id: stri
 
                   {/* Answer content */}
                   <div className="rounded-2xl border border-slate-800 bg-slate-900 p-5">
-                    <p className="mb-3 text-xs font-medium uppercase tracking-wider text-slate-500">คำตอบของนักเรียน</p>
+                    <p className="mb-1 text-xs font-medium uppercase tracking-wider text-slate-500">คำตอบของนักเรียน</p>
+                    <p className="mb-3 text-[11px] text-slate-600">💬 พิมพ์คอมเมนต์ใต้แต่ละข้อได้ — จะถูกบันทึกพร้อมกับปุ่ม “บันทึกคะแนน”</p>
                     {selected.answers && Object.keys(selected.answers).length > 0 ? (
-                      <BlockAnswers assignment={assignment} answers={selected.answers} />
+                      <BlockAnswers
+                        assignment={assignment}
+                        answers={selected.answers}
+                        comments={qComments}
+                        onCommentChange={(blockId, value) =>
+                          setQComments((c) => ({ ...c, [blockId]: value }))
+                        }
+                      />
                     ) : selected.content ? (
                       <p className="whitespace-pre-wrap text-sm text-slate-300">{selected.content}</p>
                     ) : (
@@ -812,7 +824,7 @@ function GradeAllRow({
       {/* Answer */}
       <div className="mb-3 rounded-xl border border-slate-800 bg-slate-950/40 p-4">
         {sub.answers && Object.keys(sub.answers).length > 0 ? (
-          <BlockAnswers assignment={assignment} answers={sub.answers} />
+          <BlockAnswers assignment={assignment} answers={sub.answers} comments={sub.questionComments} />
         ) : sub.content ? (
           <p className="whitespace-pre-wrap text-sm text-slate-300">{sub.content}</p>
         ) : (
@@ -946,7 +958,14 @@ function SubmissionCard({
   );
 }
 
-function BlockAnswers({ assignment, answers }: { assignment: Assignment | null; answers: Record<string, string | string[]> }) {
+function BlockAnswers({
+  assignment, answers, comments, onCommentChange,
+}: {
+  assignment: Assignment | null;
+  answers: Record<string, string | string[]>;
+  comments?: Record<string, string>;
+  onCommentChange?: (blockId: string, value: string) => void;
+}) {
   if (!assignment?.blocks) {
     return (
       <div className="space-y-3">
@@ -1041,6 +1060,21 @@ function BlockAnswers({ assignment, answers }: { assignment: Assignment | null; 
             ) : (
               <p className="whitespace-pre-wrap text-sm text-slate-300">{answer}</p>
             )}
+
+            {/* Per-question teacher comment */}
+            {onCommentChange ? (
+              <input
+                type="text"
+                value={comments?.[block.id] ?? ''}
+                onChange={(e) => onCommentChange(block.id, e.target.value)}
+                placeholder="💬 คอมเมนต์ข้อนี้ (ถ้ามี)"
+                className="mt-2 w-full rounded-lg border border-slate-700 bg-slate-800/60 px-3 py-1.5 text-xs text-slate-100 placeholder-slate-600 focus:border-blue-500 focus:outline-none"
+              />
+            ) : comments?.[block.id] ? (
+              <p className="mt-2 rounded-lg border border-blue-900/60 bg-blue-950/30 px-3 py-1.5 text-xs text-blue-200">
+                💬 {comments[block.id]}
+              </p>
+            ) : null}
           </div>
         );
       })}

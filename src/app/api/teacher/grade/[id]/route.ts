@@ -26,10 +26,20 @@ export async function PATCH(
   if (!uid) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
 
   const { id } = await params;
-  const { score, feedback } = await req.json();
+  const { score, feedback, questionComments } = await req.json();
 
   if (typeof score !== 'number' || score < 0 || score > 100) {
     return NextResponse.json({ error: 'Invalid score' }, { status: 400 });
+  }
+
+  // Per-question comments: map of blockId → comment. Keep only non-empty string
+  // values and cap length so a bad payload can't bloat the document.
+  let cleanComments: Record<string, string> | undefined;
+  if (questionComments && typeof questionComments === 'object') {
+    cleanComments = {};
+    for (const [k, v] of Object.entries(questionComments as Record<string, unknown>)) {
+      if (typeof v === 'string' && v.trim()) cleanComments[k] = v.slice(0, 1000);
+    }
   }
 
   const subSnap = await adminDb.collection('submissions').doc(id).get();
@@ -60,6 +70,7 @@ export async function PATCH(
     status: 'reviewed',
     reviewedAt: FieldValue.serverTimestamp(),
     xpAwarded: newXpAwarded,
+    ...(cleanComments !== undefined ? { questionComments: cleanComments } : {}),
   });
 
   if (xpDelta !== 0 && studentUid) {
