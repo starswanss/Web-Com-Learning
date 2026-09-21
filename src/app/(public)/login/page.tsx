@@ -2,6 +2,7 @@
 
 import { useEffect } from 'react';
 import { useRouter } from 'next/navigation';
+import Link from 'next/link';
 import { useAuth } from '@/context/AuthContext';
 
 export default function LoginPage() {
@@ -46,10 +47,23 @@ export default function LoginPage() {
             <GoogleIcon />
             Sign in with Google
           </button>
+
+          <div className="my-4 flex items-center gap-3">
+            <span className="h-px flex-1 bg-slate-800" />
+            <span className="text-[11px] text-slate-600">หรือ</span>
+            <span className="h-px flex-1 bg-slate-800" />
+          </div>
+
+          <Link
+            href="/guest"
+            className="flex w-full items-center justify-center gap-2 rounded-xl border border-slate-800 px-4 py-3 text-sm text-slate-400 transition-all hover:border-slate-600 hover:text-slate-200"
+          >
+            👁 เข้าชมแบบผู้เยี่ยมชม (ดูอย่างเดียว)
+          </Link>
         </div>
 
         <p className="mt-6 text-center text-xs text-slate-500">
-          เฉพาะบัญชีอีเมลของโรงเรียนเท่านั้น
+          เข้าสู่ระบบเฉพาะบัญชีอีเมลของโรงเรียน · ผู้เยี่ยมชมดูงานนักเรียนได้โดยไม่ต้องเข้าสู่ระบบ
         </p>
 
         <div className="mt-8 text-center">

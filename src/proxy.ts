@@ -1,6 +1,8 @@
 import { NextRequest, NextResponse } from 'next/server';
 
-const PUBLIC_PATHS = ['/login', '/api/auth/session'];
+// Guest mode: /guest pages and /api/guest/* endpoints are read-only and need
+// no session, so visitors can browse student work without logging in.
+const PUBLIC_PATHS = ['/login', '/api/auth/session', '/guest', '/api/guest'];
 
 export function proxy(req: NextRequest) {
   const { pathname } = req.nextUrl;
