@@ -21,6 +21,7 @@ const NAV_GROUPS = [
       { href: '/teacher/students',    icon: '🎓', label: 'นักเรียน' },
       { href: '/teacher/members',     icon: '👥', label: 'สมาชิก' },
       { href: '/teacher/gradebook',   icon: '📒', label: 'Gradebook' },
+      { href: '/teacher/grades',      icon: '🎯', label: 'เกรด' },
       { href: '/teacher/leaderboard', icon: '🏆', label: 'อันดับ' },
     ],
   },
