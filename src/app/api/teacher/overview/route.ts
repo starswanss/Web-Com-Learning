@@ -67,7 +67,11 @@ async function computeOverview(uid: string, subjectId: string | null) {
 
   const result = assignmentsSnap.docs.map((d) => {
     const data = d.data();
-    const counts = countMap.get(d.id) ?? { submitted: 0, graded: 0, reviewed: 0 };
+    // Knowledge sheets are read-only — never show submission counts, even if a
+    // few stray "accidental" submissions still exist in the data.
+    const counts = data.contentType === 'knowledge'
+      ? { submitted: 0, graded: 0, reviewed: 0 }
+      : countMap.get(d.id) ?? { submitted: 0, graded: 0, reviewed: 0 };
     return {
       id: d.id,
       title: data.title,

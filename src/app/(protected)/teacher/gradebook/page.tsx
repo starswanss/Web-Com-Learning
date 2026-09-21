@@ -46,19 +46,32 @@ export default function GradebookPage() {
   const [students, setStudents] = useState<StudentRow[]>([]);
   const [fetching, setFetching] = useState(true);
   const [filterClass, setFilterClass] = useState('');
-  const [subject, setSubject] = useState<{ id: string; name: string } | null>(null);
+  const [subjects, setSubjects] = useState<{ id: string; name: string }[]>([]);
+  // null = ทุกวิชา; undefined = not yet initialised from localStorage
+  const [subjectId, setSubjectId] = useState<string | null | undefined>(undefined);
 
   useEffect(() => {
     if (!loading && profile?.role !== 'teacher') router.push('/dashboard');
   }, [loading, profile, router]);
 
+  // Load the teacher's subjects + the currently-selected one (from localStorage).
   useEffect(() => {
     if (profile?.role !== 'teacher') return;
-    const sub = typeof window !== 'undefined'
+    const saved = typeof window !== 'undefined'
       ? JSON.parse(localStorage.getItem('lms_subject') ?? 'null')
       : null;
-    setSubject(sub);
-    const url = sub ? `/api/teacher/gradebook?subject=${sub.id}` : '/api/teacher/gradebook';
+    setSubjectId(saved?.id ?? null);
+    fetch('/api/subjects')
+      .then((r) => r.json())
+      .then((d) => setSubjects(Array.isArray(d) ? d.map((s) => ({ id: s.id, name: s.name })) : []))
+      .catch(() => {});
+  }, [profile]);
+
+  // Re-fetch the gradebook whenever the chosen subject changes.
+  useEffect(() => {
+    if (profile?.role !== 'teacher' || subjectId === undefined) return;
+    setFetching(true);
+    const url = subjectId ? `/api/teacher/gradebook?subject=${subjectId}` : '/api/teacher/gradebook';
     fetch(url)
       .then((r) => r.json())
       .then((d) => {
@@ -66,7 +79,7 @@ export default function GradebookPage() {
         setStudents(Array.isArray(d.students) ? d.students : []);
       })
       .finally(() => setFetching(false));
-  }, [profile]);
+  }, [profile, subjectId]);
 
   if (loading || !profile) return <Spinner />;
 
@@ -87,7 +100,7 @@ export default function GradebookPage() {
             <Link href="/teacher" className="text-xs text-slate-500 hover:text-slate-300">←</Link>
             <div>
               <h1 className="text-base font-semibold text-slate-100">📒 Grade Book</h1>
-              {subject && <p className="text-xs text-slate-500">{subject.name}</p>}
+              <p className="text-xs text-slate-500">แยกตามรายวิชา</p>
             </div>
           </div>
           <div className="flex items-center gap-3 flex-wrap">
@@ -97,6 +110,15 @@ export default function GradebookPage() {
               <span className="flex items-center gap-1"><span className="inline-block w-3 h-3 rounded-sm bg-blue-950/60 border border-blue-800" />AI ตรวจ</span>
               <span className="flex items-center gap-1"><span className="inline-block w-3 h-3 rounded-sm bg-amber-950/40 border border-amber-800" />รอตรวจ</span>
             </div>
+            {/* Subject selector — separates the gradebook by รายวิชา */}
+            <select
+              value={subjectId ?? ''}
+              onChange={(e) => setSubjectId(e.target.value || null)}
+              className="rounded-lg border border-blue-800 bg-blue-950/30 px-3 py-1.5 text-xs text-blue-200"
+            >
+              <option value="">📚 ทุกวิชา</option>
+              {subjects.map((s) => <option key={s.id} value={s.id}>{s.name}</option>)}
+            </select>
             <select
               value={filterClass}
               onChange={(e) => setFilterClass(e.target.value)}

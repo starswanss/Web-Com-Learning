@@ -13,6 +13,9 @@ interface BackfillResult { fixed: number; totalXpAwarded: number; studentsFixed:
 interface GroupStudent { studentId: string; displayName: string; count: number }
 interface GroupBackfillResult { groupSubmissions: number; recordsCreated: number; students: GroupStudent[]; applied: boolean }
 
+// ── Knowledge-submission cleanup types ───────────────────────────────────────────
+interface KnCleanupResult { knowledgeSheets: number; straySubmissions: number; xpReversed: number; applied: boolean }
+
 function currentThaiYear() {
   return new Date().getFullYear() + 543;
 }
@@ -44,6 +47,13 @@ export default function TeacherAdminPage() {
   const [gsFetching, setGsFetching] = useState(false);
   const [gsApplying, setGsApplying] = useState(false);
   const [gsError, setGsError] = useState<string | null>(null);
+
+  // Knowledge-submission cleanup state
+  const [knPreview, setKnPreview] = useState<KnCleanupResult | null>(null);
+  const [knResult, setKnResult] = useState<KnCleanupResult | null>(null);
+  const [knFetching, setKnFetching] = useState(false);
+  const [knApplying, setKnApplying] = useState(false);
+  const [knError, setKnError] = useState<string | null>(null);
   const [result, setResult] = useState<{ reset: number; year: number; yearFolderId: string | null } | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [confirmed, setConfirmed] = useState(false);
@@ -210,6 +220,34 @@ export default function TeacherAdminPage() {
       setGsResult(data); setGsPreview(null);
     } catch (e) { setGsError(e instanceof Error ? e.message : 'เกิดข้อผิดพลาด'); }
     finally { setGsApplying(false); }
+  }
+
+  async function handleKnPreview() {
+    setKnFetching(true); setKnError(null); setKnPreview(null); setKnResult(null);
+    try {
+      const res = await fetch('/api/admin/cleanup-knowledge-submissions');
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error ?? 'ไม่สำเร็จ');
+      setKnPreview(data);
+    } catch (e) { setKnError(e instanceof Error ? e.message : 'เกิดข้อผิดพลาด'); }
+    finally { setKnFetching(false); }
+  }
+
+  async function handleKnApply() {
+    if (!knPreview || knPreview.straySubmissions === 0) return;
+    if (!confirm(`ยืนยัน: ลบงานที่ส่งผิดในใบความรู้ ${knPreview.straySubmissions} รายการ และคืน XP ${knPreview.xpReversed}?`)) return;
+    setKnApplying(true); setKnError(null);
+    try {
+      const res = await fetch('/api/admin/cleanup-knowledge-submissions', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ apply: true }),
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error ?? 'ไม่สำเร็จ');
+      setKnResult(data); setKnPreview(null);
+    } catch (e) { setKnError(e instanceof Error ? e.message : 'เกิดข้อผิดพลาด'); }
+    finally { setKnApplying(false); }
   }
 
   async function handleReset() {
@@ -576,6 +614,66 @@ export default function TeacherAdminPage() {
               <div className="rounded-xl border border-emerald-800 bg-emerald-950/30 px-4 py-3 text-sm text-emerald-400">
                 ✅ ลิงก์คะแนนสำเร็จ — {gsResult.recordsCreated} รายการ · {gsResult.students.length} คน
               </div>
+            </div>
+          )}
+        </section>
+
+        {/* Cleanup accidental knowledge-sheet submissions */}
+        <section className="rounded-2xl border border-amber-900/60 bg-amber-950/10 p-6 space-y-5">
+          <div>
+            <h2 className="text-base font-semibold text-amber-400">📖 ลบงานที่นักเรียนเผลอส่งในใบความรู้</h2>
+            <p className="mt-1 text-sm text-slate-400">
+              ใบความรู้ให้<strong className="text-white">ดูอย่างเดียว</strong> ไม่ต้องส่งงาน — แต่ก่อนหน้านี้มีนักเรียนบางคนเผลอกดส่งมา
+              สแกนแล้วลบงานที่ส่งผิดเหล่านั้น พร้อม<strong className="text-white">คืน XP</strong> ที่ได้ไปโดยไม่ตั้งใจ
+            </p>
+          </div>
+
+          <div className="rounded-xl border border-slate-700 bg-slate-800/40 p-4 text-xs text-slate-400 space-y-1">
+            <ul className="list-disc list-inside space-y-0.5">
+              <li>กด <strong className="text-slate-200">Preview</strong> เพื่อดูก่อน — ยังไม่ลบข้อมูล</li>
+              <li>กด <strong className="text-slate-200">Apply</strong> เพื่อลบจริง + คืน XP (ทำซ้ำได้)</li>
+              <li>นับเฉพาะงานที่ส่งในใบความรู้ของครูเท่านั้น — ไม่แตะใบงาน/แบบทดสอบ</li>
+            </ul>
+          </div>
+
+          {!knResult && (
+            <div className="flex gap-3 flex-wrap">
+              <button
+                onClick={handleKnPreview}
+                disabled={knFetching || knApplying}
+                className="rounded-xl border border-blue-700 bg-blue-950/40 px-5 py-2 text-sm font-medium text-blue-300 hover:border-blue-500 disabled:opacity-50 transition-all"
+              >
+                {knFetching ? 'กำลังสแกน…' : '🔍 Preview'}
+              </button>
+              {knPreview && knPreview.straySubmissions > 0 && (
+                <button
+                  onClick={handleKnApply}
+                  disabled={knApplying}
+                  className="rounded-xl bg-amber-600 px-5 py-2 text-sm font-medium text-white hover:bg-amber-500 disabled:opacity-50 transition-all"
+                >
+                  {knApplying ? 'กำลังลบ…' : `🗑 ลบ (${knPreview.straySubmissions} รายการ)`}
+                </button>
+              )}
+            </div>
+          )}
+
+          {knError && <p className="text-sm text-red-400">{knError}</p>}
+
+          {knPreview && knPreview.straySubmissions === 0 && (
+            <p className="text-sm text-emerald-400">✅ ไม่พบงานที่ส่งผิดในใบความรู้ — สะอาดแล้ว</p>
+          )}
+
+          {knPreview && knPreview.straySubmissions > 0 && (
+            <p className="text-xs text-slate-400">
+              ใบความรู้ <strong className="text-white">{knPreview.knowledgeSheets}</strong> ใบ
+              · พบงานที่ส่งผิด <strong className="text-amber-400">{knPreview.straySubmissions}</strong> รายการ
+              · จะคืน XP <strong className="text-white">{knPreview.xpReversed}</strong>
+            </p>
+          )}
+
+          {knResult && (
+            <div className="rounded-xl border border-amber-800 bg-amber-950/30 px-4 py-3 text-sm text-amber-400">
+              ✅ ลบสำเร็จ — {knResult.straySubmissions} รายการ · คืน XP {knResult.xpReversed}
             </div>
           )}
         </section>
