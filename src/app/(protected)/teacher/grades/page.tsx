@@ -7,6 +7,7 @@ import Link from 'next/link';
 
 interface Unit { id: string; name: string; k: number; p: number; a: number }
 interface KPA { k: number; p: number; a: number }
+interface Exam { midterm: number; final: number }
 interface Row {
   uid: string;
   studentCode: string;
@@ -15,8 +16,12 @@ interface Row {
   classId: string;
   unitPct: Record<string, number>;
   saved: Record<string, KPA>;
+  savedExam: Exam;
 }
 type ScoreMap = Record<string, Record<string, KPA>>;
+type ExamMap = Record<string, Exam>;
+const EXAM_KEYS: (keyof Exam)[] = ['midterm', 'final'];
+const EXAM_LABEL: Record<keyof Exam, string> = { midterm: 'กลางภาค', final: 'ปลายภาค' };
 
 const KPA_KEYS: (keyof KPA)[] = ['k', 'p', 'a'];
 const KPA_LABEL: Record<keyof KPA, string> = { k: 'K', p: 'P', a: 'A' };
@@ -53,9 +58,11 @@ export default function GradesPage() {
   const [subjects, setSubjects] = useState<{ id: string; name: string }[]>([]);
   const [subjectId, setSubjectId] = useState<string | null | undefined>(undefined);
   const [units, setUnits] = useState<Unit[]>([]);
+  const [examCfg, setExamCfg] = useState<Exam>({ midterm: 20, final: 20 });
   const [unitMatched, setUnitMatched] = useState<Record<string, number>>({});
   const [rows, setRows] = useState<Row[]>([]);
   const [scores, setScores] = useState<ScoreMap>({});
+  const [exams, setExams] = useState<ExamMap>({});
   const [fetching, setFetching] = useState(true);
   const [classFilter, setClassFilter] = useState('');
   const [savingCfg, setSavingCfg] = useState(false);
@@ -88,12 +95,18 @@ export default function GradesPage() {
         const u: Unit[] = Array.isArray(d.units) ? d.units : [];
         const rs: Row[] = Array.isArray(d.students) ? d.students : [];
         setUnits(u);
+        setExamCfg(d.exam ?? { midterm: 20, final: 20 });
         setUnitMatched(d.unitMatched ?? {});
         setRows(rs);
         // Seed editable scores from saved values.
         const seed: ScoreMap = {};
-        for (const r of rs) seed[r.uid] = { ...r.saved };
+        const seedExam: ExamMap = {};
+        for (const r of rs) {
+          seed[r.uid] = { ...r.saved };
+          seedExam[r.uid] = { ...(r.savedExam ?? { midterm: 0, final: 0 }) };
+        }
         setScores(seed);
+        setExams(seedExam);
       })
       .finally(() => setFetching(false));
   }, [profile, subjectId]);
@@ -106,11 +119,27 @@ export default function GradesPage() {
   const classes = Array.from(new Set(rows.map((r) => r.classId))).sort();
   const visible = classFilter ? rows.filter((r) => r.classId === classFilter) : rows;
 
-  const maxTotal = units.reduce((sum, u) => sum + u.k + u.p + u.a, 0);
+  const unitsMax = units.reduce((sum, u) => sum + u.k + u.p + u.a, 0);
+  const maxTotal = unitsMax + (examCfg.midterm || 0) + (examCfg.final || 0);
+  const overLimit = maxTotal > 100;
 
   function cellVal(uid: string, unitId: string, key: keyof KPA): number | '' {
     const v = scores[uid]?.[unitId]?.[key];
     return typeof v === 'number' ? v : '';
+  }
+  function examVal(uid: string, key: keyof Exam): number | '' {
+    const v = exams[uid]?.[key];
+    return typeof v === 'number' ? v : '';
+  }
+  function setExam(uid: string, key: keyof Exam, raw: string, max: number) {
+    let n = raw === '' ? 0 : Number(raw);
+    if (!isFinite(n) || n < 0) n = 0;
+    if (n > max) n = max;
+    setExams((prev) => {
+      const cur: Exam = { ...(prev[uid] ?? { midterm: 0, final: 0 }) };
+      cur[key] = n;
+      return { ...prev, [uid]: cur };
+    });
   }
   function setCell(uid: string, unitId: string, key: keyof KPA, raw: string, max: number) {
     let n = raw === '' ? 0 : Number(raw);
@@ -130,6 +159,8 @@ export default function GradesPage() {
       const kpa = scores[uid]?.[u.id];
       if (kpa) t += (kpa.k || 0) + (kpa.p || 0) + (kpa.a || 0);
     }
+    const e = exams[uid];
+    if (e) t += (e.midterm || 0) + (e.final || 0);
     return Math.round(t * 100) / 100;
   }
 
@@ -144,18 +175,20 @@ export default function GradesPage() {
     setUnits((prev) => prev.filter((u) => u.id !== id));
   }
   async function saveConfig() {
+    if (overLimit) { setMsg(`คะแนนเต็มรวมต้องไม่เกิน 100 (ตอนนี้ ${maxTotal})`); return; }
     setSavingCfg(true); setMsg(null);
     try {
       const url = subjectId ? `/api/teacher/grades?subject=${subjectId}` : '/api/teacher/grades';
       const res = await fetch(url, {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ units }),
+        body: JSON.stringify({ units, midterm: examCfg.midterm, final: examCfg.final }),
       });
-      if (!res.ok) throw new Error();
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(data.error ?? '');
       setMsg('บันทึกหน่วยแล้ว');
       load(); // refresh unitMatched + auto percentages
-    } catch { setMsg('บันทึกหน่วยไม่สำเร็จ'); }
+    } catch (e) { setMsg(e instanceof Error && e.message ? e.message : 'บันทึกหน่วยไม่สำเร็จ'); }
     finally { setSavingCfg(false); }
   }
 
@@ -184,7 +217,7 @@ export default function GradesPage() {
       const res = await fetch(url, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ scores }),
+        body: JSON.stringify({ scores, exams }),
       });
       if (!res.ok) throw new Error();
       setMsg('บันทึกคะแนนแล้ว');
@@ -197,6 +230,7 @@ export default function GradesPage() {
     const XLSX = await import('xlsx');
     const header = ['รหัสประจำตัว', 'ชื่อ-สกุล', 'ห้อง'];
     for (const u of units) header.push(`${u.name} K`, `${u.name} P`, `${u.name} A`);
+    header.push(`กลางภาค (${examCfg.midterm})`, `ปลายภาค (${examCfg.final})`);
     header.push('คะแนนรวม', 'คะแนนเต็ม', 'ร้อยละ', 'เกรด');
 
     const aoa: (string | number)[][] = [header];
@@ -206,6 +240,8 @@ export default function GradesPage() {
         const kpa = scores[r.uid]?.[u.id];
         line.push(kpa?.k ?? 0, kpa?.p ?? 0, kpa?.a ?? 0);
       }
+      const e = exams[r.uid];
+      line.push(e?.midterm ?? 0, e?.final ?? 0);
       const total = rowTotal(r.uid);
       const pct = maxTotal > 0 ? Math.round((total / maxTotal) * 10000) / 100 : 0;
       line.push(total, maxTotal, pct, gradeOf(pct));
@@ -262,7 +298,8 @@ export default function GradesPage() {
             </div>
             <div className="flex items-center gap-2">
               <button onClick={addUnit} className="rounded-lg border border-slate-700 px-3 py-1.5 text-xs text-slate-300 hover:border-slate-500">+ เพิ่มหน่วย</button>
-              <button onClick={saveConfig} disabled={savingCfg}
+              <button onClick={saveConfig} disabled={savingCfg || overLimit}
+                title={overLimit ? 'คะแนนเต็มรวมเกิน 100' : undefined}
                 className="rounded-lg bg-blue-600 px-4 py-1.5 text-xs font-semibold text-white hover:bg-blue-500 disabled:opacity-50">
                 {savingCfg ? 'กำลังบันทึก…' : '💾 บันทึกหน่วย'}
               </button>
@@ -302,8 +339,30 @@ export default function GradesPage() {
             ))}
           </div>
 
+          {/* Midterm + final exam full marks */}
+          <div className="mt-3 flex flex-wrap items-end gap-4 rounded-xl border border-slate-800 bg-slate-950/40 p-3">
+            {EXAM_KEYS.map((key) => (
+              <label key={key} className="text-center">
+                <span className="mb-1 block text-[11px] font-semibold text-amber-300">{EXAM_LABEL[key]} (เต็ม)</span>
+                <input
+                  type="number" min={0} value={examCfg[key]}
+                  onChange={(e) => setExamCfg((c) => ({ ...c, [key]: Math.max(0, Number(e.target.value)) }))}
+                  className="w-24 rounded-lg border border-slate-700 bg-slate-800 px-2 py-1 text-center text-xs text-slate-100"
+                />
+              </label>
+            ))}
+            <div className="flex-1" />
+            <div className={`rounded-lg border px-4 py-2 text-sm font-bold ${
+              overLimit ? 'border-red-700 bg-red-950/40 text-red-300' : 'border-emerald-800 bg-emerald-950/30 text-emerald-300'
+            }`}>
+              คะแนนเต็มรวม {maxTotal}/100
+              {overLimit && <span className="ml-2 text-xs font-normal">⚠ เกิน 100 — ลดคะแนนก่อนบันทึก</span>}
+            </div>
+          </div>
+
           <p className="mt-3 text-[11px] text-slate-500">
-            💡 “ผูกกับงาน” = ใบงาน/แบบทดสอบที่ตั้งชื่อ <strong className="text-slate-300">หน่วย</strong> ตรงกับชื่อหน่วยนี้ — ระบบจะเกลี่ยคะแนนจากงานเหล่านั้น
+            💡 “ผูกกับงาน” = ใบงาน/แบบทดสอบที่ตั้งชื่อ <strong className="text-slate-300">หน่วย</strong> ตรงกับชื่อหน่วยนี้ — ระบบจะเกลี่ยคะแนนจากงานเหล่านั้น ·
+            คะแนนเก็บ (KPA) + กลางภาค + ปลายภาค รวมกัน<strong className="text-slate-300">ต้องไม่เกิน 100</strong>
           </p>
         </section>
 
@@ -348,6 +407,7 @@ export default function GradesPage() {
                       {u.name}
                     </th>
                   ))}
+                  <th colSpan={2} className="px-2 py-1.5 text-center text-[11px] font-semibold text-amber-300 border-r border-l border-slate-800">สอบ</th>
                   <th rowSpan={2} className="px-2 py-2 text-center text-[11px] font-semibold text-blue-400 border-l border-slate-800 min-w-[56px]">รวม<br /><span className="text-[9px] text-slate-600">/{maxTotal}</span></th>
                   <th rowSpan={2} className="px-2 py-2 text-center text-[11px] font-semibold text-emerald-400 min-w-[48px]">เกรด</th>
                 </tr>
@@ -358,6 +418,11 @@ export default function GradesPage() {
                         {KPA_LABEL[key]}<span className="text-[8px] text-slate-600">/{u[key]}</span>
                       </th>
                     ))
+                  ))}
+                  {EXAM_KEYS.map((key) => (
+                    <th key={key} className="px-1 py-1 text-center text-[10px] font-bold text-amber-400/80 border-l border-slate-800/60" title={`${EXAM_LABEL[key]} เต็ม ${examCfg[key]}`}>
+                      {key === 'midterm' ? 'กลาง' : 'ปลาย'}<span className="text-[8px] text-slate-600">/{examCfg[key]}</span>
+                    </th>
                   ))}
                 </tr>
               </thead>
@@ -384,6 +449,16 @@ export default function GradesPage() {
                             />
                           </td>
                         ))
+                      ))}
+                      {EXAM_KEYS.map((key) => (
+                        <td key={key} className="px-0.5 py-1 border-l border-slate-800/50">
+                          <input
+                            type="number" min={0} max={examCfg[key]}
+                            value={examVal(r.uid, key)}
+                            onChange={(e) => setExam(r.uid, key, e.target.value, examCfg[key])}
+                            className="w-11 rounded border border-amber-900/50 bg-slate-900 px-1 py-1 text-center text-xs text-amber-100 focus:border-amber-500 focus:outline-none"
+                          />
+                        </td>
                       ))}
                       <td className="px-2 py-1.5 text-center font-bold text-blue-300 border-l border-slate-800">{total}</td>
                       <td className={`px-2 py-1.5 text-center font-bold ${gradeColor(grade)}`}>{grade}</td>

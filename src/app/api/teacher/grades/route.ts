@@ -15,9 +15,17 @@ async function getTeacherUid(): Promise<string | null> {
 }
 
 interface Unit { id: string; name: string; k: number; p: number; a: number }
+interface Exam { midterm: number; final: number }
 
 function defaultUnits(): Unit[] {
   return [{ id: 'u1', name: 'หน่วยที่ 1', k: 10, p: 10, a: 10 }];
+}
+const DEFAULT_EXAM: Exam = { midterm: 20, final: 20 };
+
+/** Sum of all full marks (units KPA + midterm + final). */
+function fullMarks(units: Unit[], exam: Exam): number {
+  const u = units.reduce((s, x) => s + (x.k || 0) + (x.p || 0) + (x.a || 0), 0);
+  return u + (exam.midterm || 0) + (exam.final || 0);
 }
 
 function subjectKey(subjectId: string | null): string {
@@ -42,11 +50,16 @@ export async function GET(req: NextRequest) {
     adminDb.collection('gradeConfigs').doc(`${uid}__${key}`).get(),
     adminDb.collection('gradeScores').doc(`${uid}__${key}`).get(),
   ]);
-  const units: Unit[] = configSnap.exists && Array.isArray(configSnap.data()?.units)
-    ? (configSnap.data()!.units as Unit[])
-    : defaultUnits();
+  const cfg = configSnap.exists ? configSnap.data()! : null;
+  const units: Unit[] = cfg && Array.isArray(cfg.units) ? (cfg.units as Unit[]) : defaultUnits();
+  const exam: Exam = {
+    midterm: typeof cfg?.midterm === 'number' ? cfg.midterm : DEFAULT_EXAM.midterm,
+    final: typeof cfg?.final === 'number' ? cfg.final : DEFAULT_EXAM.final,
+  };
   const savedScores: Record<string, Record<string, { k: number; p: number; a: number }>> =
     scoresSnap.exists ? (scoresSnap.data()?.scores ?? {}) : {};
+  const savedExams: Record<string, Exam> =
+    scoresSnap.exists ? (scoresSnap.data()?.exams ?? {}) : {};
 
   // Assignments (worksheet/quiz only), optionally by subject.
   let aQuery = adminDb.collection('assignments').where('teacherId', '==', uid);
@@ -135,6 +148,7 @@ export async function GET(req: NextRequest) {
       classId: s.classId,
       unitPct,
       saved: savedScores[s.uid] ?? {},
+      savedExam: savedExams[s.uid] ?? { midterm: 0, final: 0 },
     };
   });
 
@@ -144,7 +158,7 @@ export async function GET(req: NextRequest) {
     return a.name.localeCompare(b.name, 'th');
   });
 
-  return NextResponse.json({ units, unitMatched, students: rows });
+  return NextResponse.json({ units, exam, fullMarks: fullMarks(units, exam), unitMatched, students: rows });
 }
 
 // ── PUT: save the unit config ────────────────────────────────────────────────────
@@ -163,10 +177,20 @@ export async function PUT(req: NextRequest) {
     name: String(u.name ?? `หน่วยที่ ${i + 1}`).slice(0, 100),
     k: clampNum(u.k), p: clampNum(u.p), a: clampNum(u.a),
   }));
+  const exam: Exam = { midterm: clampNum(body?.midterm), final: clampNum(body?.final) };
+
+  // Condition: total full marks (เก็บ KPA + กลางภาค + ปลายภาค) must not exceed 100.
+  const total = fullMarks(clean, exam);
+  if (total > 100) {
+    return NextResponse.json(
+      { error: `คะแนนเต็มรวมต้องไม่เกิน 100 (ตอนนี้ ${total})`, fullMarks: total },
+      { status: 400 },
+    );
+  }
 
   await adminDb.collection('gradeConfigs').doc(`${uid}__${subjectKey(subjectId)}`)
-    .set({ units: clean }, { merge: true });
-  return NextResponse.json({ ok: true, units: clean });
+    .set({ units: clean, midterm: exam.midterm, final: exam.final }, { merge: true });
+  return NextResponse.json({ ok: true, units: clean, exam, fullMarks: total });
 }
 
 // ── POST: save the manual (edited/distributed) scores ─────────────────────────────
@@ -180,6 +204,7 @@ export async function POST(req: NextRequest) {
   if (!scores || typeof scores !== 'object') {
     return NextResponse.json({ error: 'Missing scores' }, { status: 400 });
   }
+  const exams = (body?.exams && typeof body.exams === 'object') ? body.exams as Record<string, unknown> : {};
 
   // Sanitise: { [studentUid]: { [unitId]: {k,p,a} } }
   const clean: Record<string, Record<string, { k: number; p: number; a: number }>> = {};
@@ -192,8 +217,15 @@ export async function POST(req: NextRequest) {
     }
   }
 
+  // Sanitise exam scores: { [studentUid]: { midterm, final } }
+  const cleanExams: Record<string, Exam> = {};
+  for (const [studentUid, e] of Object.entries(exams)) {
+    const v = (e ?? {}) as Record<string, unknown>;
+    cleanExams[studentUid] = { midterm: clampNum(v?.midterm), final: clampNum(v?.final) };
+  }
+
   await adminDb.collection('gradeScores').doc(`${uid}__${subjectKey(subjectId)}`)
-    .set({ scores: clean }, { merge: false });
+    .set({ scores: clean, exams: cleanExams }, { merge: false });
   return NextResponse.json({ ok: true });
 }
 
