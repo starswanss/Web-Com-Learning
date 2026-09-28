@@ -14,11 +14,22 @@ async function getTeacherUid(): Promise<string | null> {
   } catch { return null; }
 }
 
-interface Unit { id: string; name: string; k: number; p: number; a: number }
+interface Unit { id: string; name: string; k: number; p: number; a: number; assignmentIds?: string[] }
 interface Exam { midterm: number; final: number }
 
 function defaultUnits(): Unit[] {
-  return [{ id: 'u1', name: 'หน่วยที่ 1', k: 10, p: 10, a: 10 }];
+  return [{ id: 'u1', name: 'หน่วยที่ 1', k: 10, p: 10, a: 10, assignmentIds: [] }];
+}
+
+function cleanIds(v: unknown): string[] {
+  if (!Array.isArray(v)) return [];
+  return v.filter((x): x is string => typeof x === 'string' && !!x).slice(0, 200);
+}
+
+/** Average the student's reviewed scores over the given assignments → 0..1. */
+function pctFromAssignments(ids: string[], scored: Map<string, number>): number {
+  const vals = ids.map((id) => scored.get(id)).filter((v): v is number => typeof v === 'number');
+  return vals.length > 0 ? vals.reduce((a, b) => a + b, 0) / vals.length / 100 : 0;
 }
 const DEFAULT_EXAM: Exam = { midterm: 20, final: 20 };
 
@@ -56,6 +67,8 @@ export async function GET(req: NextRequest) {
     midterm: typeof cfg?.midterm === 'number' ? cfg.midterm : DEFAULT_EXAM.midterm,
     final: typeof cfg?.final === 'number' ? cfg.final : DEFAULT_EXAM.final,
   };
+  const midtermAssignments = cleanIds(cfg?.midtermAssignments);
+  const finalAssignments = cleanIds(cfg?.finalAssignments);
   const savedScores: Record<string, Record<string, { k: number; p: number; a: number }>> =
     scoresSnap.exists ? (scoresSnap.data()?.scores ?? {}) : {};
   const savedExams: Record<string, Exam> =
@@ -113,14 +126,21 @@ export async function GET(req: NextRequest) {
     });
   }
 
-  // How many assignments are tied to each unit name (informational for the UI).
-  const unitMatched: Record<string, number> = {};
-  for (const u of units) {
+  // Resolve each unit's bound assignment IDs. Prefer the explicit selection;
+  // fall back to name-matching (older configs) so nothing breaks.
+  const validId = new Set(assignments.map((a) => a.id));
+  function unitAssignmentIds(u: Unit): string[] {
+    const explicit = (u.assignmentIds ?? []).filter((id) => validId.has(id));
+    if (explicit.length > 0) return explicit;
     const uname = u.name.trim();
-    unitMatched[u.id] = assignments.filter((a) => assignmentUnit.get(a.id) === uname).length;
+    return assignments.filter((a) => assignmentUnit.get(a.id) === uname).map((a) => a.id);
   }
 
-  // Build rows with per-unit percentage (0..1) used by "เกลี่ยอัตโนมัติ".
+  // How many assignments are tied to each unit (informational for the UI).
+  const unitMatched: Record<string, number> = {};
+  for (const u of units) unitMatched[u.id] = unitAssignmentIds(u).length;
+
+  // Build rows with per-unit / exam percentages (0..1) used by "เกลี่ยอัตโนมัติ".
   const rows = students.map((s) => {
     const scored = subIndex.get(s.uid) ?? new Map<string, number>();
     const allScores = Array.from(scored.values());
@@ -130,14 +150,9 @@ export async function GET(req: NextRequest) {
 
     const unitPct: Record<string, number> = {};
     for (const u of units) {
-      const uname = u.name.trim();
-      const unitScores = assignments
-        .filter((a) => assignmentUnit.get(a.id) === uname)
-        .map((a) => scored.get(a.id))
-        .filter((v): v is number => typeof v === 'number');
-      unitPct[u.id] = unitScores.length > 0
-        ? unitScores.reduce((a, b) => a + b, 0) / unitScores.length / 100
-        : overallPct; // fallback when no assignment is tagged with this unit
+      const ids = unitAssignmentIds(u);
+      // No assignments bound at all → fall back to the student's overall average.
+      unitPct[u.id] = ids.length === 0 ? overallPct : pctFromAssignments(ids, scored);
     }
 
     return {
@@ -147,6 +162,8 @@ export async function GET(req: NextRequest) {
       email: s.email,
       classId: s.classId,
       unitPct,
+      midtermPct: pctFromAssignments(midtermAssignments, scored),
+      finalPct: pctFromAssignments(finalAssignments, scored),
       saved: savedScores[s.uid] ?? {},
       savedExam: savedExams[s.uid] ?? { midterm: 0, final: 0 },
     };
@@ -158,7 +175,21 @@ export async function GET(req: NextRequest) {
     return a.name.localeCompare(b.name, 'th');
   });
 
-  return NextResponse.json({ units, exam, fullMarks: fullMarks(units, exam), unitMatched, students: rows });
+  // Assignment list for the "bind assignments" pickers.
+  const assignmentList = assignments
+    .map((a) => ({
+      id: a.id,
+      title: (a.title as string) ?? '(ไม่มีชื่อ)',
+      unit: String((a.unit as string) ?? '').trim(),
+      contentType: (a.contentType as string) ?? 'worksheet',
+    }))
+    .sort((x, y) => x.title.localeCompare(y.title, 'th'));
+
+  return NextResponse.json({
+    units, exam, midtermAssignments, finalAssignments,
+    fullMarks: fullMarks(units, exam), unitMatched,
+    assignments: assignmentList, students: rows,
+  });
 }
 
 // ── PUT: save the unit config ────────────────────────────────────────────────────
@@ -176,8 +207,11 @@ export async function PUT(req: NextRequest) {
     id: typeof u.id === 'string' && u.id ? u.id : `u${i + 1}`,
     name: String(u.name ?? `หน่วยที่ ${i + 1}`).slice(0, 100),
     k: clampNum(u.k), p: clampNum(u.p), a: clampNum(u.a),
+    assignmentIds: cleanIds(u.assignmentIds),
   }));
   const exam: Exam = { midterm: clampNum(body?.midterm), final: clampNum(body?.final) };
+  const midtermAssignments = cleanIds(body?.midtermAssignments);
+  const finalAssignments = cleanIds(body?.finalAssignments);
 
   // Condition: total full marks (เก็บ KPA + กลางภาค + ปลายภาค) must not exceed 100.
   const total = fullMarks(clean, exam);
@@ -189,8 +223,8 @@ export async function PUT(req: NextRequest) {
   }
 
   await adminDb.collection('gradeConfigs').doc(`${uid}__${subjectKey(subjectId)}`)
-    .set({ units: clean, midterm: exam.midterm, final: exam.final }, { merge: true });
-  return NextResponse.json({ ok: true, units: clean, exam, fullMarks: total });
+    .set({ units: clean, midterm: exam.midterm, final: exam.final, midtermAssignments, finalAssignments }, { merge: true });
+  return NextResponse.json({ ok: true, units: clean, exam, midtermAssignments, finalAssignments, fullMarks: total });
 }
 
 // ── POST: save the manual (edited/distributed) scores ─────────────────────────────

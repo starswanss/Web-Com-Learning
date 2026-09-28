@@ -5,9 +5,10 @@ import { useAuth } from '@/context/AuthContext';
 import { useRouter } from 'next/navigation';
 import Link from 'next/link';
 
-interface Unit { id: string; name: string; k: number; p: number; a: number }
+interface Unit { id: string; name: string; k: number; p: number; a: number; assignmentIds?: string[] }
 interface KPA { k: number; p: number; a: number }
 interface Exam { midterm: number; final: number }
+interface AssignmentOpt { id: string; title: string; unit: string; contentType: string }
 interface Row {
   uid: string;
   studentCode: string;
@@ -15,6 +16,8 @@ interface Row {
   email: string;
   classId: string;
   unitPct: Record<string, number>;
+  midtermPct: number;
+  finalPct: number;
   saved: Record<string, KPA>;
   savedExam: Exam;
 }
@@ -26,6 +29,9 @@ const EXAM_LABEL: Record<keyof Exam, string> = { midterm: 'กลางภาค
 const KPA_KEYS: (keyof KPA)[] = ['k', 'p', 'a'];
 const KPA_LABEL: Record<keyof KPA, string> = { k: 'K', p: 'P', a: 'A' };
 
+const PASS_THRESHOLD = 50; // ต่ำกว่า 50% = ไม่ผ่านเกณฑ์ → ทำสีแดง
+
+// เกรดตามระบบประเทศไทย (8 ระดับ)
 function gradeOf(pct: number): string {
   if (pct >= 80) return '4';
   if (pct >= 75) return '3.5';
@@ -59,6 +65,9 @@ export default function GradesPage() {
   const [subjectId, setSubjectId] = useState<string | null | undefined>(undefined);
   const [units, setUnits] = useState<Unit[]>([]);
   const [examCfg, setExamCfg] = useState<Exam>({ midterm: 20, final: 20 });
+  const [midtermAssignments, setMidtermAssignments] = useState<string[]>([]);
+  const [finalAssignments, setFinalAssignments] = useState<string[]>([]);
+  const [assignmentOpts, setAssignmentOpts] = useState<AssignmentOpt[]>([]);
   const [unitMatched, setUnitMatched] = useState<Record<string, number>>({});
   const [rows, setRows] = useState<Row[]>([]);
   const [scores, setScores] = useState<ScoreMap>({});
@@ -96,6 +105,9 @@ export default function GradesPage() {
         const rs: Row[] = Array.isArray(d.students) ? d.students : [];
         setUnits(u);
         setExamCfg(d.exam ?? { midterm: 20, final: 20 });
+        setMidtermAssignments(Array.isArray(d.midtermAssignments) ? d.midtermAssignments : []);
+        setFinalAssignments(Array.isArray(d.finalAssignments) ? d.finalAssignments : []);
+        setAssignmentOpts(Array.isArray(d.assignments) ? d.assignments : []);
         setUnitMatched(d.unitMatched ?? {});
         setRows(rs);
         // Seed editable scores from saved values.
@@ -169,7 +181,7 @@ export default function GradesPage() {
     setUnits((prev) => prev.map((u) => (u.id === id ? { ...u, ...patch } : u)));
   }
   function addUnit() {
-    setUnits((prev) => [...prev, { id: newUnitId(prev), name: `หน่วยที่ ${prev.length + 1}`, k: 10, p: 10, a: 10 }]);
+    setUnits((prev) => [...prev, { id: newUnitId(prev), name: `หน่วยที่ ${prev.length + 1}`, k: 10, p: 10, a: 10, assignmentIds: [] }]);
   }
   function removeUnit(id: string) {
     setUnits((prev) => prev.filter((u) => u.id !== id));
@@ -182,7 +194,7 @@ export default function GradesPage() {
       const res = await fetch(url, {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ units, midterm: examCfg.midterm, final: examCfg.final }),
+        body: JSON.stringify({ units, midterm: examCfg.midterm, final: examCfg.final, midtermAssignments, finalAssignments }),
       });
       const data = await res.json().catch(() => ({}));
       if (!res.ok) throw new Error(data.error ?? '');
@@ -193,8 +205,11 @@ export default function GradesPage() {
   }
 
   // ── Auto-distribute (เกลี่ย) ────────────────────────────────────────────────
+  // Distributes each unit's KPA — and midterm/final — from the scores of the
+  // assignments bound to them.
   function autoDistribute() {
     const next: ScoreMap = {};
+    const nextExam: ExamMap = {};
     for (const r of rows) {
       next[r.uid] = {};
       for (const u of units) {
@@ -205,9 +220,14 @@ export default function GradesPage() {
           a: Math.min(u.a, Math.round(pct * u.a)),
         };
       }
+      nextExam[r.uid] = {
+        midterm: Math.min(examCfg.midterm, Math.round((r.midtermPct ?? 0) * examCfg.midterm)),
+        final: Math.min(examCfg.final, Math.round((r.finalPct ?? 0) * examCfg.final)),
+      };
     }
     setScores(next);
-    setMsg('เกลี่ยคะแนนจากงานที่ตรวจแล้ว — ตรวจ/แก้ไขได้ แล้วกด “บันทึกคะแนน”');
+    setExams(nextExam);
+    setMsg('เกลี่ยคะแนนจากงานที่ผูกไว้ — ตรวจ/แก้ไขได้ แล้วกด “บันทึกคะแนน”');
   }
 
   async function saveScores() {
@@ -332,26 +352,49 @@ export default function GradesPage() {
                     </label>
                   ))}
                 </div>
+                <div className="mt-2">
+                  <AssignmentPicker
+                    options={assignmentOpts}
+                    selected={u.assignmentIds ?? []}
+                    onChange={(ids) => updateUnit(u.id, { assignmentIds: ids })}
+                    label="ผูกใบงานของหน่วยนี้"
+                  />
+                </div>
                 <p className="mt-1.5 text-[10px] text-slate-600">
-                  รวม {u.k + u.p + u.a} · {unitMatched[u.id] ? `ผูกกับงาน ${unitMatched[u.id]} ชิ้น` : 'ยังไม่มีงานผูก (ใช้ค่าเฉลี่ยรวม)'}
+                  รวม {u.k + u.p + u.a} · {unitMatched[u.id] ? `เกลี่ยจากงาน ${unitMatched[u.id]} ชิ้น` : 'ยังไม่ผูกงาน (ใช้ค่าเฉลี่ยรวม)'}
                 </p>
               </div>
             ))}
           </div>
 
-          {/* Midterm + final exam full marks */}
-          <div className="mt-3 flex flex-wrap items-end gap-4 rounded-xl border border-slate-800 bg-slate-950/40 p-3">
+          {/* Midterm + final: full marks + bound assignments */}
+          <div className="mt-3 grid gap-2 sm:grid-cols-2">
             {EXAM_KEYS.map((key) => (
-              <label key={key} className="text-center">
-                <span className="mb-1 block text-[11px] font-semibold text-amber-300">{EXAM_LABEL[key]} (เต็ม)</span>
-                <input
-                  type="number" min={0} value={examCfg[key]}
-                  onChange={(e) => setExamCfg((c) => ({ ...c, [key]: Math.max(0, Number(e.target.value)) }))}
-                  className="w-24 rounded-lg border border-slate-700 bg-slate-800 px-2 py-1 text-center text-xs text-slate-100"
+              <div key={key} className="rounded-xl border border-amber-900/40 bg-slate-950/40 p-3">
+                <div className="mb-2 flex items-center gap-2">
+                  <span className="text-[11px] font-semibold text-amber-300">{EXAM_LABEL[key]}</span>
+                  <span className="text-[10px] text-slate-500">คะแนนเต็ม</span>
+                  <input
+                    type="number" min={0} value={examCfg[key]}
+                    onChange={(e) => setExamCfg((c) => ({ ...c, [key]: Math.max(0, Number(e.target.value)) }))}
+                    className="w-20 rounded-lg border border-slate-700 bg-slate-800 px-2 py-1 text-center text-xs text-slate-100"
+                  />
+                </div>
+                <AssignmentPicker
+                  options={assignmentOpts}
+                  selected={key === 'midterm' ? midtermAssignments : finalAssignments}
+                  onChange={(ids) => key === 'midterm' ? setMidtermAssignments(ids) : setFinalAssignments(ids)}
+                  label={`ผูกงานสำหรับ${EXAM_LABEL[key]}`}
                 />
-              </label>
+              </div>
             ))}
-            <div className="flex-1" />
+          </div>
+
+          <div className="mt-3 flex flex-wrap items-center justify-between gap-3">
+            <p className="text-[11px] text-slate-500 flex-1 min-w-[200px]">
+              💡 ผูกใบงาน/แบบทดสอบเข้ากับแต่ละหน่วย (และกลางภาค/ปลายภาค) แล้วกด <strong className="text-slate-300">เกลี่ยคะแนนอัตโนมัติ</strong> — ระบบจะเฉลี่ยคะแนนงานที่ผูกไว้มาลงช่องให้ ·
+              เก็บ (KPA) + กลางภาค + ปลายภาค รวม<strong className="text-slate-300">ต้องไม่เกิน 100</strong>
+            </p>
             <div className={`rounded-lg border px-4 py-2 text-sm font-bold ${
               overLimit ? 'border-red-700 bg-red-950/40 text-red-300' : 'border-emerald-800 bg-emerald-950/30 text-emerald-300'
             }`}>
@@ -359,11 +402,6 @@ export default function GradesPage() {
               {overLimit && <span className="ml-2 text-xs font-normal">⚠ เกิน 100 — ลดคะแนนก่อนบันทึก</span>}
             </div>
           </div>
-
-          <p className="mt-3 text-[11px] text-slate-500">
-            💡 “ผูกกับงาน” = ใบงาน/แบบทดสอบที่ตั้งชื่อ <strong className="text-slate-300">หน่วย</strong> ตรงกับชื่อหน่วยนี้ — ระบบจะเกลี่ยคะแนนจากงานเหล่านั้น ·
-            คะแนนเก็บ (KPA) + กลางภาค + ปลายภาค รวมกัน<strong className="text-slate-300">ต้องไม่เกิน 100</strong>
-          </p>
         </section>
 
         {/* ── Action bar ── */}
@@ -409,7 +447,8 @@ export default function GradesPage() {
                   ))}
                   <th colSpan={2} className="px-2 py-1.5 text-center text-[11px] font-semibold text-amber-300 border-r border-l border-slate-800">สอบ</th>
                   <th rowSpan={2} className="px-2 py-2 text-center text-[11px] font-semibold text-blue-400 border-l border-slate-800 min-w-[56px]">รวม<br /><span className="text-[9px] text-slate-600">/{maxTotal}</span></th>
-                  <th rowSpan={2} className="px-2 py-2 text-center text-[11px] font-semibold text-emerald-400 min-w-[48px]">เกรด</th>
+                  <th rowSpan={2} className="px-2 py-2 text-center text-[11px] font-semibold text-slate-300 border-l border-slate-800 min-w-[52px]">ร้อยละ</th>
+                  <th rowSpan={2} className="px-2 py-2 text-center text-[11px] font-semibold text-emerald-400 border-l border-slate-800 min-w-[52px]">เกรด</th>
                 </tr>
                 <tr className="bg-slate-900/60 border-b border-slate-800">
                   {units.map((u) => (
@@ -431,6 +470,7 @@ export default function GradesPage() {
                   const total = rowTotal(r.uid);
                   const pct = maxTotal > 0 ? (total / maxTotal) * 100 : 0;
                   const grade = gradeOf(pct);
+                  const below = pct < PASS_THRESHOLD; // ต่ำกว่า 50% → แดง
                   return (
                     <tr key={r.uid} className={rowIdx % 2 === 0 ? 'bg-slate-950' : 'bg-slate-900/40'}>
                       <td className={`sticky left-0 z-10 px-3 py-1.5 text-slate-400 border-r border-slate-800 ${rowIdx % 2 === 0 ? 'bg-slate-950' : 'bg-slate-900/60'}`}>{r.studentCode || '—'}</td>
@@ -460,8 +500,9 @@ export default function GradesPage() {
                           />
                         </td>
                       ))}
-                      <td className="px-2 py-1.5 text-center font-bold text-blue-300 border-l border-slate-800">{total}</td>
-                      <td className={`px-2 py-1.5 text-center font-bold ${gradeColor(grade)}`}>{grade}</td>
+                      <td className={`px-2 py-1.5 text-center font-bold border-l border-slate-800 ${below ? 'text-red-400 bg-red-950/30' : 'text-blue-300'}`}>{total}</td>
+                      <td className={`px-2 py-1.5 text-center font-semibold border-l border-slate-800 ${below ? 'text-red-400 bg-red-950/30' : 'text-slate-300'}`}>{pct.toFixed(1)}%</td>
+                      <td className={`px-2 py-1.5 text-center font-bold border-l border-slate-800 ${below ? 'bg-red-950/30' : ''} ${gradeColor(grade)}`}>{grade}</td>
                     </tr>
                   );
                 })}
@@ -471,6 +512,42 @@ export default function GradesPage() {
         )}
       </main>
     </div>
+  );
+}
+
+function AssignmentPicker({
+  options, selected, onChange, label,
+}: {
+  options: AssignmentOpt[];
+  selected: string[];
+  onChange: (ids: string[]) => void;
+  label: string;
+}) {
+  const sel = new Set(selected);
+  function toggle(id: string) {
+    const next = new Set(sel);
+    if (next.has(id)) next.delete(id); else next.add(id);
+    onChange([...next]);
+  }
+  return (
+    <details className="rounded-lg border border-slate-700 bg-slate-800/60">
+      <summary className="cursor-pointer select-none px-2 py-1 text-[10px] text-slate-300">
+        📎 {label} <span className="text-blue-300">({selected.length})</span>
+      </summary>
+      <div className="max-h-40 space-y-0.5 overflow-y-auto p-1.5">
+        {options.length === 0 ? (
+          <p className="px-1 py-2 text-[10px] text-slate-600">ยังไม่มีใบงาน/แบบทดสอบในวิชานี้</p>
+        ) : options.map((o) => (
+          <label key={o.id} className="flex cursor-pointer items-start gap-1.5 rounded px-1 py-0.5 hover:bg-slate-700/40">
+            <input type="checkbox" checked={sel.has(o.id)} onChange={() => toggle(o.id)} className="mt-0.5 shrink-0" />
+            <span className="text-[10px] leading-tight text-slate-300">
+              {o.contentType === 'quiz' ? '🧪 ' : '📝 '}{o.title}
+              {o.unit && <span className="text-slate-600"> · {o.unit}</span>}
+            </span>
+          </label>
+        ))}
+      </div>
+    </details>
   );
 }
 
