@@ -5,6 +5,7 @@ import { cookies } from 'next/headers';
 import { FieldValue } from 'firebase-admin/firestore';
 import { sendLineNotify, getLineNotifyToken } from '@/lib/line-notify';
 import { trackReads, flushReadsIfDue } from '@/lib/read-tracker';
+import { invalidateLeaderboards } from '@/lib/leaderboard-cache';
 
 async function getTeacherUid(): Promise<string | null> {
   try {
@@ -130,6 +131,32 @@ export async function DELETE(req: NextRequest) {
     return NextResponse.json({ error: 'Not found' }, { status: 404 });
   }
 
-  await adminDb.collection('assignments').doc(id).delete();
-  return NextResponse.json({ status: 'ok' });
+  // Remove the assignment AND its submissions so they no longer linger in
+  // analytics / stats. Reverse the XP those submissions had awarded so student
+  // totals stay correct.
+  const subsSnap = await adminDb.collection('submissions').where('assignmentId', '==', id).get();
+  const xpPerStudent = new Map<string, number>();
+  subsSnap.docs.forEach((d) => {
+    const data = d.data();
+    const sid = data.studentId as string | undefined;
+    const xp = (data.xpAwarded as number) ?? 0;
+    if (sid && xp) xpPerStudent.set(sid, (xpPerStudent.get(sid) ?? 0) + xp);
+  });
+
+  const CHUNK = 400;
+  let batch = adminDb.batch();
+  let count = 0;
+  const flush = async () => { if (count > 0) { await batch.commit(); batch = adminDb.batch(); count = 0; } };
+
+  for (const d of subsSnap.docs) { batch.delete(d.ref); if (++count >= CHUNK) await flush(); }
+  for (const [sid, xp] of xpPerStudent) {
+    batch.update(adminDb.collection('users').doc(sid), { xp: FieldValue.increment(-xp) });
+    if (++count >= CHUNK) await flush();
+  }
+  batch.delete(adminDb.collection('assignments').doc(id));
+  count++;
+  await flush();
+
+  invalidateLeaderboards(); // clears analytics / overview / gradebook / stats caches
+  return NextResponse.json({ status: 'ok', submissionsDeleted: subsSnap.size });
 }

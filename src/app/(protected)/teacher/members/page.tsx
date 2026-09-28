@@ -37,6 +37,8 @@ export default function MembersPage() {
   const [fetching, setFetching] = useState(true);
   const [selectedClass, setSelectedClass] = useState<string>('all');
   const [search, setSearch] = useState('');
+  const [subjects, setSubjects] = useState<{ id: string; name: string }[]>([]);
+  const [subjectId, setSubjectId] = useState<string | null | undefined>(undefined);
 
   // Class inline edit state
   const [editingUid, setEditingUid] = useState<string | null>(null);
@@ -61,15 +63,30 @@ export default function MembersPage() {
 
   useEffect(() => {
     if (profile?.role !== 'teacher') return;
-    fetch('/api/teacher/members')
+    const saved = typeof window !== 'undefined'
+      ? JSON.parse(localStorage.getItem('lms_subject') ?? 'null')
+      : null;
+    setSubjectId(saved?.id ?? null);
+    fetch('/api/subjects')
       .then(r => r.json())
-      .then(d => setMembers(Array.isArray(d) ? d : []))
-      .finally(() => setFetching(false));
+      .then(d => setSubjects(Array.isArray(d) ? d.map((s) => ({ id: s.id, name: s.name })) : []))
+      .catch(() => {});
     fetch('/api/teacher/level-settings')
       .then(r => r.json())
       .then(d => setLevelSettings(s => ({ ...s, ...d })))
       .catch(() => {});
   }, [profile]);
+
+  // Re-fetch members whenever the chosen subject changes (แยกตามรายวิชา).
+  useEffect(() => {
+    if (profile?.role !== 'teacher' || subjectId === undefined) return;
+    setFetching(true);
+    const url = subjectId ? `/api/teacher/members?subject=${subjectId}` : '/api/teacher/members';
+    fetch(url)
+      .then(r => r.json())
+      .then(d => setMembers(Array.isArray(d) ? d : []))
+      .finally(() => setFetching(false));
+  }, [profile, subjectId]);
 
   const classCounts = useMemo(() => {
     const map: Record<string, number> = {};
@@ -207,6 +224,15 @@ export default function MembersPage() {
             <p className="text-[9px] font-bold uppercase tracking-widest text-slate-600">Teacher</p>
             <h1 className="text-sm font-bold text-slate-100">👥 สมาชิกในระบบ</h1>
           </div>
+          <div className="flex-1" />
+          <select
+            value={subjectId ?? ''}
+            onChange={(e) => { setSubjectId(e.target.value || null); setSelectedClass('all'); }}
+            className="rounded-lg border border-blue-800 bg-blue-950/30 px-3 py-1.5 text-xs text-blue-200"
+          >
+            <option value="">📚 ทุกวิชา</option>
+            {subjects.map((s) => <option key={s.id} value={s.id}>{s.name}</option>)}
+          </select>
         </div>
       </header>
 

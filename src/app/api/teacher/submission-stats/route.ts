@@ -77,9 +77,12 @@ async function computeStats(uid: string, subjectId: string | null, assignmentId:
   const assignmentsSnap = await assignmentsQuery.get();
   const allAssignments = assignmentsSnap.docs
     .filter(d => {
-      const sid = d.data().subjectId as string | null;
-      // Only include assignments whose subjectId exists in active subjects
-      return sid && activeSubjectIds.has(sid);
+      const data = d.data();
+      const sid = data.subjectId as string | null;
+      // Only include assignments whose subjectId exists in active subjects,
+      // and skip ใบความรู้ (knowledge) — students never submit those.
+      const ct = (data.contentType as string) ?? 'worksheet';
+      return sid && activeSubjectIds.has(sid) && ct !== 'knowledge';
     })
     .map(d => ({
       id: d.id,
@@ -134,12 +137,16 @@ async function computeStats(uid: string, subjectId: string | null, assignmentId:
   const stats: AssignmentStat[] = targetAssignments.map(a => {
     const classStudents = students.filter(s => a.classIds.includes(s.classId));
     const submittedSet = submittedMap.get(a.id) ?? new Set<string>();
+    // Count only students who are actually IN this assignment's classes — a
+    // submitter who has since changed class shouldn't inflate the count. This
+    // guarantees submitted + notSubmitted === totalStudents.
+    const submittedInClass = classStudents.filter(s => submittedSet.has(s.uid));
     const notSubmitted = classStudents.filter(s => !submittedSet.has(s.uid));
     return {
       assignmentId: a.id,
       title: a.title,
       totalStudents: classStudents.length,
-      submitted: Math.min(submittedSet.size, classStudents.length),
+      submitted: submittedInClass.length,
       notSubmitted: notSubmitted.length,
       notSubmittedNames: notSubmitted.map(s => ({ uid: s.uid, name: s.name, classId: s.classId })),
     };

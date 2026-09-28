@@ -159,7 +159,8 @@ export default function TeacherLeaderboardPage() {
   const [entries, setEntries] = useState<LeaderboardEntry[]>([]);
   const [levelEntries, setLevelEntries] = useState<LevelEntry[]>([]);
   const [fetching, setFetching] = useState(true);
-  const [subject, setSubject] = useState<{ id: string; name: string } | null>(null);
+  const [subjects, setSubjects] = useState<{ id: string; name: string }[]>([]);
+  const [subjectId, setSubjectId] = useState<string | null | undefined>(undefined);
   const [classFilter, setClassFilter] = useState('');
   const [activeTab, setActiveTab] = useState<'score' | 'level'>('score');
 
@@ -167,9 +168,18 @@ export default function TeacherLeaderboardPage() {
     if (profile?.role !== 'teacher') return;
     const saved = localStorage.getItem('lms_subject');
     const sub = saved ? JSON.parse(saved) : null;
-    setSubject(sub);
-    const url = sub ? `/api/teacher/leaderboard?subject=${sub.id}` : '/api/teacher/leaderboard';
-    const levelUrl = sub ? `/api/teacher/level-ranking?subject=${sub.id}` : '/api/teacher/level-ranking';
+    setSubjectId(sub?.id ?? null);
+    fetch('/api/subjects')
+      .then((r) => r.json())
+      .then((d) => setSubjects(Array.isArray(d) ? d.map((s) => ({ id: s.id, name: s.name })) : []))
+      .catch(() => {});
+  }, [profile]);
+
+  useEffect(() => {
+    if (profile?.role !== 'teacher' || subjectId === undefined) return;
+    setFetching(true);
+    const url = subjectId ? `/api/teacher/leaderboard?subject=${subjectId}` : '/api/teacher/leaderboard';
+    const levelUrl = subjectId ? `/api/teacher/level-ranking?subject=${subjectId}` : '/api/teacher/level-ranking';
     Promise.all([
       cachedFetch<LeaderboardEntry[]>(url),
       cachedFetch<LevelEntry[]>(levelUrl),
@@ -177,9 +187,11 @@ export default function TeacherLeaderboardPage() {
       setEntries(Array.isArray(scoreData) ? scoreData : []);
       setLevelEntries(Array.isArray(levelData) ? levelData : []);
     }).catch(() => {}).finally(() => setFetching(false));
-  }, [profile]);
+  }, [profile, subjectId]);
 
   if (loading || !profile) return <Spinner />;
+
+  const subjectName = subjects.find((s) => s.id === subjectId)?.name ?? null;
 
   const classes = Array.from(new Set(entries.map((e) => e.classId))).sort();
   const filtered = classFilter ? entries.filter((e) => e.classId === classFilter) : entries;
@@ -207,18 +219,28 @@ export default function TeacherLeaderboardPage() {
             <Link href="/teacher" className="text-xs text-slate-500 hover:text-slate-300">←</Link>
             <div>
               <h1 className="text-base font-semibold text-slate-100">🏆 Hall of Fame</h1>
-              {subject
-                ? <p className="text-xs text-slate-500">วิชา: {subject.name}</p>
+              {subjectName
+                ? <p className="text-xs text-slate-500">วิชา: {subjectName}</p>
                 : <p className="text-xs text-amber-500/80">แสดงผลทุกวิชารวมกัน</p>
               }
             </div>
           </div>
-          <Link
-            href="/teacher/bonus-points"
-            className="rounded-xl border border-yellow-700 px-3 py-1.5 text-xs text-yellow-400 hover:border-yellow-600 hover:text-yellow-300 transition-all"
-          >
-            ⭐ ให้ Bonus
-          </Link>
+          <div className="flex items-center gap-2">
+            <select
+              value={subjectId ?? ''}
+              onChange={(e) => { setSubjectId(e.target.value || null); setClassFilter(''); }}
+              className="rounded-lg border border-blue-800 bg-blue-950/30 px-3 py-1.5 text-xs text-blue-200"
+            >
+              <option value="">📚 ทุกวิชา</option>
+              {subjects.map((s) => <option key={s.id} value={s.id}>{s.name}</option>)}
+            </select>
+            <Link
+              href="/teacher/bonus-points"
+              className="rounded-xl border border-yellow-700 px-3 py-1.5 text-xs text-yellow-400 hover:border-yellow-600 hover:text-yellow-300 transition-all"
+            >
+              ⭐ ให้ Bonus
+            </Link>
+          </div>
         </div>
       </header>
 

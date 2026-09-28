@@ -19,9 +19,11 @@ async function getTeacherUid(): Promise<string | null> {
   } catch { return null; }
 }
 
-export async function GET() {
+export async function GET(req: NextRequest) {
   const uid = await getTeacherUid();
   if (!uid) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+
+  const subjectId = new URL(req.url).searchParams.get('subject');
 
   // Same for every teacher (all students) — one shared cache entry.
   const members = await cachedGlobal('members:all', STATS_TTL, async () => {
@@ -43,6 +45,15 @@ export async function GET() {
       return a.displayName.localeCompare(b.displayName, 'th');
     });
   });
+
+  // Filter to the chosen subject's classes (แยกตามรายวิชา).
+  if (subjectId) {
+    const subjectDoc = await adminDb.collection('subjects').doc(subjectId).get();
+    if (subjectDoc.exists && subjectDoc.data()?.teacherId === uid) {
+      const classIds = new Set((subjectDoc.data()?.classIds as string[]) ?? []);
+      return NextResponse.json(members.filter((m) => classIds.has(m.classId)));
+    }
+  }
 
   return NextResponse.json(members);
 }
