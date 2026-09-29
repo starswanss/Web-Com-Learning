@@ -125,6 +125,25 @@ export default function SubmissionsPage({ params }: { params: Promise<{ id: stri
   const [rowErr, setRowErr] = useState<Record<string, string>>({});
   const [savingAll, setSavingAll] = useState(false);
   const [saveAllMsg, setSaveAllMsg] = useState<string | null>(null);
+  const [bulkScore, setBulkScore] = useState('');
+
+  // Fill the given score into every visible row's draft at once, so the teacher
+  // can give everyone the same score (then tweak individuals before saving).
+  function applyBulkScore(targets: Submission[]) {
+    const parsed = Number(bulkScore);
+    if (bulkScore === '' || isNaN(parsed) || parsed < 0 || parsed > 100) {
+      setSaveAllMsg('กรอกคะแนน 0–100 ก่อนใส่ให้ทุกคน');
+      return;
+    }
+    setGradeDraft((prev) => {
+      const next = { ...prev };
+      for (const s of targets) {
+        next[s.id] = { score: String(parsed), feedback: next[s.id]?.feedback ?? s.feedback ?? '' };
+      }
+      return next;
+    });
+    setSaveAllMsg(`ใส่คะแนน ${parsed} ให้ ${targets.length} คนแล้ว — ปรับรายคนได้ แล้วกด “บันทึกคะแนนทั้งหมด”`);
+  }
 
   function updateSubmission(updated: Submission) {
     setSubmissions((prev) => prev.map((s) => (s.id === updated.id ? updated : s)));
@@ -550,17 +569,34 @@ export default function SubmissionsPage({ params }: { params: Promise<{ id: stri
             return (
               <div className="space-y-5">
                 {/* Save-all bar */}
-                <div className="sticky top-0 z-10 flex items-center justify-between gap-3 rounded-xl border border-slate-700 bg-slate-900/95 px-4 py-2.5 backdrop-blur-sm">
+                <div className="sticky top-0 z-10 flex flex-wrap items-center justify-between gap-3 rounded-xl border border-slate-700 bg-slate-900/95 px-4 py-2.5 backdrop-blur-sm">
                   <span className="text-xs text-slate-400">
                     {saveAllMsg ?? `กรอกคะแนนแล้วกดบันทึกทั้งหมด — ${visible.length} คน`}
                   </span>
-                  <button
-                    onClick={() => saveAll(visible)}
-                    disabled={savingAll}
-                    className="rounded-lg bg-blue-600 px-4 py-2 text-sm font-semibold text-white transition-all hover:bg-blue-500 disabled:opacity-50 active:scale-95"
-                  >
-                    {savingAll ? 'กำลังบันทึก…' : '💾 บันทึกคะแนนทั้งหมด'}
-                  </button>
+                  <div className="flex flex-wrap items-center gap-2">
+                    {/* Bulk-set the same score for everyone shown */}
+                    <div className="flex items-center gap-1.5 rounded-lg border border-slate-700 bg-slate-800/60 px-2 py-1">
+                      <input
+                        type="number" min={0} max={100} value={bulkScore}
+                        onChange={(e) => setBulkScore(e.target.value)}
+                        placeholder="คะแนน"
+                        className="w-20 rounded border border-slate-700 bg-slate-900 px-2 py-1 text-sm text-slate-100 placeholder-slate-600 focus:border-blue-500 focus:outline-none"
+                      />
+                      <button
+                        onClick={() => applyBulkScore(visible)}
+                        className="rounded-md border border-purple-700 bg-purple-950/40 px-3 py-1 text-xs font-semibold text-purple-300 transition-all hover:border-purple-500"
+                      >
+                        ใส่ให้ทุกคน
+                      </button>
+                    </div>
+                    <button
+                      onClick={() => saveAll(visible)}
+                      disabled={savingAll}
+                      className="rounded-lg bg-blue-600 px-4 py-2 text-sm font-semibold text-white transition-all hover:bg-blue-500 disabled:opacity-50 active:scale-95"
+                    >
+                      {savingAll ? 'กำลังบันทึก…' : '💾 บันทึกคะแนนทั้งหมด'}
+                    </button>
+                  </div>
                 </div>
 
                 {groups.map((g) => {
