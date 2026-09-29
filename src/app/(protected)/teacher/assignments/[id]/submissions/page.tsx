@@ -126,23 +126,44 @@ export default function SubmissionsPage({ params }: { params: Promise<{ id: stri
   const [savingAll, setSavingAll] = useState(false);
   const [saveAllMsg, setSaveAllMsg] = useState<string | null>(null);
   const [bulkScore, setBulkScore] = useState('');
+  const [bulkTarget, setBulkTarget] = useState<'submitted' | 'not-submitted' | 'all'>('submitted');
+  const [bulkApplying, setBulkApplying] = useState(false);
 
-  // Fill the given score into every visible row's draft at once, so the teacher
-  // can give everyone the same score (then tweak individuals before saving).
-  function applyBulkScore(targets: Submission[]) {
+  // Give one score to a whole group at once (server-side, so students who
+  // haven't submitted get a submission created for them). Respects the class
+  // filter as the scope.
+  async function applyBulkScore() {
     const parsed = Number(bulkScore);
     if (bulkScore === '' || isNaN(parsed) || parsed < 0 || parsed > 100) {
-      setSaveAllMsg('กรอกคะแนน 0–100 ก่อนใส่ให้ทุกคน');
+      setSaveAllMsg('กรอกคะแนน 0–100 ก่อนใส่คะแนน');
       return;
     }
-    setGradeDraft((prev) => {
-      const next = { ...prev };
-      for (const s of targets) {
-        next[s.id] = { score: String(parsed), feedback: next[s.id]?.feedback ?? s.feedback ?? '' };
-      }
-      return next;
-    });
-    setSaveAllMsg(`ใส่คะแนน ${parsed} ให้ ${targets.length} คนแล้ว — ปรับรายคนได้ แล้วกด “บันทึกคะแนนทั้งหมด”`);
+    const targetLabel = bulkTarget === 'submitted' ? 'คนที่ส่งแล้ว'
+      : bulkTarget === 'not-submitted' ? 'คนที่ยังไม่ส่ง' : 'ทุกคน';
+    const scopeLabel = classFilter ? `ห้อง ${classFilter}` : 'ทุกห้อง';
+    if (!confirm(`ใส่คะแนน ${parsed} ให้ "${targetLabel}" (${scopeLabel})?\nจะเขียนทับคะแนนเดิมของกลุ่มนี้`)) return;
+
+    setBulkApplying(true); setSaveAllMsg(null);
+    try {
+      const res = await fetch(`/api/teacher/bulk-score/${id}`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ score: parsed, target: bulkTarget, classId: classFilter || null }),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(data.error ?? '');
+      // Reload so new/updated submissions show.
+      const reload = await fetch(`/api/teacher/submissions/${id}`).then((r) => r.json());
+      const subs: Submission[] = Array.isArray(reload.submissions) ? reload.submissions : [];
+      setSubmissions(subs);
+      setClassStats(Array.isArray(reload.classStats) ? reload.classStats : []);
+      setGradeDraft({});
+      setSaveAllMsg(`ใส่คะแนน ${parsed} สำเร็จ — อัปเดต ${data.graded ?? 0} คน, เพิ่มใหม่ ${data.created ?? 0} คน`);
+    } catch (e) {
+      setSaveAllMsg(e instanceof Error && e.message ? e.message : 'ใส่คะแนนไม่สำเร็จ');
+    } finally {
+      setBulkApplying(false);
+    }
   }
 
   function updateSubmission(updated: Submission) {
@@ -574,19 +595,30 @@ export default function SubmissionsPage({ params }: { params: Promise<{ id: stri
                     {saveAllMsg ?? `กรอกคะแนนแล้วกดบันทึกทั้งหมด — ${visible.length} คน`}
                   </span>
                   <div className="flex flex-wrap items-center gap-2">
-                    {/* Bulk-set the same score for everyone shown */}
+                    {/* Bulk-set one score for a chosen group */}
                     <div className="flex items-center gap-1.5 rounded-lg border border-slate-700 bg-slate-800/60 px-2 py-1">
                       <input
                         type="number" min={0} max={100} value={bulkScore}
                         onChange={(e) => setBulkScore(e.target.value)}
                         placeholder="คะแนน"
-                        className="w-20 rounded border border-slate-700 bg-slate-900 px-2 py-1 text-sm text-slate-100 placeholder-slate-600 focus:border-blue-500 focus:outline-none"
+                        className="w-16 rounded border border-slate-700 bg-slate-900 px-2 py-1 text-sm text-slate-100 placeholder-slate-600 focus:border-blue-500 focus:outline-none"
                       />
-                      <button
-                        onClick={() => applyBulkScore(visible)}
-                        className="rounded-md border border-purple-700 bg-purple-950/40 px-3 py-1 text-xs font-semibold text-purple-300 transition-all hover:border-purple-500"
+                      <span className="text-[11px] text-slate-500">ให้</span>
+                      <select
+                        value={bulkTarget}
+                        onChange={(e) => setBulkTarget(e.target.value as typeof bulkTarget)}
+                        className="rounded border border-slate-700 bg-slate-900 px-2 py-1 text-xs text-slate-200"
                       >
-                        ใส่ให้ทุกคน
+                        <option value="submitted">คนที่ส่งแล้ว</option>
+                        <option value="not-submitted">คนที่ยังไม่ส่ง</option>
+                        <option value="all">ทุกคน{classFilter ? '' : ' (ทุกห้อง)'}</option>
+                      </select>
+                      <button
+                        onClick={applyBulkScore}
+                        disabled={bulkApplying}
+                        className="rounded-md border border-purple-700 bg-purple-950/40 px-3 py-1 text-xs font-semibold text-purple-300 transition-all hover:border-purple-500 disabled:opacity-50"
+                      >
+                        {bulkApplying ? 'กำลังใส่…' : 'ใส่คะแนน'}
                       </button>
                     </div>
                     <button
