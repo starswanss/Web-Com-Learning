@@ -248,98 +248,106 @@ export default function GradesPage() {
     setMsg('เกลี่ยคะแนนจากงานที่ผูกไว้ — ตรวจ/แก้ไขได้ แล้วกด “บันทึกคะแนน”');
   }
 
-  // เกลี่ยคะแนนเข้าทุกหน่วย: หน่วยที่ยังว่าง (0 ทั้งหมด) จะถูกเติมให้ถึง "ครึ่งหนึ่ง"
-  // ของคะแนนเต็มหน่วยนั้น โดยดึงคะแนนส่วนเกิน (ที่เกินครึ่ง) จากหน่วยอื่นและจาก
-  // กลางภาค/ปลายภาคมาเกลี่ยให้ — ย้ายคะแนน ไม่ใช่แจกเพิ่ม. ถ้าเกลี่ยแล้วยังไม่ถึง
-  // ครึ่ง หน่วยนั้นจะถูกไฮไลท์แดง (ผ่าน unitBelowHalf).
+  // เกลี่ยคะแนนเข้าทุกหน่วย: นำคะแนนรวมของ "ทุกหน่วย + กลางภาค" (ยกเว้นปลายภาค)
+  // มาเกลี่ยใหม่ให้ทุกหน่วยและกลางภาค "เกินครึ่ง" ถ้าคะแนนพอ โดยกลางภาคได้ก่อน
+  // (ต้องเกินครึ่ง) แล้วจึงเฉลี่ยที่เหลือเข้าหน่วยต่างๆ — ไม่แตะปลายภาค และไม่
+  // ปล่อยให้ช่องไหนเป็น 0 ถ้าคะแนนหน่วยนั้นมากพอ.
   function distributeAllUnits() {
+    if (!confirm('เกลี่ยคะแนนใหม่ให้ทุกหน่วย + กลางภาค (ยกเว้นปลายภาค) ให้เกินครึ่งเท่าที่คะแนนรวมจะพอ?\nคะแนนรายหน่วย/กลางภาคเดิมจะถูกจัดใหม่ (คะแนนรวมเท่าเดิม)')) return;
+
     const nextScores: ScoreMap = {};
     const nextExams: ExamMap = {};
-    let filledAny = false;
+    let anyBelowHalf = false;
+
+    const overHalf = (max: number) => (max > 0 ? Math.min(max, Math.floor(max / 2) + 1) : 0); // "เกินครึ่ง"
 
     for (const r of rows) {
-      const uv = units.map((u) => {
-        const s = scores[r.uid]?.[u.id];
-        return { k: s?.k ?? 0, p: s?.p ?? 0, a: s?.a ?? 0 };
-      });
-      const ev: Exam = { midterm: exams[r.uid]?.midterm ?? 0, final: exams[r.uid]?.final ?? 0 };
+      const finalCur = exams[r.uid]?.final ?? 0; // ปลายภาค — ไม่แตะ
+      // Pool = คะแนนของทุกหน่วย + กลางภาค (ไม่รวมปลายภาค)
+      let pool = (exams[r.uid]?.midterm ?? 0) + units.reduce((s, u) => {
+        const sc = scores[r.uid]?.[u.id];
+        return s + (sc?.k ?? 0) + (sc?.p ?? 0) + (sc?.a ?? 0);
+      }, 0);
 
-      // Donatable surplus = points above each field-group's half.
-      const donors: { get: () => number; take: (n: number) => void; avail: number }[] = [];
-      units.forEach((u, i) => {
-        const tot = uv[i].k + uv[i].p + uv[i].a;
-        const half = unitMax(u) / 2;
-        const surplus = Math.max(0, tot - half);
-        if (surplus > 0 && tot > 0) {
-          donors.push({
-            get: () => uv[i].k + uv[i].p + uv[i].a,
-            avail: surplus,
-            take: (n) => {
-              // Reduce proportionally so KPA stays balanced and total drops by n.
-              const t = uv[i].k + uv[i].p + uv[i].a;
-              if (t <= 0) return;
-              const ratio = Math.max(0, (t - n) / t);
-              uv[i] = { k: Math.round(uv[i].k * ratio), p: Math.round(uv[i].p * ratio), a: Math.round(uv[i].a * ratio) };
-            },
+      // 1) กลางภาคก่อน — ให้ "เกินครึ่ง" ถ้าพอ
+      const midTarget = overHalf(examCfg.midterm);
+      const midGive = Math.min(midTarget, pool);
+      const midterm = midGive;
+      pool -= midGive;
+
+      // 2) หน่วยต่างๆ — ตั้งเป้าให้แต่ละหน่วยเกินครึ่ง แล้วเกลี่ยส่วนเกินตามคะแนนเต็ม
+      const maxes = units.map((u) => unitMax(u));
+      const targets = units.map((u) => overHalf(unitMax(u)));
+      const alloc = units.map(() => 0);
+      const sumTargets = targets.reduce((a, b) => a + b, 0);
+
+      if (pool >= sumTargets) {
+        units.forEach((_, i) => { alloc[i] = targets[i]; });
+        let leftover = pool - sumTargets;
+        // เกลี่ยส่วนที่เหลือตามความจุที่ยังว่าง (max - target) ให้เกินครึ่งมากขึ้น
+        const remCap = units.map((_, i) => maxes[i] - alloc[i]);
+        const totalRem = remCap.reduce((a, b) => a + b, 0);
+        if (leftover > 0 && totalRem > 0) {
+          units.forEach((_, i) => {
+            const add = Math.min(remCap[i], Math.round(leftover * (remCap[i] / totalRem)));
+            alloc[i] += add;
           });
+          // เศษที่เหลือจากปัดเศษ ยัดเข้าหน่วยที่ยังไม่เต็ม
+          let used = alloc.reduce((a, b) => a + b, 0) - sumTargets;
+          let extra = leftover - used;
+          for (let i = 0; i < units.length && extra > 0; i++) {
+            const room = maxes[i] - alloc[i];
+            const add = Math.min(room, extra);
+            alloc[i] += add; extra -= add;
+          }
         }
-      });
-      const midFloor = Math.min(examCfg.midterm, MIN_MIDTERM); // กลางภาคห้ามต่ำกว่า 5
-      (['midterm', 'final'] as (keyof Exam)[]).forEach((key) => {
-        // Midterm may only donate down to max(half, 5); final down to half.
-        const floor = key === 'midterm' ? Math.max(examCfg[key] / 2, midFloor) : examCfg[key] / 2;
-        const surplus = Math.max(0, ev[key] - floor);
-        if (surplus > 0) donors.push({ get: () => ev[key], avail: surplus, take: (n) => { ev[key] = Math.max(0, ev[key] - n); } });
-      });
-
-      let pool = donors.reduce((s, d) => s + d.avail, 0);
-
-      // Ensure กลางภาค ≥ 5 first (top up from the pool if it's below).
-      if (examCfg.midterm > 0 && ev.midterm < midFloor) {
-        const give = Math.min(midFloor - ev.midterm, pool);
-        ev.midterm += give;
-        pool -= give;
-      }
-
-      // Fill empty units up to half.
-      units.forEach((u, i) => {
-        const tot = uv[i].k + uv[i].p + uv[i].a;
-        if (tot > 0 || unitMax(u) === 0) return; // only completely-empty units
-        const target = Math.floor(unitMax(u) / 2);
-        const give = Math.min(target, pool);
-        if (give <= 0) return;
-        // Distribute `give` across K/P/A in proportion to their maxima.
-        const mx = unitMax(u);
-        let k = Math.round(give * (u.k / mx));
-        let p = Math.round(give * (u.p / mx));
-        let a = give - k - p;
-        // clamp per field then fix rounding drift
-        k = Math.min(u.k, Math.max(0, k)); p = Math.min(u.p, Math.max(0, p)); a = Math.min(u.a, Math.max(0, a));
-        uv[i] = { k, p, a };
-        pool -= (k + p + a);
-        filledAny = true;
-      });
-
-      // Subtract the moved points from donors (largest-surplus first).
-      let toRemove = donors.reduce((s, d) => s + d.avail, 0) - Math.max(0, pool);
-      const sorted = [...donors].sort((x, y) => y.avail - x.avail);
-      for (const d of sorted) {
-        if (toRemove <= 0) break;
-        const take = Math.min(d.avail, toRemove);
-        d.take(take);
-        toRemove -= take;
+      } else {
+        // คะแนนไม่พอให้ทุกหน่วยเกินครึ่ง → เฉลี่ยตามสัดส่วนคะแนนเต็ม (ให้เท่าๆ กันเป็น %)
+        const totalMax = maxes.reduce((a, b) => a + b, 0);
+        if (totalMax > 0) {
+          units.forEach((_, i) => { alloc[i] = Math.min(maxes[i], Math.round(pool * (maxes[i] / totalMax))); });
+        }
       }
 
       nextScores[r.uid] = {};
-      units.forEach((u, i) => { nextScores[r.uid][u.id] = uv[i]; });
-      nextExams[r.uid] = ev;
+      units.forEach((u, i) => {
+        nextScores[r.uid][u.id] = splitKPA(u, alloc[i]);
+        if (maxes[i] > 0 && alloc[i] < maxes[i] / 2) anyBelowHalf = true;
+      });
+      nextExams[r.uid] = { midterm, final: finalCur };
     }
 
     setScores(nextScores);
     setExams(nextExams);
-    setMsg(filledAny
-      ? 'เกลี่ยคะแนนเข้าหน่วยที่ว่างแล้ว (สูงสุดครึ่งหนึ่งของหน่วย) — หน่วยที่ยังไม่ถึงครึ่งไฮไลท์แดงไว้'
-      : 'ไม่มีหน่วยที่ว่าง หรือไม่มีคะแนนส่วนเกินให้เกลี่ย');
+    setMsg(anyBelowHalf
+      ? 'เกลี่ยแล้ว — บางหน่วย/กลางภาคยังไม่ถึงครึ่ง (คะแนนรวมไม่พอ) ไฮไลท์แดงไว้ ปรับเองได้'
+      : 'เกลี่ยแล้ว — ทุกหน่วยและกลางภาคเกินครึ่ง (ยกเว้นปลายภาค) · ตรวจ/แก้ไขได้ แล้วกด “บันทึกคะแนน”');
+  }
+
+  // แบ่ง `total` ลงช่อง K/P/A ตามสัดส่วนคะแนนเต็ม โดยให้ช่องที่มีเต็ม > 0 ได้อย่างน้อย
+  // 1 คะแนน (กันเป็น 0) เมื่อคะแนนพอ.
+  function splitKPA(u: Unit, totalRaw: number): KPA {
+    const res: KPA = { k: 0, p: 0, a: 0 };
+    const keys = KPA_KEYS.filter((key) => u[key] > 0);
+    const total = Math.min(totalRaw, u.k + u.p + u.a);
+    if (total <= 0 || keys.length === 0) return res;
+    let rem = total;
+    // baseline 1 คะแนนต่อช่อง (กัน 0)
+    for (const key of keys) { if (rem > 0) { res[key] = 1; rem--; } }
+    // เกลี่ยที่เหลือตามความจุที่ยังว่าง
+    while (rem > 0) {
+      const cap = keys.map((key) => ({ key, c: u[key] - res[key] })).filter((x) => x.c > 0);
+      const totalCap = cap.reduce((s, x) => s + x.c, 0);
+      if (totalCap <= 0) break;
+      let moved = 0;
+      for (const x of cap) {
+        if (rem <= 0) break;
+        const add = Math.min(x.c, rem, Math.max(1, Math.round(rem * (x.c / totalCap))));
+        res[x.key] += add; rem -= add; moved += add;
+      }
+      if (moved === 0) break;
+    }
+    return res;
   }
 
   async function saveScores() {
@@ -525,7 +533,7 @@ export default function GradesPage() {
               ⚖️ เกลี่ยคะแนนอัตโนมัติ
             </button>
             <button onClick={distributeAllUnits}
-              title="เติมหน่วยที่ยังว่าง ให้ถึงครึ่งหนึ่งของหน่วย โดยดึงคะแนนส่วนเกินจากหน่วยอื่น/สอบ"
+              title="เกลี่ยคะแนนรวมของทุกหน่วย+กลางภาค (ยกเว้นปลายภาค) ให้ทุกส่วนเกินครึ่งเท่าที่คะแนนพอ"
               className="rounded-lg border border-fuchsia-700 bg-fuchsia-950/40 px-4 py-2 text-sm font-semibold text-fuchsia-300 hover:border-fuchsia-500">
               🔀 เกลี่ยคะแนนเข้าทุกหน่วย
             </button>
