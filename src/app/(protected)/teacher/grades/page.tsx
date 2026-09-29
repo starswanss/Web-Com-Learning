@@ -30,6 +30,7 @@ const KPA_KEYS: (keyof KPA)[] = ['k', 'p', 'a'];
 const KPA_LABEL: Record<keyof KPA, string> = { k: 'K', p: 'P', a: 'A' };
 
 const PASS_THRESHOLD = 50; // ต่ำกว่า 50% = ไม่ผ่านเกณฑ์ → ทำสีแดง
+const MIN_MIDTERM = 5;     // เกลี่ยคะแนนแล้ว กลางภาคต้องไม่ต่ำกว่า 5
 
 // เกรดตามระบบประเทศไทย (8 ระดับ)
 function gradeOf(pct: number): string {
@@ -176,6 +177,21 @@ export default function GradesPage() {
     return Math.round(t * 100) / 100;
   }
 
+  const unitMax = (u: Unit) => u.k + u.p + u.a;
+  function unitTotal(uid: string, u: Unit): number {
+    const kpa = scores[uid]?.[u.id];
+    return kpa ? (kpa.k || 0) + (kpa.p || 0) + (kpa.a || 0) : 0;
+  }
+  // A unit "ไม่ถึงครึ่ง" (below half its full marks) → highlight red.
+  function unitBelowHalf(uid: string, u: Unit): boolean {
+    return unitMax(u) > 0 && unitTotal(uid, u) < unitMax(u) / 2;
+  }
+  // "ร" (incomplete): the final exam (ปลายภาค) is left at 0 — the student
+  // hasn't completed the final, so the grade can't be finalised.
+  function isIncomplete(uid: string): boolean {
+    return examCfg.final > 0 && !((exams[uid]?.final ?? 0) > 0);
+  }
+
   // ── Config editing ──────────────────────────────────────────────────────────
   function updateUnit(id: string, patch: Partial<Unit>) {
     setUnits((prev) => prev.map((u) => (u.id === id ? { ...u, ...patch } : u)));
@@ -220,14 +236,110 @@ export default function GradesPage() {
           a: Math.min(u.a, Math.round(pct * u.a)),
         };
       }
+      // กลางภาคต้อง ≥ 5 (แต่ไม่เกินคะแนนเต็มของกลางภาค)
+      const midFloor = Math.min(examCfg.midterm, MIN_MIDTERM);
       nextExam[r.uid] = {
-        midterm: Math.min(examCfg.midterm, Math.round((r.midtermPct ?? 0) * examCfg.midterm)),
+        midterm: Math.max(midFloor, Math.min(examCfg.midterm, Math.round((r.midtermPct ?? 0) * examCfg.midterm))),
         final: Math.min(examCfg.final, Math.round((r.finalPct ?? 0) * examCfg.final)),
       };
     }
     setScores(next);
     setExams(nextExam);
     setMsg('เกลี่ยคะแนนจากงานที่ผูกไว้ — ตรวจ/แก้ไขได้ แล้วกด “บันทึกคะแนน”');
+  }
+
+  // เกลี่ยคะแนนเข้าทุกหน่วย: หน่วยที่ยังว่าง (0 ทั้งหมด) จะถูกเติมให้ถึง "ครึ่งหนึ่ง"
+  // ของคะแนนเต็มหน่วยนั้น โดยดึงคะแนนส่วนเกิน (ที่เกินครึ่ง) จากหน่วยอื่นและจาก
+  // กลางภาค/ปลายภาคมาเกลี่ยให้ — ย้ายคะแนน ไม่ใช่แจกเพิ่ม. ถ้าเกลี่ยแล้วยังไม่ถึง
+  // ครึ่ง หน่วยนั้นจะถูกไฮไลท์แดง (ผ่าน unitBelowHalf).
+  function distributeAllUnits() {
+    const nextScores: ScoreMap = {};
+    const nextExams: ExamMap = {};
+    let filledAny = false;
+
+    for (const r of rows) {
+      const uv = units.map((u) => {
+        const s = scores[r.uid]?.[u.id];
+        return { k: s?.k ?? 0, p: s?.p ?? 0, a: s?.a ?? 0 };
+      });
+      const ev: Exam = { midterm: exams[r.uid]?.midterm ?? 0, final: exams[r.uid]?.final ?? 0 };
+
+      // Donatable surplus = points above each field-group's half.
+      const donors: { get: () => number; take: (n: number) => void; avail: number }[] = [];
+      units.forEach((u, i) => {
+        const tot = uv[i].k + uv[i].p + uv[i].a;
+        const half = unitMax(u) / 2;
+        const surplus = Math.max(0, tot - half);
+        if (surplus > 0 && tot > 0) {
+          donors.push({
+            get: () => uv[i].k + uv[i].p + uv[i].a,
+            avail: surplus,
+            take: (n) => {
+              // Reduce proportionally so KPA stays balanced and total drops by n.
+              const t = uv[i].k + uv[i].p + uv[i].a;
+              if (t <= 0) return;
+              const ratio = Math.max(0, (t - n) / t);
+              uv[i] = { k: Math.round(uv[i].k * ratio), p: Math.round(uv[i].p * ratio), a: Math.round(uv[i].a * ratio) };
+            },
+          });
+        }
+      });
+      const midFloor = Math.min(examCfg.midterm, MIN_MIDTERM); // กลางภาคห้ามต่ำกว่า 5
+      (['midterm', 'final'] as (keyof Exam)[]).forEach((key) => {
+        // Midterm may only donate down to max(half, 5); final down to half.
+        const floor = key === 'midterm' ? Math.max(examCfg[key] / 2, midFloor) : examCfg[key] / 2;
+        const surplus = Math.max(0, ev[key] - floor);
+        if (surplus > 0) donors.push({ get: () => ev[key], avail: surplus, take: (n) => { ev[key] = Math.max(0, ev[key] - n); } });
+      });
+
+      let pool = donors.reduce((s, d) => s + d.avail, 0);
+
+      // Ensure กลางภาค ≥ 5 first (top up from the pool if it's below).
+      if (examCfg.midterm > 0 && ev.midterm < midFloor) {
+        const give = Math.min(midFloor - ev.midterm, pool);
+        ev.midterm += give;
+        pool -= give;
+      }
+
+      // Fill empty units up to half.
+      units.forEach((u, i) => {
+        const tot = uv[i].k + uv[i].p + uv[i].a;
+        if (tot > 0 || unitMax(u) === 0) return; // only completely-empty units
+        const target = Math.floor(unitMax(u) / 2);
+        const give = Math.min(target, pool);
+        if (give <= 0) return;
+        // Distribute `give` across K/P/A in proportion to their maxima.
+        const mx = unitMax(u);
+        let k = Math.round(give * (u.k / mx));
+        let p = Math.round(give * (u.p / mx));
+        let a = give - k - p;
+        // clamp per field then fix rounding drift
+        k = Math.min(u.k, Math.max(0, k)); p = Math.min(u.p, Math.max(0, p)); a = Math.min(u.a, Math.max(0, a));
+        uv[i] = { k, p, a };
+        pool -= (k + p + a);
+        filledAny = true;
+      });
+
+      // Subtract the moved points from donors (largest-surplus first).
+      let toRemove = donors.reduce((s, d) => s + d.avail, 0) - Math.max(0, pool);
+      const sorted = [...donors].sort((x, y) => y.avail - x.avail);
+      for (const d of sorted) {
+        if (toRemove <= 0) break;
+        const take = Math.min(d.avail, toRemove);
+        d.take(take);
+        toRemove -= take;
+      }
+
+      nextScores[r.uid] = {};
+      units.forEach((u, i) => { nextScores[r.uid][u.id] = uv[i]; });
+      nextExams[r.uid] = ev;
+    }
+
+    setScores(nextScores);
+    setExams(nextExams);
+    setMsg(filledAny
+      ? 'เกลี่ยคะแนนเข้าหน่วยที่ว่างแล้ว (สูงสุดครึ่งหนึ่งของหน่วย) — หน่วยที่ยังไม่ถึงครึ่งไฮไลท์แดงไว้'
+      : 'ไม่มีหน่วยที่ว่าง หรือไม่มีคะแนนส่วนเกินให้เกลี่ย');
   }
 
   async function saveScores() {
@@ -264,7 +376,7 @@ export default function GradesPage() {
       line.push(e?.midterm ?? 0, e?.final ?? 0);
       const total = rowTotal(r.uid);
       const pct = maxTotal > 0 ? Math.round((total / maxTotal) * 10000) / 100 : 0;
-      line.push(total, maxTotal, pct, gradeOf(pct));
+      line.push(total, maxTotal, pct, isIncomplete(r.uid) ? 'ร' : gradeOf(pct));
       aoa.push(line);
     }
 
@@ -412,6 +524,11 @@ export default function GradesPage() {
               className="rounded-lg border border-purple-700 bg-purple-950/40 px-4 py-2 text-sm font-semibold text-purple-300 hover:border-purple-500">
               ⚖️ เกลี่ยคะแนนอัตโนมัติ
             </button>
+            <button onClick={distributeAllUnits}
+              title="เติมหน่วยที่ยังว่าง ให้ถึงครึ่งหนึ่งของหน่วย โดยดึงคะแนนส่วนเกินจากหน่วยอื่น/สอบ"
+              className="rounded-lg border border-fuchsia-700 bg-fuchsia-950/40 px-4 py-2 text-sm font-semibold text-fuchsia-300 hover:border-fuchsia-500">
+              🔀 เกลี่ยคะแนนเข้าทุกหน่วย
+            </button>
             <button onClick={saveScores} disabled={savingScores}
               className="rounded-lg bg-blue-600 px-4 py-2 text-sm font-semibold text-white hover:bg-blue-500 disabled:opacity-50">
               {savingScores ? 'กำลังบันทึก…' : '💾 บันทึกคะแนน'}
@@ -469,8 +586,9 @@ export default function GradesPage() {
                 {visible.map((r, rowIdx) => {
                   const total = rowTotal(r.uid);
                   const pct = maxTotal > 0 ? (total / maxTotal) * 100 : 0;
-                  const grade = gradeOf(pct);
-                  const below = pct < PASS_THRESHOLD; // ต่ำกว่า 50% → แดง
+                  const incomplete = isIncomplete(r.uid);
+                  const grade = incomplete ? 'ร' : gradeOf(pct);
+                  const below = incomplete || pct < PASS_THRESHOLD; // ร หรือ ต่ำกว่า 50% → แดง
                   return (
                     <tr key={r.uid} className={rowIdx % 2 === 0 ? 'bg-slate-950' : 'bg-slate-900/40'}>
                       <td className={`sticky left-0 z-10 px-3 py-1.5 text-slate-400 border-r border-slate-800 ${rowIdx % 2 === 0 ? 'bg-slate-950' : 'bg-slate-900/60'}`}>{r.studentCode || '—'}</td>
@@ -478,18 +596,22 @@ export default function GradesPage() {
                         <span className="font-medium text-slate-200">{r.name || '—'}</span>
                       </td>
                       <td className="px-2 py-1.5 text-center text-slate-400 border-r border-slate-800">{r.classId}</td>
-                      {units.map((u) => (
-                        KPA_KEYS.map((key) => (
-                          <td key={u.id + key} className="px-0.5 py-1 border-l border-slate-800/50">
+                      {units.map((u) => {
+                        const uBelow = unitBelowHalf(r.uid, u); // หน่วยไม่ถึงครึ่ง → แดง
+                        return KPA_KEYS.map((key) => (
+                          <td key={u.id + key} className={`px-0.5 py-1 border-l border-slate-800/50 ${uBelow ? 'bg-red-950/40' : ''}`}>
                             <input
                               type="number" min={0} max={u[key]}
                               value={cellVal(r.uid, u.id, key)}
                               onChange={(e) => setCell(r.uid, u.id, key, e.target.value, u[key])}
-                              className="w-11 rounded border border-slate-800 bg-slate-900 px-1 py-1 text-center text-xs text-slate-100 focus:border-blue-500 focus:outline-none"
+                              className={`w-11 rounded border px-1 py-1 text-center text-xs focus:outline-none ${
+                                uBelow ? 'border-red-800 bg-red-950/40 text-red-200 focus:border-red-500'
+                                       : 'border-slate-800 bg-slate-900 text-slate-100 focus:border-blue-500'
+                              }`}
                             />
                           </td>
-                        ))
-                      ))}
+                        ));
+                      })}
                       {EXAM_KEYS.map((key) => (
                         <td key={key} className="px-0.5 py-1 border-l border-slate-800/50">
                           <input
