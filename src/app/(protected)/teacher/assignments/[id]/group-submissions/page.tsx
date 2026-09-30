@@ -72,6 +72,18 @@ export default function GroupSubmissionsPage({ params }: { params: Promise<{ id:
   const [statusFilter, setStatusFilter] = useState<StatusFilter>('all');
   const [classFilter, setClassFilter] = useState<string | null>(null);
 
+  // Quick-score entry (inline in the list)
+  const [quickDraft, setQuickDraft] = useState<Record<string, string>>({});
+  const [quickSaving, setQuickSaving] = useState<Set<string>>(new Set());
+  const [quickSaved, setQuickSaved] = useState<Set<string>>(new Set());
+  const [quickErr, setQuickErr] = useState<Record<string, string>>({});
+  const [savingAll, setSavingAll] = useState(false);
+
+  function draftVal(g: GroupEntry): string {
+    if (g.id in quickDraft) return quickDraft[g.id];
+    return g.submission?.score !== undefined ? String(g.submission.score) : '';
+  }
+
   useEffect(() => {
     if (!loading && profile?.role !== 'teacher') router.push('/dashboard');
   }, [loading, profile, router]);
@@ -116,6 +128,55 @@ export default function GroupSubmissionsPage({ params }: { params: Promise<{ id:
       setSaveMsg(data.error ?? 'บันทึกไม่สำเร็จ');
     }
     setSaving(false);
+  }
+
+  // Quick-save one group's score from the inline input (keeps existing feedback).
+  async function quickSave(g: GroupEntry): Promise<boolean> {
+    if (!g.submission) return false;
+    const v = draftVal(g);
+    const parsed = Number(v);
+    if (v === '' || isNaN(parsed) || parsed < 0 || parsed > 100) {
+      setQuickErr(e => ({ ...e, [g.id]: '0–100' }));
+      return false;
+    }
+    setQuickErr(e => { const n = { ...e }; delete n[g.id]; return n; });
+    setQuickSaving(s => new Set(s).add(g.id));
+    try {
+      const res = await fetch(`/api/teacher/grade-group/${g.submission.id}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ score: parsed, feedback: g.submission.feedback ?? '' }),
+      });
+      if (!res.ok) throw new Error();
+      const updatedSub: GroupSub = { ...g.submission, score: parsed, status: 'reviewed' };
+      const updatedGroup = { ...g, submission: updatedSub };
+      setGroups(prev => prev.map(x => x.id === g.id ? updatedGroup : x));
+      if (selected?.id === g.id) { setSelected(updatedGroup); setScore(String(parsed)); }
+      setQuickSaved(s => new Set(s).add(g.id));
+      setTimeout(() => setQuickSaved(s => { const n = new Set(s); n.delete(g.id); return n; }), 2000);
+      return true;
+    } catch {
+      setQuickErr(e => ({ ...e, [g.id]: 'ไม่สำเร็จ' }));
+      return false;
+    } finally {
+      setQuickSaving(s => { const n = new Set(s); n.delete(g.id); return n; });
+    }
+  }
+
+  // Save every group in view whose score was entered/changed.
+  async function saveAllQuick() {
+    const targets = filtered.filter(g => {
+      if (!g.submission) return false;
+      const v = draftVal(g);
+      if (v === '' || isNaN(Number(v))) return false;
+      return g.submission.status !== 'reviewed' || String(g.submission.score) !== v;
+    });
+    if (targets.length === 0) { setSaveMsg('ไม่มีคะแนนใหม่ที่จะบันทึก'); return; }
+    setSavingAll(true); setSaveMsg(null);
+    const results = await Promise.all(targets.map(g => quickSave(g)));
+    const ok = results.filter(Boolean).length;
+    setSaveMsg(`บันทึกคะแนนแล้ว ${ok} กลุ่ม${ok < targets.length ? ` · ไม่สำเร็จ ${targets.length - ok}` : ''}`);
+    setSavingAll(false);
   }
 
   function exportCSV() {
@@ -171,6 +232,9 @@ export default function GroupSubmissionsPage({ params }: { params: Promise<{ id:
               {reviewedCount > 0 && ` · ตรวจแล้ว ${reviewedCount}`}
             </p>
           </div>
+          <button onClick={saveAllQuick} disabled={savingAll || groups.length === 0} className="rounded-lg bg-blue-600 px-3 py-1.5 text-xs font-semibold text-white hover:bg-blue-500 disabled:opacity-40 transition-all">
+            {savingAll ? 'กำลังบันทึก…' : '💾 บันทึกคะแนนทั้งหมด'}
+          </button>
           <button onClick={exportCSV} disabled={groups.length === 0} className="rounded-lg border border-slate-600 bg-slate-800 px-3 py-1.5 text-xs text-slate-300 hover:border-slate-500 disabled:opacity-40 transition-all">
             Export CSV
           </button>
@@ -227,6 +291,10 @@ export default function GroupSubmissionsPage({ params }: { params: Promise<{ id:
             </div>
           )}
 
+          {saveMsg && !selected && (
+            <p className={`mb-3 text-xs ${saveMsg.startsWith('บันทึก') ? 'text-emerald-400' : 'text-slate-400'}`}>{saveMsg}</p>
+          )}
+
           <div className="flex gap-4 h-[calc(100vh-180px)]">
             {/* Group list */}
             <div className="w-72 shrink-0 overflow-y-auto pr-1 space-y-2">
@@ -252,8 +320,26 @@ export default function GroupSubmissionsPage({ params }: { params: Promise<{ id:
                     </span>
                   </div>
                   <p className="text-[10px] text-slate-500 truncate">{g.memberNames.slice(0, 3).join(', ')}{g.memberNames.length > 3 ? ` +${g.memberNames.length - 3}` : ''}</p>
-                  {typeof g.submission?.score === 'number' && (
-                    <p className={`mt-1 text-xs font-bold ${g.submission.score >= 60 ? 'text-emerald-400' : 'text-red-400'}`}>{g.submission.score}/100</p>
+                  {/* Quick score entry (doesn't open the detail) */}
+                  {g.submission ? (
+                    <div className="mt-2 flex items-center gap-1.5" onClick={e => e.stopPropagation()}>
+                      <input
+                        type="number" min={0} max={100} value={draftVal(g)}
+                        onChange={e => setQuickDraft(d => ({ ...d, [g.id]: e.target.value }))}
+                        placeholder="คะแนน"
+                        className="w-16 rounded border border-slate-700 bg-slate-950 px-2 py-1 text-xs text-slate-100 placeholder-slate-600 focus:border-blue-500 focus:outline-none"
+                      />
+                      <button
+                        onClick={() => quickSave(g)}
+                        disabled={quickSaving.has(g.id)}
+                        className="rounded border border-blue-700 bg-blue-950/40 px-2 py-1 text-[11px] font-semibold text-blue-300 hover:border-blue-500 disabled:opacity-50"
+                      >
+                        {quickSaving.has(g.id) ? '…' : quickSaved.has(g.id) ? '✓ บันทึก' : 'บันทึก'}
+                      </button>
+                      {quickErr[g.id] && <span className="text-[10px] text-red-400">{quickErr[g.id]}</span>}
+                    </div>
+                  ) : (
+                    <p className="mt-1 text-[10px] text-slate-600 italic">ยังไม่ส่งงาน</p>
                   )}
                 </div>
               ))}
