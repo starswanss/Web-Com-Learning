@@ -345,6 +345,70 @@ export default function GradesPage() {
     return res;
   }
 
+  // ลดคะแนนหน่วยลง `take` แต้ม โดยหักจากช่องที่มีคะแนนมากสุดก่อน (คงผลรวม = เดิม-take)
+  function reduceUnit(kpa: KPA, take: number): KPA {
+    const r: KPA = { ...kpa };
+    for (let n = 0; n < take; n++) {
+      const key = KPA_KEYS.reduce((m, c) => (r[c] > r[m] ? c : m), 'k' as keyof KPA);
+      if (r[key] > 0) r[key]--; else break;
+    }
+    return r;
+  }
+
+  // ป้องกัน ร: สำหรับคนที่ติด ร (ปลายภาค = 0) ดึงคะแนนจากหน่วยต่างๆ (โดยหน่วยนั้น
+  // ห้ามต่ำกว่าครึ่ง) มาเติมปลายภาคให้เป็น "5 เท่านั้น" เพื่อให้พ้น ร.
+  function preventIncomplete() {
+    const finalMax = examCfg.final;
+    if (finalMax <= 0) { setMsg('งานนี้ไม่มีคะแนนปลายภาค — ใช้ปุ่มนี้ไม่ได้'); return; }
+    const target = Math.min(finalMax, 5); // ปลายภาค = 5 (หรือคะแนนเต็มถ้าน้อยกว่า 5)
+    if (!confirm(`ป้องกัน ร: ตั้งปลายภาคของคนที่ติด ร ให้เป็น ${target} โดยดึงคะแนนจากหน่วยต่างๆ (แต่ละหน่วยไม่ต่ำกว่าครึ่ง)?`)) return;
+
+    const nextScores: ScoreMap = {};
+    const nextExams: ExamMap = {};
+    let fixed = 0;
+    let shortAny = false;
+
+    for (const r of rows) {
+      const uv = units.map((u) => {
+        const s = scores[r.uid]?.[u.id];
+        return { k: s?.k ?? 0, p: s?.p ?? 0, a: s?.a ?? 0 };
+      });
+      const ev: Exam = { midterm: exams[r.uid]?.midterm ?? 0, final: exams[r.uid]?.final ?? 0 };
+
+      if (ev.final <= 0) { // ติด ร
+        let need = target - ev.final;
+        // ผู้ให้ = หน่วยที่มีส่วนเกินเหนือ "ครึ่ง" (ceil(max/2)) — ดึงจากหน่วยส่วนเกินมากสุดก่อน
+        const donors = units
+          .map((u, i) => {
+            const total = uv[i].k + uv[i].p + uv[i].a;
+            return { i, surplus: Math.max(0, total - Math.ceil(unitMax(u) / 2)) };
+          })
+          .filter((d) => d.surplus > 0)
+          .sort((a, b) => b.surplus - a.surplus);
+
+        for (const d of donors) {
+          if (need <= 0) break;
+          const take = Math.min(d.surplus, need);
+          uv[d.i] = reduceUnit(uv[d.i], take);
+          need -= take;
+        }
+        if (need > 0) shortAny = true; // ส่วนเกินไม่พอ — เติมให้ครบโดยไม่ลดหน่วยต่ำกว่าครึ่ง
+        ev.final = target; // ปลายภาคเป็น 5 เท่านั้น
+        fixed++;
+      }
+
+      nextScores[r.uid] = {};
+      units.forEach((u, i) => { nextScores[r.uid][u.id] = uv[i]; });
+      nextExams[r.uid] = ev;
+    }
+
+    setScores(nextScores);
+    setExams(nextExams);
+    setMsg(fixed === 0
+      ? 'ไม่มีใครติด ร (ปลายภาคเป็น 0)'
+      : `ป้องกัน ร แล้ว ${fixed} คน — ปลายภาค = ${target}${shortAny ? ' · บางคนคะแนนส่วนเกินไม่พอ เติมให้ครบโดยหน่วยไม่ต่ำกว่าครึ่ง' : ''} · ตรวจ/แก้ไขได้ แล้วกด “บันทึกคะแนน”`);
+  }
+
   async function saveScores() {
     setSavingScores(true); setMsg(null);
     try {
@@ -531,6 +595,11 @@ export default function GradesPage() {
               title="เกลี่ยคะแนนรวมของทุกหน่วย+กลางภาค (ยกเว้นปลายภาค) ให้ทุกส่วนเกินครึ่งเท่าที่คะแนนพอ"
               className="rounded-lg border border-fuchsia-700 bg-fuchsia-950/40 px-4 py-2 text-sm font-semibold text-fuchsia-300 hover:border-fuchsia-500">
               🔀 เกลี่ยคะแนนเข้าทุกหน่วย
+            </button>
+            <button onClick={preventIncomplete}
+              title="คนที่ติด ร (ปลายภาค=0) ดึงคะแนนจากหน่วย (ไม่ต่ำกว่าครึ่ง) มาเติมปลายภาคให้เป็น 5"
+              className="rounded-lg border border-rose-700 bg-rose-950/40 px-4 py-2 text-sm font-semibold text-rose-300 hover:border-rose-500">
+              🛡 ป้องกัน ร
             </button>
             <button onClick={saveScores} disabled={savingScores}
               className="rounded-lg bg-blue-600 px-4 py-2 text-sm font-semibold text-white hover:bg-blue-500 disabled:opacity-50">
