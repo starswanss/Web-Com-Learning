@@ -248,63 +248,100 @@ export default function GradesPage() {
     setMsg('เกลี่ยคะแนนจากงานที่ผูกไว้ — ตรวจ/แก้ไขได้ แล้วกด “บันทึกคะแนน”');
   }
 
-  // เกลี่ยคะแนนเข้าทุกหน่วย: เติมคะแนน KPA ของ "ทุกหน่วย + กลางภาค" (ยกเว้นปลายภาค)
-  // จากผลงานจริงของนักเรียน (เปอร์เซ็นต์รายหน่วย) แล้วดันให้ทุกส่วน "เกินครึ่ง" พร้อม
-  // กระจายแบบสุ่มเล็กน้อย (คงที่ต่อคน) ให้ดูสมจริง — ไม่ซ้ำกันทุกคน/ทุกหน่วย.
+  // เกลี่ยคะแนนเข้าทุกหน่วย: จัดคะแนนรวมของ "ทุกหน่วย + กลางภาค" (ยกเว้นปลายภาค)
+  // ใหม่ ให้แต่ละหน่วยและกลางภาค "เกินครึ่ง" ถ้าคะแนนรวมพอ — คะแนนรวม "เท่าเดิมเป๊ะ"
+  // (ย้ายคะแนน ไม่ใช่แจกเพิ่ม). ไม่แตะปลายภาค.
   function distributeAllUnits() {
-    if (!confirm('เติมคะแนน KPA ทุกหน่วย + กลางภาค (ยกเว้นปลายภาค) จากผลงานจริง ให้ทุกส่วนเกินครึ่ง และกระจายให้ดูสมจริง?\nคะแนนรายหน่วย/กลางภาคเดิมจะถูกเขียนทับ')) return;
+    if (!confirm('เกลี่ยคะแนนรวมของทุกหน่วย + กลางภาค ให้แต่ละส่วนเกินครึ่งเท่าที่คะแนนจะพอ?\nคะแนนรวมเท่าเดิม · ไม่แตะปลายภาค')) return;
 
     const nextScores: ScoreMap = {};
     const nextExams: ExamMap = {};
+    let anyBelowHalf = false;
 
     for (const r of rows) {
+      const hasMid = examCfg.midterm > 0;
+      // recipients: [กลางภาค (ถ้ามี), หน่วย 1..N]
+      const maxes: number[] = [];
+      if (hasMid) maxes.push(examCfg.midterm);
+      units.forEach((u) => maxes.push(unitMax(u)));
+
+      // pool = คะแนนหน่วยทั้งหมด + กลางภาค (ไม่รวมปลายภาค)
+      const pool = (exams[r.uid]?.midterm ?? 0) + units.reduce((s, u) => {
+        const sc = scores[r.uid]?.[u.id];
+        return s + (sc?.k ?? 0) + (sc?.p ?? 0) + (sc?.a ?? 0);
+      }, 0);
+
+      const totalMax = maxes.reduce((a, b) => a + b, 0);
+      const alloc = maxes.map(() => 0);
+
+      if (totalMax > 0 && pool > 0) {
+        const targets = maxes.map(overHalf);
+        const sumT = targets.reduce((a, b) => a + b, 0);
+        if (pool >= sumT) {
+          // ให้ทุกส่วน "เกินครึ่ง" ก่อน แล้วเกลี่ยส่วนที่เหลือตามความจุที่ว่าง
+          for (let j = 0; j < maxes.length; j++) alloc[j] = targets[j];
+          const leftover = pool - sumT;
+          const remCap = maxes.map((m, j) => m - alloc[j]);
+          const totalRem = remCap.reduce((a, b) => a + b, 0);
+          if (leftover > 0 && totalRem > 0) {
+            for (let j = 0; j < maxes.length; j++) {
+              alloc[j] += Math.min(remCap[j], Math.round(leftover * (remCap[j] / totalRem)));
+            }
+          }
+        } else {
+          // คะแนนไม่พอให้ทุกส่วนเกินครึ่ง → เฉลี่ยตามสัดส่วนคะแนนเต็ม
+          for (let j = 0; j < maxes.length; j++) alloc[j] = Math.min(maxes[j], Math.round(pool * (maxes[j] / totalMax)));
+        }
+        // ปรับผลรวมให้ = pool เป๊ะ (กันเศษปัด) → คะแนนรวมเท่าเดิม
+        fixAllocSum(alloc, maxes, Math.min(pool, totalMax));
+      }
+
+      // เขียนกลับ
+      let idx = 0;
+      const midterm = hasMid ? alloc[idx++] : (exams[r.uid]?.midterm ?? 0);
       nextScores[r.uid] = {};
       units.forEach((u) => {
-        const mx = unitMax(u);
-        if (mx === 0) { nextScores[r.uid][u.id] = { k: 0, p: 0, a: 0 }; return; }
-        const floor = overHalf(mx);
-        const base = Math.round((r.unitPct[u.id] ?? 0) * mx); // ผลงานจริง
-        let val = Math.min(mx, Math.max(floor, base));
-        val = jitterVal(val, floor, mx, `${r.uid}:${u.id}`);      // กระจายให้สมจริง
-        nextScores[r.uid][u.id] = splitKPAVaried(u, val, `${r.uid}:${u.id}`);
+        const a = alloc[idx++];
+        nextScores[r.uid][u.id] = splitKPAVaried(u, a, `${r.uid}:${u.id}`);
+        if (unitMax(u) > 0 && a < unitMax(u) / 2) anyBelowHalf = true;
       });
-
-      // กลางภาค — จากผลงานจริง ดันให้เกินครึ่ง (ปลายภาคไม่แตะ)
-      let midterm = exams[r.uid]?.midterm ?? 0;
-      if (examCfg.midterm > 0) {
-        const floor = overHalf(examCfg.midterm);
-        const base = Math.round((r.midtermPct ?? 0) * examCfg.midterm);
-        midterm = jitterVal(Math.min(examCfg.midterm, Math.max(floor, base)), floor, examCfg.midterm, `${r.uid}:mid`);
-      }
       nextExams[r.uid] = { midterm, final: exams[r.uid]?.final ?? 0 };
     }
 
     setScores(nextScores);
     setExams(nextExams);
-    setMsg('เติมคะแนน KPA จากผลงานจริง + กระจายให้สมจริงแล้ว (ทุกส่วนเกินครึ่ง ยกเว้นปลายภาค) · ตรวจ/แก้ไขได้ แล้วกด “บันทึกคะแนน”');
+    setMsg(anyBelowHalf
+      ? 'เกลี่ยแล้ว (คะแนนรวมเท่าเดิม) — บางหน่วย/กลางภาคยังไม่ถึงครึ่งเพราะคะแนนรวมไม่พอ ไฮไลท์แดงไว้'
+      : 'เกลี่ยแล้ว — ทุกหน่วยและกลางภาคเกินครึ่ง คะแนนรวมเท่าเดิม (ไม่แตะปลายภาค) · ตรวจ/แก้ไขได้ แล้วกด “บันทึกคะแนน”');
+  }
+
+  // ปรับ alloc ทีละแต้มให้ผลรวม = target พอดี (เพิ่มเข้าช่องที่ยังว่างสุด / ลดจากช่องที่มากสุด)
+  function fixAllocSum(alloc: number[], maxes: number[], target: number) {
+    let sum = alloc.reduce((a, b) => a + b, 0);
+    let guard = 0;
+    while (sum !== target && guard++ < 2000) {
+      if (sum < target) {
+        let best = -1, room = 0;
+        for (let j = 0; j < alloc.length; j++) { const r = maxes[j] - alloc[j]; if (r > room) { room = r; best = j; } }
+        if (best < 0) break;
+        alloc[best]++; sum++;
+      } else {
+        let best = -1, val = 0;
+        for (let j = 0; j < alloc.length; j++) { if (alloc[j] > val) { val = alloc[j]; best = j; } }
+        if (best < 0) break;
+        alloc[best]--; sum--;
+      }
+    }
   }
 
   // คะแนนที่ "เกินครึ่ง" ของคะแนนเต็ม (อย่างน้อย floor(max/2)+1)
   function overHalf(max: number): number { return max > 0 ? Math.min(max, Math.floor(max / 2) + 1) : 0; }
 
-  // สุ่มค่าคงที่ (deterministic) จาก seed → ทำให้แต่ละคน/หน่วยได้ค่าต่างกัน ไม่ซ้ำ
+  // สุ่มค่าคงที่ (deterministic) จาก seed — ใช้กระจาย K/P/A ให้ไม่ซ้ำ (โดยผลรวมหน่วยคงเดิม)
   function hashStr(s: string): number {
     let h = 2166136261;
     for (let i = 0; i < s.length; i++) { h ^= s.charCodeAt(i); h = Math.imul(h, 16777619); }
     return h >>> 0;
-  }
-  // ขยับค่ารอบ ๆ base แบบสุ่มเล็กน้อย (คงที่ต่อ seed) ภายในช่วง [min, max]
-  function jitterVal(val: number, min: number, max: number, seed: string): number {
-    val = Math.min(max, Math.max(min, val));
-    const range = max - min;
-    if (range <= 0) return val;
-    const spread = Math.max(1, Math.round(range * 0.3));
-    const up = Math.min(spread, max - val);
-    const down = Math.min(spread, val - min);
-    const span = up + down;
-    if (span <= 0) return val;
-    const offset = (hashStr(seed) % (span + 1)) - down; // -down..+up
-    return Math.min(max, Math.max(min, val + offset));
   }
 
   // แบ่ง total ลง K/P/A ตามสัดส่วนคะแนนเต็ม + สุ่มเล็กน้อย ให้แต่ละช่อง ≥ 1 (กัน 0) และ ≤ เต็ม
