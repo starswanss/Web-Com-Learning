@@ -178,21 +178,25 @@ function exportPDF(assignment: Assignment | null, submissions: Submission[], cla
   const html = `<!doctype html><html lang="th"><head><meta charset="utf-8" />
     <title>${esc(assignment.title)} — ${esc(classLabel)}</title>
     <style>
-      *{box-sizing:border-box} body{font-family:'Sarabun','TH Sarabun New',system-ui,'Segoe UI',sans-serif;color:#111;margin:24px;font-size:14px;line-height:1.5}
-      h1{font-size:18px;margin:0 0 4px} .sub{color:#555;margin:0 0 16px;font-size:13px}
-      .stu{page-break-inside:avoid;border:1px solid #ddd;border-radius:8px;padding:14px;margin-bottom:16px}
+      *{box-sizing:border-box} body{font-family:'Sarabun','TH Sarabun New',system-ui,'Segoe UI',sans-serif;color:#111;margin:14px;font-size:12.5px;line-height:1.35}
+      h1{font-size:16px;margin:0 0 2px} .sub{color:#555;margin:0 0 8px;font-size:11px}
+      /* each student starts on a new page but flows across pages if long (no forced empty page) */
+      .stu{border:1px solid #ddd;border-radius:6px;padding:10px;margin-bottom:10px;display:flex;flex-direction:column;min-height:0}
       .stu + .stu{page-break-before:always}
-      .hd{border-bottom:2px solid #333;padding-bottom:6px;margin-bottom:10px}
-      .nm{font-size:16px;font-weight:700} .meta{font-size:12px;color:#444;margin-top:2px}
-      table{width:100%;border-collapse:collapse;margin-top:6px} th,td{border:1px solid #ccc;padding:8px;vertical-align:top;text-align:left}
-      th{background:#f3f4f6;font-size:12px} td.q{width:65%} td.cm,th.cm{width:35%}
-      .qtext{font-weight:600;margin-bottom:4px} .ans{color:#1d4ed8;white-space:pre-wrap}
-      .ans img{max-width:100%;max-height:220px;border:1px solid #ccc;border-radius:6px} .pre{white-space:pre-wrap}
-      .cmt{color:#b45309} .muted{color:#999} .fb{margin-top:8px;font-size:13px}
-      ul,ol{margin:2px 0;padding-left:18px} u{text-decoration:underline;color:#1d4ed8}
-      .sign{margin-top:32px;max-width:340px} .sign .sigimg{max-height:64px;max-width:240px;display:block;margin-bottom:2px}
-      .sign .sigspace{height:48px} .sigln{margin-bottom:2px} .signm{margin-left:40px} .sigrole{margin-left:60px;color:#444}
-      @media print{body{margin:10mm} .stu{border:none;border-radius:0;padding:0}}
+      .hd{border-bottom:2px solid #333;padding-bottom:4px;margin-bottom:6px}
+      .nm{font-size:14px;font-weight:700} .meta{font-size:11px;color:#444;margin-top:1px}
+      table{width:100%;border-collapse:collapse;margin-top:3px} th,td{border:1px solid #ccc;padding:4px 6px;vertical-align:top;text-align:left}
+      tr{page-break-inside:avoid} /* keep a question row whole; break between rows */
+      th{background:#f3f4f6;font-size:11px} td.q{width:66%} td.cm,th.cm{width:34%}
+      .qtext{font-weight:600;margin-bottom:2px} .ans{color:#1d4ed8;white-space:pre-wrap}
+      .ans img{max-width:100%;max-height:150px;border:1px solid #ccc;border-radius:5px} .pre{white-space:pre-wrap}
+      .cmt{color:#b45309} .muted{color:#999} .fb{margin-top:5px;font-size:12px}
+      ul,ol{margin:1px 0;padding-left:16px} u{text-decoration:underline;color:#1d4ed8}
+      /* signature pinned to the bottom-left of the student's page */
+      .sign{margin-top:auto;padding-top:14px;max-width:300px;page-break-inside:avoid}
+      .sign .sigimg{max-height:52px;max-width:200px;display:block;margin-bottom:0} .sign .sigspace{height:30px}
+      .sigln{margin-bottom:1px;font-size:12px} .signm{margin-left:40px} .sigrole{margin-left:54px;color:#444}
+      @media print{body{margin:9mm} .stu{border:none;border-radius:0;padding:0;min-height:calc(100vh - 30mm)}}
     </style></head><body>
     <h1>${esc(assignment.title)}</h1>
     <p class="sub">${esc(classLabel)} · ${submissions.length} คน · ออกเมื่อ ${new Date().toLocaleString('th-TH')}</p>
