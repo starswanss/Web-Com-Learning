@@ -110,8 +110,24 @@ function absUrl(u: string): string {
   return origin + (u.startsWith('/') ? u : '/' + u);
 }
 
+// Fetch an (authenticated, same-origin) URL and return it as a data: URL so it
+// renders inside the about:blank print window (which won't send our cookie).
+async function urlToDataUrl(url: string): Promise<string | null> {
+  try {
+    const res = await fetch(url, { credentials: 'same-origin' });
+    if (!res.ok) return null;
+    const blob = await res.blob();
+    return await new Promise<string | null>((resolve) => {
+      const r = new FileReader();
+      r.onload = () => resolve(String(r.result));
+      r.onerror = () => resolve(null);
+      r.readAsDataURL(blob);
+    });
+  } catch { return null; }
+}
+
 /** Render one student's answer for a question block as print-friendly HTML. */
-function answerHtml(block: AssignmentBlock, answer: string | string[] | undefined): string {
+function answerHtml(block: AssignmentBlock, answer: string | string[] | undefined, imgMap: Map<string, string>): string {
   if (answer === undefined || (Array.isArray(answer) && answer.length === 0)) {
     return '<span class="muted">— ไม่ได้ตอบ —</span>';
   }
@@ -119,7 +135,7 @@ function answerHtml(block: AssignmentBlock, answer: string | string[] | undefine
   switch (block.type) {
     case 'image-upload':
       return typeof answer === 'string' && answer
-        ? `<img src="${esc(absUrl(driveThumb(answer, 800)))}" alt="คำตอบ" />`
+        ? `<img src="${esc(imgMap.get(answer) ?? absUrl(driveThumb(answer, 800)))}" alt="คำตอบ" />`
         : '<span class="muted">ไม่ได้อัปโหลดรูป</span>';
     case 'true-false': {
       const items = (block as AssignmentBlock & { items?: Array<{ statement: string }> }).items ?? [];
@@ -152,8 +168,29 @@ function answerHtml(block: AssignmentBlock, answer: string | string[] | undefine
  * Each student: name · รหัส (email local-part) · email, then every question with
  * the student's answer and the teacher's per-question comment beside it.
  */
-function exportPDF(assignment: Assignment | null, submissions: Submission[], classLabel: string, sig: { img: string | null; name: string }) {
+async function exportPDF(assignment: Assignment | null, submissions: Submission[], classLabel: string, sig: { img: string | null; name: string }) {
   if (!assignment) return;
+  // Open the window synchronously (user gesture) so the popup isn't blocked;
+  // we fill it after fetching images.
+  const win = window.open('', '_blank');
+  if (!win) { alert('เบราว์เซอร์บล็อกหน้าต่างใหม่ — อนุญาต popup แล้วลองใหม่'); return; }
+  win.document.write('<!doctype html><meta charset="utf-8"><body style="font-family:sans-serif;padding:28px;color:#334">⏳ กำลังเตรียมรายงานและโหลดรูปภาพ…</body>');
+
+  const qBlocksForImg = (assignment.blocks ?? []).filter((b) => b.type === 'image-upload');
+  const imgUrls = new Set<string>();
+  for (const s of submissions) {
+    for (const b of qBlocksForImg) {
+      const a = s.answers?.[b.id];
+      if (typeof a === 'string' && a) imgUrls.add(a);
+    }
+  }
+  // Embed student images as data URLs (the print window can't send our cookie).
+  const imgMap = new Map<string, string>();
+  await Promise.all([...imgUrls].map(async (a) => {
+    const d = await urlToDataUrl(driveThumb(a, 800));
+    if (d) imgMap.set(a, d);
+  }));
+
   const sigBlock = `<div class="sign">
       ${sig.img ? `<img class="sigimg" src="${esc(sig.img)}" alt="ลายเซ็น" />` : '<div class="sigspace"></div>'}
       <div class="sigln">ลงชื่อ ....................................................... ผู้ตรวจ</div>
@@ -189,7 +226,7 @@ function exportPDF(assignment: Assignment | null, submissions: Submission[], cla
       return `<tr>
         <td class="q">
           <div class="qtext">${i + 1}. ${esc(b.question ?? '')}</div>
-          <div class="ans">${answerHtml(b, s.answers?.[b.id])}</div>
+          <div class="ans">${answerHtml(b, s.answers?.[b.id], imgMap)}</div>
         </td>
         <td class="cm">${comment ? `<span class="cmt">💬 ${esc(comment)}</span>` : '<span class="muted">—</span>'}</td>
       </tr>`;
@@ -243,8 +280,6 @@ function exportPDF(assignment: Assignment | null, submissions: Submission[], cla
     <script>window.onload=function(){var f=(document.fonts&&document.fonts.ready)?document.fonts.ready:Promise.resolve();f.then(function(){setTimeout(function(){window.print();},400);});};<\/script>
   </body></html>`;
 
-  const win = window.open('', '_blank');
-  if (!win) { alert('เบราว์เซอร์บล็อกหน้าต่างใหม่ — อนุญาต popup แล้วลองใหม่'); return; }
   win.document.open();
   win.document.write(html);
   win.document.close();
@@ -306,7 +341,7 @@ export default function SubmissionsPage({ params }: { params: Promise<{ id: stri
   }
   function runExportPDF() {
     try { localStorage.setItem('lms_report_signer', signer); } catch { /* ignore */ }
-    exportPDF(assignment, visible, classFilter ? `ห้อง ${classFilter}` : 'ทุกห้อง', { img: sigImg, name: signer });
+    void exportPDF(assignment, visible, classFilter ? `ห้อง ${classFilter}` : 'ทุกห้อง', { img: sigImg, name: signer });
     setPdfModal(false);
   }
 
