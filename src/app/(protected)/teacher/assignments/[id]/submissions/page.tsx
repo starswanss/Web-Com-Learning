@@ -210,8 +210,11 @@ function exportPDF(assignment: Assignment | null, submissions: Submission[], cla
 
   const html = `<!doctype html><html lang="th"><head><meta charset="utf-8" />
     <title>${esc(assignment.title)} — ${esc(classLabel)}</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link href="https://fonts.googleapis.com/css2?family=Sarabun:wght@400;500;600;700&display=swap" rel="stylesheet" />
     <style>
-      *{box-sizing:border-box} body{font-family:'Sarabun','TH Sarabun New',system-ui,'Segoe UI',sans-serif;color:#111;margin:14px;font-size:12.5px;line-height:1.35}
+      *{box-sizing:border-box} body{font-family:'Sarabun','TH Sarabun New',system-ui,'Segoe UI',sans-serif;color:#111;margin:14px;font-size:13px;line-height:1.4}
       h1{font-size:16px;margin:0 0 2px} .sub{color:#555;margin:0 0 8px;font-size:11px}
       /* each student starts on a new page but flows across pages if long (no forced empty page) */
       .stu{border:1px solid #ddd;border-radius:6px;padding:10px;margin-bottom:10px;display:flex;flex-direction:column;min-height:0}
@@ -231,12 +234,13 @@ function exportPDF(assignment: Assignment | null, submissions: Submission[], cla
       .sign{margin-top:auto;align-self:flex-end;padding-top:14px;max-width:300px;text-align:center;page-break-inside:avoid}
       .sign .sigimg{max-height:52px;max-width:200px;display:block;margin:0 auto} .sign .sigspace{height:30px}
       .sigln{margin-bottom:1px;font-size:12px} .sigrole{color:#444}
-      @media print{body{margin:9mm} .stu{border:none;border-radius:0;padding:0;min-height:calc(100vh - 30mm)}}
+      /* margin:0 on the page removes the browser's own header/footer (date, title, url, page no.) */
+      @media print{@page{margin:0} body{margin:0;padding:11mm} .stu{border:none;border-radius:0;padding:0;min-height:calc(100vh - 34mm)}}
     </style></head><body>
     <h1>${esc(assignment.title)}</h1>
-    <p class="sub">${esc(classLabel)} · ${submissions.length} คน · ออกเมื่อ ${new Date().toLocaleString('th-TH')}</p>
+    <p class="sub">${esc(classLabel)} · ${submissions.length} คน</p>
     ${students || '<p class="muted">ไม่มีงานที่จะออก</p>'}
-    <script>window.onload=function(){setTimeout(function(){window.print();},500);};<\/script>
+    <script>window.onload=function(){var f=(document.fonts&&document.fonts.ready)?document.fonts.ready:Promise.resolve();f.then(function(){setTimeout(function(){window.print();},400);});};<\/script>
   </body></html>`;
 
   const win = window.open('', '_blank');
