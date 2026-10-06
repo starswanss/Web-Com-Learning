@@ -176,8 +176,13 @@ async function exportPDF(assignment: Assignment | null, submissions: Submission[
   if (!win) { alert('เบราว์เซอร์บล็อกหน้าต่างใหม่ — อนุญาต popup แล้วลองใหม่'); return; }
   win.document.write('<!doctype html><meta charset="utf-8"><body style="font-family:sans-serif;padding:28px;color:#334">⏳ กำลังเตรียมรายงานและโหลดรูปภาพ…</body>');
 
-  const qBlocksForImg = (assignment.blocks ?? []).filter((b) => b.type === 'image-upload');
   const imgUrls = new Set<string>();
+  // Images embedded in the worksheet itself (image blocks / question diagrams)
+  for (const b of assignment.blocks ?? []) {
+    if (b.type === 'image' && typeof b.url === 'string' && b.url) imgUrls.add(b.url);
+  }
+  // Images uploaded by students as answers
+  const qBlocksForImg = (assignment.blocks ?? []).filter((b) => b.type === 'image-upload');
   for (const s of submissions) {
     for (const b of qBlocksForImg) {
       const a = s.answers?.[b.id];
@@ -221,15 +226,28 @@ async function exportPDF(assignment: Assignment | null, submissions: Submission[
         + (hasA ? `<td>${av != null ? esc(av) : '-'}</td>` : '') + `<td><b>${total}</b></td>`;
       kpaTable = `<table class="kpa"><thead><tr><th class="lbl">ข้อ</th>${head}</tr></thead><tbody><tr><td class="lbl">คะแนน</td>${cells}</tr></tbody></table>`;
     }
-    const rows = qBlocks.map((b, i) => {
-      const comment = s.questionComments?.[b.id] ?? '';
-      return `<tr>
-        <td class="q">
-          <div class="qtext">${i + 1}. ${esc(b.question ?? '')}</div>
-          <div class="ans">${answerHtml(b, s.answers?.[b.id], imgMap)}</div>
-        </td>
-        <td class="cm">${comment ? `<span class="cmt">💬 ${esc(comment)}</span>` : '<span class="muted">—</span>'}</td>
-      </tr>`;
+    // Render the whole worksheet in order: content blocks (incl. images that are
+    // part of a question) full-width, question blocks with answer + teacher comment.
+    const QT = ['short-answer', 'long-answer', 'multiple-choice', 'checkbox', 'ordering', 'image-upload', 'true-false', 'matching', 'fill-blank', 'link'];
+    const bodyHtml = (assignment.blocks ?? []).map((b) => {
+      switch (b.type) {
+        case 'heading':   return `<h3 class="bk-h">${esc(b.text)}</h3>`;
+        case 'paragraph': return `<p class="bk-p">${esc(b.text)}</p>`;
+        case 'image':     return b.url ? `<div class="bk-img"><img src="${esc(imgMap.get(b.url) ?? absUrl(driveThumb(b.url, 1000)))}" alt="" />${b.caption ? `<div class="cap">${esc(b.caption)}</div>` : ''}</div>` : '';
+        case 'infographic': return `<div class="bk-info"><b>${esc(b.icon ?? '')} ${esc(b.title ?? '')}</b><div>${esc(b.body ?? '')}</div></div>`;
+        case 'pdf':       return `<p class="muted">[ไฟล์ PDF${b.caption ? `: ${esc(b.caption)}` : ''}]</p>`;
+        default: {
+          if (!QT.includes(b.type)) return '';
+          const comment = s.questionComments?.[b.id] ?? '';
+          return `<div class="qrow">
+            <div class="qmain">
+              <div class="qtext">${numMap.get(b.id)}. ${esc(b.question ?? '')}</div>
+              <div class="ans">${answerHtml(b, s.answers?.[b.id], imgMap)}</div>
+            </div>
+            <div class="qcm">${comment ? `<span class="cmt">💬 ${esc(comment)}</span>` : '<span class="muted">—</span>'}</div>
+          </div>`;
+        }
+      }
     }).join('');
     const scoreLine = typeof s.score === 'number' ? ` · คะแนน: <b>${s.score}/100</b>` : '';
     return `<section class="stu">
@@ -238,8 +256,7 @@ async function exportPDF(assignment: Assignment | null, submissions: Submission[
         <div class="meta">รหัสประจำตัว: <b>${esc(code || '—')}</b> · อีเมล: ${esc(s.studentEmail || '—')} · ห้อง: ${esc(s.classId)}${scoreLine}</div>
       </div>
       ${kpaTable}
-      ${qBlocks.length ? `<table><thead><tr><th class="q">ข้อคำถาม / คำตอบนักเรียน</th><th class="cm">ความเห็นครู</th></tr></thead><tbody>${rows}</tbody></table>`
-        : `<p class="muted">${s.content ? esc(s.content) : 'ไม่มีคำตอบแบบข้อ'}</p>`}
+      ${(assignment.blocks ?? []).length ? bodyHtml : `<p class="muted">${s.content ? esc(s.content) : 'ไม่มีคำตอบแบบข้อ'}</p>`}
       ${s.feedback ? `<p class="fb"><b>Feedback รวม:</b> ${esc(s.feedback)}</p>` : ''}
       ${sigBlock}
     </section>`;
@@ -259,10 +276,16 @@ async function exportPDF(assignment: Assignment | null, submissions: Submission[
       .hd{border-bottom:2px solid #333;padding-bottom:4px;margin-bottom:6px}
       .nm{font-size:14px;font-weight:700} .meta{font-size:11px;color:#444;margin-top:1px}
       table{width:100%;border-collapse:collapse;margin-top:3px} th,td{border:1px solid #ccc;padding:4px 6px;vertical-align:top;text-align:left}
-      tr{page-break-inside:avoid} /* keep a question row whole; break between rows */
-      th{background:#f3f4f6;font-size:11px} td.q{width:66%} td.cm,th.cm{width:34%}
+      th{background:#f3f4f6;font-size:11px}
+      /* worksheet content blocks */
+      .bk-h{font-size:14px;font-weight:700;margin:8px 0 2px} .bk-p{margin:3px 0;white-space:pre-wrap}
+      .bk-img{margin:6px 0;text-align:center} .bk-img img{max-width:100%;max-height:260px;border:1px solid #ccc;border-radius:5px}
+      .bk-img .cap{font-size:11px;color:#666;margin-top:1px} .bk-info{border:1px solid #c7d2fe;background:#eef2ff;border-radius:5px;padding:6px;margin:5px 0}
+      /* question row: answer left, teacher comment right */
+      .qrow{display:flex;gap:8px;border:1px solid #ccc;border-radius:5px;padding:6px 8px;margin:5px 0;page-break-inside:avoid}
+      .qmain{flex:1 1 66%;min-width:0} .qcm{flex:0 0 32%;border-left:1px solid #ddd;padding-left:8px}
       .qtext{font-weight:600;margin-bottom:2px} .ans{color:#1d4ed8;white-space:pre-wrap}
-      .ans img{max-width:100%;max-height:150px;border:1px solid #ccc;border-radius:5px} .pre{white-space:pre-wrap}
+      .ans img{max-width:100%;max-height:170px;border:1px solid #ccc;border-radius:5px} .pre{white-space:pre-wrap}
       .cmt{color:#b45309} .muted{color:#999} .fb{margin-top:5px;font-size:12px}
       table.kpa{width:auto;margin:4px 0 8px} table.kpa th,table.kpa td{text-align:center;padding:3px 7px;min-width:34px}
       table.kpa th{background:#eef2ff} table.kpa .lbl{background:#f3f4f6;font-weight:700} table.kpa .sm{font-size:9px;color:#666;font-weight:400}
