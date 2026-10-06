@@ -56,6 +56,8 @@ export async function PATCH(
   const contentType = (formData.get('contentType') as string | null) ?? snap.data()?.contentType ?? 'worksheet';
   const timeLimitRaw = formData.get('timeLimit') as string | null;
   const timeLimit = timeLimitRaw !== null ? (timeLimitRaw ? parseInt(timeLimitRaw, 10) : null) : (snap.data()?.timeLimit ?? null);
+  const attMaxRaw = formData.get('attitudeMax') as string | null;
+  const attitudeMax = attMaxRaw !== null ? (attMaxRaw ? Math.max(0, parseInt(attMaxRaw, 10) || 0) : null) : (snap.data()?.attitudeMax ?? null);
 
   const dueDateRequired = contentType === 'worksheet';
   if (!title || (dueDateRequired && !dueDate) || !classIds.length) {
@@ -71,6 +73,7 @@ export async function PATCH(
     unit: unit || null,
     contentType,
     timeLimit: timeLimit ?? null,
+    attitudeMax: attitudeMax ?? null,
     updatedAt: FieldValue.serverTimestamp(),
   });
 

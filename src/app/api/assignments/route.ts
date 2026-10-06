@@ -62,6 +62,8 @@ export async function POST(req: NextRequest) {
   const isGroupWork = formData.get('isGroupWork') === 'true';
   const groupSizeRaw = formData.get('groupSize') as string | null;
   const groupSize = groupSizeRaw ? parseInt(groupSizeRaw, 10) : null;
+  const attitudeMaxRaw = formData.get('attitudeMax') as string | null;
+  const attitudeMax = attitudeMaxRaw ? Math.max(0, parseInt(attitudeMaxRaw, 10) || 0) : null;
   // dueDate is required only for worksheet; quiz/knowledge can omit it
   const dueDateRequired = contentType === 'worksheet';
 
@@ -103,6 +105,7 @@ export async function POST(req: NextRequest) {
     pairedQuizId: pairedQuizId || null,
     isGroupWork: isGroupWork || false,
     groupSize: groupSize ?? null,
+    attitudeMax: attitudeMax ?? null,
     createdAt: FieldValue.serverTimestamp(),
     updatedAt: FieldValue.serverTimestamp(),
   });

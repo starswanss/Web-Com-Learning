@@ -81,6 +81,9 @@ export function groupBlocks(blocks: FormBlock[]): (FormBlock | [FormBlock, FormB
   return rows;
 }
 
+// Question-type blocks that can carry a per-question KPA score.
+export const QUESTION_TYPES: BlockType[] = ['short-answer', 'long-answer', 'multiple-choice', 'checkbox', 'ordering', 'image-upload', 'true-false', 'matching', 'fill-blank', 'link'];
+
 export const BLOCK_LABELS: { type: BlockType; label: string; icon: string }[] = [
   { type: 'heading',         label: 'หัวข้อ',              icon: 'H'  },
   { type: 'paragraph',       label: 'ข้อความ',             icon: '¶'  },
@@ -995,6 +998,32 @@ export function BlockCard({
           className="rounded px-1.5 py-0.5 text-xs text-slate-500 hover:text-red-400" title="ลบ">×</button>
       </div>
       <BlockEditor block={block} onChange={onChange} />
+
+      {/* Per-question KPA scoring (K / P). เว้นว่าง = ไม่คิดคะแนนข้อนี้ */}
+      {QUESTION_TYPES.includes(block.type) && (
+        <div className="mt-3 flex flex-wrap items-center gap-2 border-t border-slate-800 pt-2.5 text-xs">
+          <span className="text-slate-500">คะแนนข้อนี้ (เต็ม):</span>
+          <input
+            type="number" min={0} value={block.scoreMax ?? ''}
+            onChange={e => onChange({ ...block, scoreMax: e.target.value === '' ? undefined : Math.max(0, Number(e.target.value)) } as FormBlock)}
+            placeholder="—"
+            className="w-16 rounded border border-slate-700 bg-slate-800 px-2 py-1 text-center text-slate-100"
+          />
+          <span className="text-slate-500">ประเภท:</span>
+          {(['K', 'P'] as const).map(k => (
+            <button
+              key={k} type="button"
+              onClick={() => onChange({ ...block, scoreKind: block.scoreKind === k ? undefined : k } as FormBlock)}
+              className={`rounded border px-2.5 py-1 font-bold transition-all ${
+                block.scoreKind === k ? 'border-blue-500 bg-blue-950/50 text-blue-300' : 'border-slate-700 text-slate-500 hover:border-slate-600'
+              }`}
+            >
+              {k}
+            </button>
+          ))}
+          <span className="text-[10px] text-slate-600">K=ความรู้ · P=ทักษะ · เว้นว่าง = ไม่คิดคะแนนข้อนี้</span>
+        </div>
+      )}
     </div>
   );
 }

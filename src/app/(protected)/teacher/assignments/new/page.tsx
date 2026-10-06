@@ -42,6 +42,7 @@ export default function NewAssignmentPage() {
     (typeParam && ['worksheet', 'knowledge', 'quiz'].includes(typeParam)) ? typeParam : 'worksheet'
   );
   const [timeLimit, setTimeLimit] = useState('');
+  const [attitudeMax, setAttitudeMax] = useState('');
   const [isGroupWork, setIsGroupWork] = useState(false);
   const [groupSize, setGroupSize] = useState('');
   const [quizMode, setQuizMode] = useState<'standalone' | 'prepost'>('standalone');
@@ -185,6 +186,7 @@ export default function NewAssignmentPage() {
     if (timeLimit) fd.append('timeLimit', timeLimit);
     fd.append('isGroupWork', String(isGroupWork));
     if (isGroupWork && groupSize) fd.append('groupSize', groupSize);
+    if (attitudeMax) fd.append('attitudeMax', attitudeMax);
     fd.append('subjectId', subjectId);
     if (extra) Object.entries(extra).forEach(([k, v]) => fd.append(k, v));
     return fd;
@@ -286,6 +288,15 @@ export default function NewAssignmentPage() {
                 </div>
               </div>
             </div>
+
+            {contentType === 'worksheet' && (
+              <div>
+                <label className="mb-1.5 block text-sm font-medium text-slate-300">คะแนนคุณลักษณะ A (ช่องเดียว · ไม่ผูกกับข้อ)</label>
+                <input type="number" min={0} value={attitudeMax} onChange={(e) => setAttitudeMax(e.target.value)}
+                  placeholder="เช่น 10 — เว้นว่างถ้าไม่ใช้" className="input w-48 text-sm" />
+                <p className="mt-1 text-xs text-slate-500">คะแนน A ให้ครูกรอกตอนตรวจ · ส่วน K/P กำหนดรายข้อในบล็อกคำถามด้านล่าง</p>
+              </div>
+            )}
 
             {contentType === 'quiz' && (
               <>

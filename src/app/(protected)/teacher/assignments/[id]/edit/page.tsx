@@ -31,6 +31,7 @@ export default function EditAssignmentPage({ params }: { params: Promise<{ id: s
   const [unit, setUnit] = useState('');
   const [contentType, setContentType] = useState<ContentType>('worksheet');
   const [timeLimit, setTimeLimit] = useState('');
+  const [attitudeMax, setAttitudeMax] = useState('');
   const [blocks, setBlocks] = useState<FormBlock[]>([]);
   const [fetching, setFetching] = useState(true);
   const [submitting, setSubmitting] = useState(false);
@@ -53,6 +54,7 @@ export default function EditAssignmentPage({ params }: { params: Promise<{ id: s
         setContentType(data.contentType ?? 'worksheet');
         setBlocks(data.blocks ?? []);
         setTimeLimit(data.timeLimit ? String(data.timeLimit) : '');
+        setAttitudeMax(typeof data.attitudeMax === 'number' ? String(data.attitudeMax) : '');
       })
       .finally(() => setFetching(false));
   }, [profile, id]);
@@ -95,6 +97,7 @@ export default function EditAssignmentPage({ params }: { params: Promise<{ id: s
       fd.append('unit', unit.trim());
       fd.append('contentType', contentType);
       fd.append('timeLimit', timeLimit);
+      fd.append('attitudeMax', attitudeMax);
 
       const res = await fetch(`/api/assignments/${id}`, { method: 'PATCH', body: fd });
       if (!res.ok) throw new Error('failed');
@@ -193,6 +196,15 @@ export default function EditAssignmentPage({ params }: { params: Promise<{ id: s
                   </div>
                 </div>
               </div>
+
+              {contentType === 'worksheet' && (
+                <div>
+                  <label className="mb-1.5 block text-sm font-medium text-slate-300">คะแนนคุณลักษณะ A (ช่องเดียว · ไม่ผูกกับข้อ)</label>
+                  <input type="number" min={0} value={attitudeMax} onChange={(e) => setAttitudeMax(e.target.value)}
+                    placeholder="เช่น 10 — เว้นว่างถ้าไม่ใช้" className="input w-48 text-sm" />
+                  <p className="mt-1 text-xs text-slate-500">คะแนน A ให้ครูกรอกตอนตรวจ · K/P กำหนดรายข้อในบล็อกคำถามด้านล่าง</p>
+                </div>
+              )}
 
               {contentType === 'quiz' && (
                 <div>

@@ -26,11 +26,22 @@ export async function PATCH(
   if (!uid) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
 
   const { id } = await params;
-  const { score, feedback, questionComments } = await req.json();
+  const { score, feedback, questionComments, questionScores, attitudeScore } = await req.json();
 
   if (typeof score !== 'number' || score < 0 || score > 100) {
     return NextResponse.json({ error: 'Invalid score' }, { status: 400 });
   }
+
+  // Per-question KPA scores: map blockId → number (clamped ≥ 0).
+  let cleanScores: Record<string, number> | undefined;
+  if (questionScores && typeof questionScores === 'object') {
+    cleanScores = {};
+    for (const [k, v] of Object.entries(questionScores as Record<string, unknown>)) {
+      const n = Number(v);
+      if (isFinite(n) && n >= 0) cleanScores[k] = Math.round(n * 100) / 100;
+    }
+  }
+  const attScore = typeof attitudeScore === 'number' && attitudeScore >= 0 ? Math.round(attitudeScore * 100) / 100 : undefined;
 
   // Per-question comments: map of blockId → comment. Keep only non-empty string
   // values and cap length so a bad payload can't bloat the document.
@@ -71,6 +82,8 @@ export async function PATCH(
     reviewedAt: FieldValue.serverTimestamp(),
     xpAwarded: newXpAwarded,
     ...(cleanComments !== undefined ? { questionComments: cleanComments } : {}),
+    ...(cleanScores !== undefined ? { questionScores: cleanScores } : {}),
+    ...(attScore !== undefined ? { attitudeScore: attScore } : {}),
   });
 
   if (xpDelta !== 0 && studentUid) {

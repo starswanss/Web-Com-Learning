@@ -34,7 +34,9 @@ export type BlockType =
 
 export type InfographicColor = 'blue' | 'green' | 'purple' | 'orange' | 'red' | 'slate';
 
-interface BaseBlock { id: string; type: BlockType; half?: boolean }
+// scoreMax/scoreKind: per-question KPA scoring (K or P). Set in the builder on
+// question blocks; the teacher fills the actual per-question score when grading.
+interface BaseBlock { id: string; type: BlockType; half?: boolean; scoreMax?: number; scoreKind?: 'K' | 'P' }
 export interface HeadingBlock       extends BaseBlock { type: 'heading';         text: string }
 export interface ParagraphBlock     extends BaseBlock { type: 'paragraph';       text: string }
 export interface ImageBlock         extends BaseBlock { type: 'image';           url: string; caption?: string }
@@ -103,6 +105,8 @@ export interface Assignment {
   pairedQuizId?: string;
   isGroupWork?: boolean;
   groupSize?: number;
+  // A (คุณลักษณะ): a single worksheet-level score field, not tied to any question.
+  attitudeMax?: number;
   createdAt: Date;
   updatedAt: Date;
 }

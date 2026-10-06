@@ -18,6 +18,8 @@ interface Submission {
   score?: number;
   feedback?: string;
   questionComments?: Record<string, string>;
+  questionScores?: Record<string, number>;
+  attitudeScore?: number;
   plagiarismSuspicion?: number;
   tabSwitchCount?: number;
   burstInsertCount?: number;
@@ -39,6 +41,8 @@ interface AssignmentBlock {
   body?: string;
   icon?: string;
   color?: string;
+  scoreMax?: number;
+  scoreKind?: 'K' | 'P';
 }
 
 interface Assignment {
@@ -49,6 +53,7 @@ interface Assignment {
   dueDate?: { _seconds: number };
   blocks?: AssignmentBlock[];
   isGroupWork?: boolean;
+  attitudeMax?: number;
 }
 
 function scoreColor(score: number) {
@@ -96,6 +101,15 @@ function esc(s: unknown): string {
   return String(s ?? '').replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]!));
 }
 
+// The print window opens on about:blank, so relative URLs (e.g. /api/drive-image)
+// won't load — make them absolute against the app origin.
+function absUrl(u: string): string {
+  if (!u) return u;
+  if (/^(https?:|data:)/i.test(u)) return u;
+  const origin = typeof window !== 'undefined' ? window.location.origin : '';
+  return origin + (u.startsWith('/') ? u : '/' + u);
+}
+
 /** Render one student's answer for a question block as print-friendly HTML. */
 function answerHtml(block: AssignmentBlock, answer: string | string[] | undefined): string {
   if (answer === undefined || (Array.isArray(answer) && answer.length === 0)) {
@@ -105,7 +119,7 @@ function answerHtml(block: AssignmentBlock, answer: string | string[] | undefine
   switch (block.type) {
     case 'image-upload':
       return typeof answer === 'string' && answer
-        ? `<img src="${esc(driveThumb(answer, 800))}" alt="คำตอบ" />`
+        ? `<img src="${esc(absUrl(driveThumb(answer, 800)))}" alt="คำตอบ" />`
         : '<span class="muted">ไม่ได้อัปโหลดรูป</span>';
     case 'true-false': {
       const items = (block as AssignmentBlock & { items?: Array<{ statement: string }> }).items ?? [];
@@ -149,9 +163,27 @@ function exportPDF(assignment: Assignment | null, submissions: Submission[], cla
   const qBlocks = (assignment.blocks ?? []).filter((b) =>
     ['short-answer', 'long-answer', 'multiple-choice', 'checkbox', 'ordering', 'image-upload', 'true-false', 'matching', 'fill-blank', 'link'].includes(b.type)
   );
+  // Per-question KPA scoring config for the horizontal score table
+  const numMap = new Map(qBlocks.map((b, i) => [b.id, i + 1]));
+  const scoredBlocks = qBlocks.filter((b) => typeof b.scoreMax === 'number' && (b.scoreMax ?? 0) > 0);
+  const aMax = assignment.attitudeMax;
+  const hasA = typeof aMax === 'number' && aMax > 0;
 
   const students = submissions.map((s) => {
     const code = (s.studentEmail ?? '').split('@')[0];
+    // Horizontal score table: one column per scored question + A + total
+    let kpaTable = '';
+    if (scoredBlocks.length > 0 || hasA) {
+      const qs = s.questionScores ?? {};
+      const av = s.attitudeScore;
+      const total = scoredBlocks.reduce((t, b) => t + (Number(qs[b.id]) || 0), 0) + (Number(av) || 0);
+      const maxTotal = scoredBlocks.reduce((t, b) => t + (b.scoreMax || 0), 0) + (hasA ? (aMax ?? 0) : 0);
+      const head = scoredBlocks.map((b) => `<th>ข้อ ${numMap.get(b.id)}<br><span class="sm">${b.scoreKind ?? ''} /${b.scoreMax}</span></th>`).join('')
+        + (hasA ? `<th>A<br><span class="sm">/${aMax}</span></th>` : '') + `<th>รวม<br><span class="sm">/${maxTotal}</span></th>`;
+      const cells = scoredBlocks.map((b) => `<td>${qs[b.id] != null ? esc(qs[b.id]) : '-'}</td>`).join('')
+        + (hasA ? `<td>${av != null ? esc(av) : '-'}</td>` : '') + `<td><b>${total}</b></td>`;
+      kpaTable = `<table class="kpa"><thead><tr><th class="lbl">ข้อ</th>${head}</tr></thead><tbody><tr><td class="lbl">คะแนน</td>${cells}</tr></tbody></table>`;
+    }
     const rows = qBlocks.map((b, i) => {
       const comment = s.questionComments?.[b.id] ?? '';
       return `<tr>
@@ -168,6 +200,7 @@ function exportPDF(assignment: Assignment | null, submissions: Submission[], cla
         <div class="nm">${esc(s.studentName || '—')}</div>
         <div class="meta">รหัสประจำตัว: <b>${esc(code || '—')}</b> · อีเมล: ${esc(s.studentEmail || '—')} · ห้อง: ${esc(s.classId)}${scoreLine}</div>
       </div>
+      ${kpaTable}
       ${qBlocks.length ? `<table><thead><tr><th class="q">ข้อคำถาม / คำตอบนักเรียน</th><th class="cm">ความเห็นครู</th></tr></thead><tbody>${rows}</tbody></table>`
         : `<p class="muted">${s.content ? esc(s.content) : 'ไม่มีคำตอบแบบข้อ'}</p>`}
       ${s.feedback ? `<p class="fb"><b>Feedback รวม:</b> ${esc(s.feedback)}</p>` : ''}
@@ -191,11 +224,13 @@ function exportPDF(assignment: Assignment | null, submissions: Submission[], cla
       .qtext{font-weight:600;margin-bottom:2px} .ans{color:#1d4ed8;white-space:pre-wrap}
       .ans img{max-width:100%;max-height:150px;border:1px solid #ccc;border-radius:5px} .pre{white-space:pre-wrap}
       .cmt{color:#b45309} .muted{color:#999} .fb{margin-top:5px;font-size:12px}
+      table.kpa{width:auto;margin:4px 0 8px} table.kpa th,table.kpa td{text-align:center;padding:3px 7px;min-width:34px}
+      table.kpa th{background:#eef2ff} table.kpa .lbl{background:#f3f4f6;font-weight:700} table.kpa .sm{font-size:9px;color:#666;font-weight:400}
       ul,ol{margin:1px 0;padding-left:16px} u{text-decoration:underline;color:#1d4ed8}
-      /* signature pinned to the bottom-left of the student's page */
-      .sign{margin-top:auto;padding-top:14px;max-width:300px;page-break-inside:avoid}
-      .sign .sigimg{max-height:52px;max-width:200px;display:block;margin-bottom:0} .sign .sigspace{height:30px}
-      .sigln{margin-bottom:1px;font-size:12px} .signm{margin-left:40px} .sigrole{margin-left:54px;color:#444}
+      /* signature pinned to the bottom-right of the student's page */
+      .sign{margin-top:auto;align-self:flex-end;padding-top:14px;max-width:300px;text-align:center;page-break-inside:avoid}
+      .sign .sigimg{max-height:52px;max-width:200px;display:block;margin:0 auto} .sign .sigspace{height:30px}
+      .sigln{margin-bottom:1px;font-size:12px} .sigrole{color:#444}
       @media print{body{margin:9mm} .stu{border:none;border-radius:0;padding:0;min-height:calc(100vh - 30mm)}}
     </style></head><body>
     <h1>${esc(assignment.title)}</h1>
@@ -226,6 +261,8 @@ export default function SubmissionsPage({ params }: { params: Promise<{ id: stri
   const [score, setScore] = useState('');
   const [feedback, setFeedback] = useState('');
   const [qComments, setQComments] = useState<Record<string, string>>({});
+  const [qScores, setQScores] = useState<Record<string, string>>({});
+  const [aScore, setAScore] = useState('');
   const [saving, setSaving] = useState(false);
   const [saveError, setSaveError] = useState<string | null>(null);
   const [quickGrading, setQuickGrading] = useState(false);
@@ -419,19 +456,35 @@ export default function SubmissionsPage({ params }: { params: Promise<{ id: stri
             setScore(target.score !== undefined ? String(target.score) : '');
             setFeedback(target.feedback ?? '');
             setQComments(target.questionComments ?? {});
+            seedKpa(target);
           }
         }
       })
       .finally(() => setFetching(false));
   }, [profile, id]);
 
+  function seedKpa(sub: Submission) {
+    setQScores(Object.fromEntries(Object.entries(sub.questionScores ?? {}).map(([k, v]) => [k, String(v)])));
+    setAScore(sub.attitudeScore != null ? String(sub.attitudeScore) : '');
+  }
+
   function openSubmission(sub: Submission) {
     setSelected(sub);
     setScore(sub.score !== undefined ? String(sub.score) : '');
     setFeedback(sub.feedback ?? '');
     setQComments(sub.questionComments ?? {});
+    seedKpa(sub);
     setSaveError(null);
     setBatchResult(null);
+  }
+
+  // Build the per-question KPA score map (blockId → number) from the string drafts.
+  function buildQScores(): Record<string, number> {
+    const out: Record<string, number> = {};
+    for (const [k, v] of Object.entries(qScores)) {
+      if (v !== '' && !isNaN(Number(v))) out[k] = Number(v);
+    }
+    return out;
   }
 
   async function handleSave() {
@@ -440,13 +493,15 @@ export default function SubmissionsPage({ params }: { params: Promise<{ id: stri
     if (isNaN(parsed) || parsed < 0 || parsed > 100) { setSaveError('คะแนนต้องอยู่ระหว่าง 0–100'); return; }
     setSaving(true); setSaveError(null);
     try {
+      const qs = buildQScores();
+      const att = aScore !== '' && !isNaN(Number(aScore)) ? Number(aScore) : undefined;
       const res = await fetch(`/api/teacher/grade/${selected.id}`, {
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ score: parsed, feedback, questionComments: qComments }),
+        body: JSON.stringify({ score: parsed, feedback, questionComments: qComments, questionScores: qs, attitudeScore: att }),
       });
       if (!res.ok) throw new Error();
-      const updated: Submission = { ...selected, score: parsed, feedback, questionComments: qComments, status: 'reviewed' };
+      const updated: Submission = { ...selected, score: parsed, feedback, questionComments: qComments, questionScores: qs, attitudeScore: att, status: 'reviewed' };
       setSubmissions((prev) => prev.map((s) => (s.id === selected.id ? updated : s)));
       setSelected(updated);
     } catch { setSaveError('บันทึกไม่สำเร็จ กรุณาลองใหม่'); }
@@ -1029,6 +1084,50 @@ export default function SubmissionsPage({ params }: { params: Promise<{ id: stri
                         onChange={(e) => setScore(e.target.value)}
                         placeholder="เช่น 85" className="input w-32" />
                     </div>
+
+                    {/* Per-question KPA scores */}
+                    {(() => {
+                      const QT = ['short-answer', 'long-answer', 'multiple-choice', 'checkbox', 'ordering', 'image-upload', 'true-false', 'matching', 'fill-blank', 'link'];
+                      const allQ = (assignment?.blocks ?? []).filter((b) => QT.includes(b.type));
+                      const numOf = new Map(allQ.map((b, i) => [b.id, i + 1]));
+                      const scored = allQ.filter((b) => typeof b.scoreMax === 'number' && b.scoreMax > 0);
+                      const hasA = typeof assignment?.attitudeMax === 'number' && assignment.attitudeMax > 0;
+                      if (scored.length === 0 && !hasA) return null;
+                      const sumBy = (kind: 'K' | 'P') => scored.filter((b) => b.scoreKind === kind).reduce((s, b) => s + (Number(qScores[b.id]) || 0), 0);
+                      const maxBy = (kind: 'K' | 'P') => scored.filter((b) => b.scoreKind === kind).reduce((s, b) => s + (b.scoreMax || 0), 0);
+                      return (
+                        <div className="rounded-xl border border-slate-800 bg-slate-950/40 p-3 space-y-2">
+                          <p className="text-xs font-semibold text-slate-300">คะแนนรายข้อ (KPA)</p>
+                          <div className="space-y-1.5">
+                            {scored.map((b) => (
+                              <div key={b.id} className="flex items-center gap-2">
+                                <span className={`shrink-0 rounded px-1.5 py-0.5 text-[10px] font-bold ${b.scoreKind === 'K' ? 'bg-blue-950/60 text-blue-300' : b.scoreKind === 'P' ? 'bg-violet-950/60 text-violet-300' : 'bg-slate-800 text-slate-400'}`}>{b.scoreKind ?? '?'}</span>
+                                <span className="flex-1 truncate text-xs text-slate-400">ข้อ {numOf.get(b.id)}. {b.question}</span>
+                                <input type="number" min={0} max={b.scoreMax}
+                                  value={qScores[b.id] ?? ''}
+                                  onChange={(e) => setQScores((s) => ({ ...s, [b.id]: e.target.value }))}
+                                  className="w-16 rounded border border-slate-700 bg-slate-800 px-2 py-1 text-center text-xs text-slate-100" />
+                                <span className="w-8 shrink-0 text-[10px] text-slate-600">/{b.scoreMax}</span>
+                              </div>
+                            ))}
+                            {hasA && (
+                              <div className="flex items-center gap-2 border-t border-slate-800 pt-1.5">
+                                <span className="shrink-0 rounded bg-emerald-950/60 px-1.5 py-0.5 text-[10px] font-bold text-emerald-300">A</span>
+                                <span className="flex-1 text-xs text-slate-400">คุณลักษณะ (รวม)</span>
+                                <input type="number" min={0} max={assignment!.attitudeMax}
+                                  value={aScore} onChange={(e) => setAScore(e.target.value)}
+                                  className="w-16 rounded border border-slate-700 bg-slate-800 px-2 py-1 text-center text-xs text-slate-100" />
+                                <span className="w-8 shrink-0 text-[10px] text-slate-600">/{assignment!.attitudeMax}</span>
+                              </div>
+                            )}
+                          </div>
+                          <p className="text-[11px] text-slate-500">
+                            รวม K {sumBy('K')}/{maxBy('K')} · P {sumBy('P')}/{maxBy('P')}{hasA ? ` · A ${Number(aScore) || 0}/${assignment!.attitudeMax}` : ''}
+                          </p>
+                        </div>
+                      );
+                    })()}
+
                     <div>
                       <label className="mb-1.5 block text-xs text-slate-400">Feedback ให้นักเรียน</label>
                       <textarea value={feedback} onChange={(e) => setFeedback(e.target.value)}
