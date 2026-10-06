@@ -37,7 +37,8 @@ export async function GET(
 
   const assignmentData = assignmentSnap.data()!;
   const classIds: string[] = assignmentData.classIds ?? [];
-  const submissions = submissionsSnap.docs.map((d) => ({ id: d.id, ...d.data() }));
+  const submissions = submissionsSnap.docs.map((d) => ({ id: d.id, ...d.data() })) as Array<Record<string, unknown> & { studentId?: string; classId?: string; studentEmail?: string }>;
+  const emailByUid = new Map<string, string>();
 
   // Count submissions per class
   const submittedPerClass = new Map<string, number>();
@@ -59,8 +60,13 @@ export async function GET(
     usersSnap.docs.forEach((d) => {
       const cid = d.data().classId as string;
       totalPerClass.set(cid, (totalPerClass.get(cid) ?? 0) + 1);
+      const email = d.data().email as string | undefined;
+      if (email) emailByUid.set(d.id, email);
     });
   }
+
+  // Attach each submitter's email (for PDF export: รหัสประจำตัว = ส่วนหน้าอีเมล)
+  submissions.forEach((s) => { if (s.studentId) s.studentEmail = emailByUid.get(s.studentId) ?? ''; });
 
   const classStats = classIds.map((cid) => ({
     classId: cid,

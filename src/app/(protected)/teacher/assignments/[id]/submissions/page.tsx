@@ -10,6 +10,7 @@ interface Submission {
   id: string;
   studentId: string;
   studentName: string;
+  studentEmail?: string;
   classId: string;
   content?: string;
   driveWebViewLink?: string;
@@ -91,6 +92,121 @@ function exportCSV(assignment: Assignment | null, submissions: Submission[]) {
   URL.revokeObjectURL(url);
 }
 
+function esc(s: unknown): string {
+  return String(s ?? '').replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]!));
+}
+
+/** Render one student's answer for a question block as print-friendly HTML. */
+function answerHtml(block: AssignmentBlock, answer: string | string[] | undefined): string {
+  if (answer === undefined || (Array.isArray(answer) && answer.length === 0)) {
+    return '<span class="muted">— ไม่ได้ตอบ —</span>';
+  }
+  const q = block.question ?? '';
+  switch (block.type) {
+    case 'image-upload':
+      return typeof answer === 'string' && answer
+        ? `<img src="${esc(driveThumb(answer, 800))}" alt="คำตอบ" />`
+        : '<span class="muted">ไม่ได้อัปโหลดรูป</span>';
+    case 'true-false': {
+      const items = (block as AssignmentBlock & { items?: Array<{ statement: string }> }).items ?? [];
+      const ans = Array.isArray(answer) ? answer : [];
+      return '<ul>' + items.map((it, j) =>
+        `<li>${esc(it.statement)} — <b>${ans[j] === 'true' ? 'ถูก' : ans[j] === 'false' ? 'ผิด' : '—'}</b></li>`).join('') + '</ul>';
+    }
+    case 'matching': {
+      const left = (block as AssignmentBlock & { leftItems?: string[] }).leftItems ?? [];
+      const ans = Array.isArray(answer) ? answer : [];
+      return '<ul>' + left.map((l, j) => `<li>${esc(l)} → <b>${esc(ans[j] ?? '—')}</b></li>`).join('') + '</ul>';
+    }
+    case 'fill-blank': {
+      const parts = q.split('___');
+      const ans = Array.isArray(answer) ? answer : [];
+      return parts.map((p, j) => esc(p) + (j < parts.length - 1 ? `<u>&nbsp;${esc(ans[j] ?? '—')}&nbsp;</u>` : '')).join('');
+    }
+    case 'ordering':
+      return '<ol>' + (Array.isArray(answer) ? answer : []).map((a) => `<li>${esc(a)}</li>`).join('') + '</ol>';
+    case 'link':
+      return typeof answer === 'string' ? `<a href="${esc(answer)}">${esc(answer)}</a>` : '';
+    default:
+      return Array.isArray(answer) ? answer.map(esc).join(', ') : `<span class="pre">${esc(answer)}</span>`;
+  }
+}
+
+/**
+ * Build a printable HTML report and open it in a new window for "Save as PDF".
+ * Using the browser's print renders Thai perfectly with no font embedding.
+ * Each student: name · รหัส (email local-part) · email, then every question with
+ * the student's answer and the teacher's per-question comment beside it.
+ */
+function exportPDF(assignment: Assignment | null, submissions: Submission[], classLabel: string, sig: { img: string | null; name: string }) {
+  if (!assignment) return;
+  const sigBlock = `<div class="sign">
+      ${sig.img ? `<img class="sigimg" src="${esc(sig.img)}" alt="ลายเซ็น" />` : '<div class="sigspace"></div>'}
+      <div class="sigln">ลงชื่อ ....................................................... ผู้ตรวจ</div>
+      <div class="signm">( ${esc(sig.name || '.........................................')} )</div>
+      <div class="sigrole">ครูผู้สอน</div>
+    </div>`;
+  const qBlocks = (assignment.blocks ?? []).filter((b) =>
+    ['short-answer', 'long-answer', 'multiple-choice', 'checkbox', 'ordering', 'image-upload', 'true-false', 'matching', 'fill-blank', 'link'].includes(b.type)
+  );
+
+  const students = submissions.map((s) => {
+    const code = (s.studentEmail ?? '').split('@')[0];
+    const rows = qBlocks.map((b, i) => {
+      const comment = s.questionComments?.[b.id] ?? '';
+      return `<tr>
+        <td class="q">
+          <div class="qtext">${i + 1}. ${esc(b.question ?? '')}</div>
+          <div class="ans">${answerHtml(b, s.answers?.[b.id])}</div>
+        </td>
+        <td class="cm">${comment ? `<span class="cmt">💬 ${esc(comment)}</span>` : '<span class="muted">—</span>'}</td>
+      </tr>`;
+    }).join('');
+    const scoreLine = typeof s.score === 'number' ? ` · คะแนน: <b>${s.score}/100</b>` : '';
+    return `<section class="stu">
+      <div class="hd">
+        <div class="nm">${esc(s.studentName || '—')}</div>
+        <div class="meta">รหัสประจำตัว: <b>${esc(code || '—')}</b> · อีเมล: ${esc(s.studentEmail || '—')} · ห้อง: ${esc(s.classId)}${scoreLine}</div>
+      </div>
+      ${qBlocks.length ? `<table><thead><tr><th class="q">ข้อคำถาม / คำตอบนักเรียน</th><th class="cm">ความเห็นครู</th></tr></thead><tbody>${rows}</tbody></table>`
+        : `<p class="muted">${s.content ? esc(s.content) : 'ไม่มีคำตอบแบบข้อ'}</p>`}
+      ${s.feedback ? `<p class="fb"><b>Feedback รวม:</b> ${esc(s.feedback)}</p>` : ''}
+      ${sigBlock}
+    </section>`;
+  }).join('');
+
+  const html = `<!doctype html><html lang="th"><head><meta charset="utf-8" />
+    <title>${esc(assignment.title)} — ${esc(classLabel)}</title>
+    <style>
+      *{box-sizing:border-box} body{font-family:'Sarabun','TH Sarabun New',system-ui,'Segoe UI',sans-serif;color:#111;margin:24px;font-size:14px;line-height:1.5}
+      h1{font-size:18px;margin:0 0 4px} .sub{color:#555;margin:0 0 16px;font-size:13px}
+      .stu{page-break-inside:avoid;border:1px solid #ddd;border-radius:8px;padding:14px;margin-bottom:16px}
+      .stu + .stu{page-break-before:always}
+      .hd{border-bottom:2px solid #333;padding-bottom:6px;margin-bottom:10px}
+      .nm{font-size:16px;font-weight:700} .meta{font-size:12px;color:#444;margin-top:2px}
+      table{width:100%;border-collapse:collapse;margin-top:6px} th,td{border:1px solid #ccc;padding:8px;vertical-align:top;text-align:left}
+      th{background:#f3f4f6;font-size:12px} td.q{width:65%} td.cm,th.cm{width:35%}
+      .qtext{font-weight:600;margin-bottom:4px} .ans{color:#1d4ed8;white-space:pre-wrap}
+      .ans img{max-width:100%;max-height:220px;border:1px solid #ccc;border-radius:6px} .pre{white-space:pre-wrap}
+      .cmt{color:#b45309} .muted{color:#999} .fb{margin-top:8px;font-size:13px}
+      ul,ol{margin:2px 0;padding-left:18px} u{text-decoration:underline;color:#1d4ed8}
+      .sign{margin-top:32px;max-width:340px} .sign .sigimg{max-height:64px;max-width:240px;display:block;margin-bottom:2px}
+      .sign .sigspace{height:48px} .sigln{margin-bottom:2px} .signm{margin-left:40px} .sigrole{margin-left:60px;color:#444}
+      @media print{body{margin:10mm} .stu{border:none;border-radius:0;padding:0}}
+    </style></head><body>
+    <h1>${esc(assignment.title)}</h1>
+    <p class="sub">${esc(classLabel)} · ${submissions.length} คน · ออกเมื่อ ${new Date().toLocaleString('th-TH')}</p>
+    ${students || '<p class="muted">ไม่มีงานที่จะออก</p>'}
+    <script>window.onload=function(){setTimeout(function(){window.print();},500);};<\/script>
+  </body></html>`;
+
+  const win = window.open('', '_blank');
+  if (!win) { alert('เบราว์เซอร์บล็อกหน้าต่างใหม่ — อนุญาต popup แล้วลองใหม่'); return; }
+  win.document.open();
+  win.document.write(html);
+  win.document.close();
+}
+
 export default function SubmissionsPage({ params }: { params: Promise<{ id: string }> }) {
   const { id } = use(params);
   const { profile, loading } = useAuth();
@@ -116,6 +232,38 @@ export default function SubmissionsPage({ params }: { params: Promise<{ id: stri
   const [deleting, setDeleting] = useState<string | null>(null);
   const [classFilter, setClassFilter] = useState<string | null>(null);
   const [viewAll, setViewAll] = useState(false);
+
+  // PDF export dialog (signature shows only in the exported report)
+  const [pdfModal, setPdfModal] = useState(false);
+  const [sigImg, setSigImg] = useState<string | null>(null);
+  const [signer, setSigner] = useState('');
+
+  useEffect(() => {
+    try {
+      setSigImg(localStorage.getItem('lms_report_sig'));
+      setSigner(localStorage.getItem('lms_report_signer') ?? profile?.displayName ?? '');
+    } catch { /* ignore */ }
+  }, [profile]);
+
+  function handleSigUpload(file: File) {
+    if (!file.type.startsWith('image/')) return;
+    const reader = new FileReader();
+    reader.onload = () => {
+      const url = String(reader.result);
+      setSigImg(url);
+      try { localStorage.setItem('lms_report_sig', url); } catch { /* quota */ }
+    };
+    reader.readAsDataURL(file);
+  }
+  function clearSig() {
+    setSigImg(null);
+    try { localStorage.removeItem('lms_report_sig'); } catch { /* ignore */ }
+  }
+  function runExportPDF() {
+    try { localStorage.setItem('lms_report_signer', signer); } catch { /* ignore */ }
+    exportPDF(assignment, visible, classFilter ? `ห้อง ${classFilter}` : 'ทุกห้อง', { img: sigImg, name: signer });
+    setPdfModal(false);
+  }
 
   // Review-all mode: centralised score/feedback drafts so "save all" can grade
   // everyone at once.
@@ -439,6 +587,55 @@ export default function SubmissionsPage({ params }: { params: Promise<{ id: stri
 
   return (
     <div className="min-h-screen bg-slate-950">
+      {/* PDF export dialog — signature only appears in the exported report */}
+      {pdfModal && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4" onClick={() => setPdfModal(false)}>
+          <div className="w-full max-w-md rounded-2xl border border-slate-700 bg-slate-900 p-5" onClick={(e) => e.stopPropagation()}>
+            <h2 className="text-base font-semibold text-slate-100">📄 ออกรายงาน PDF</h2>
+            <p className="mt-1 text-xs text-slate-500">
+              {classFilter ? `เฉพาะห้อง ${classFilter}` : 'ทุกห้อง'} · {visible.length} คน — จะเปิดหน้าต่างพิมพ์ให้เลือก “บันทึกเป็น PDF”
+            </p>
+
+            <div className="mt-4 space-y-3">
+              <div>
+                <label className="mb-1 block text-xs text-slate-400">ชื่อผู้ลงนาม (ครูผู้สอน)</label>
+                <input
+                  value={signer}
+                  onChange={(e) => setSigner(e.target.value)}
+                  placeholder="ชื่อ-สกุล"
+                  className="w-full rounded-lg border border-slate-700 bg-slate-800 px-3 py-2 text-sm text-slate-100"
+                />
+              </div>
+              <div>
+                <label className="mb-1 block text-xs text-slate-400">ลายเซ็น (อัปโหลดรูป — ไม่บังคับ)</label>
+                <div className="flex items-center gap-3">
+                  {sigImg ? (
+                    // eslint-disable-next-line @next/next/no-img-element
+                    <img src={sigImg} alt="ลายเซ็น" className="h-14 rounded border border-slate-700 bg-white object-contain px-1" />
+                  ) : (
+                    <span className="text-xs text-slate-600">ยังไม่มีลายเซ็น</span>
+                  )}
+                  <label className="cursor-pointer rounded-lg border border-slate-700 px-3 py-1.5 text-xs text-slate-300 hover:border-slate-500">
+                    {sigImg ? 'เปลี่ยนรูป' : 'อัปโหลดรูป'}
+                    <input type="file" accept="image/*" className="hidden"
+                      onChange={(e) => { const f = e.target.files?.[0]; e.target.value = ''; if (f) handleSigUpload(f); }} />
+                  </label>
+                  {sigImg && (
+                    <button onClick={clearSig} className="text-xs text-red-400 hover:text-red-300">ลบ</button>
+                  )}
+                </div>
+                <p className="mt-1 text-[10px] text-slate-600">ลายเซ็นจะปรากฏที่มุมซ้ายล่างของแต่ละหน้า เฉพาะในไฟล์ PDF เท่านั้น</p>
+              </div>
+            </div>
+
+            <div className="mt-5 flex justify-end gap-2">
+              <button onClick={() => setPdfModal(false)} className="rounded-lg border border-slate-700 px-4 py-2 text-sm text-slate-300 hover:border-slate-500">ยกเลิก</button>
+              <button onClick={runExportPDF} className="rounded-lg bg-rose-600 px-4 py-2 text-sm font-semibold text-white hover:bg-rose-500">ออก PDF</button>
+            </div>
+          </div>
+        </div>
+      )}
+
       <header className="border-b border-slate-800 bg-slate-900 px-6 py-4">
         <div className="mx-auto flex max-w-6xl items-center gap-4 flex-wrap">
           <Link href="/teacher" className="text-sm text-slate-400 hover:text-slate-200">← ย้อนกลับ</Link>
@@ -511,6 +708,14 @@ export default function SubmissionsPage({ params }: { params: Promise<{ id: stri
               }`}
             >
               {viewAll ? '📋 ตรวจทีละคน' : '📑 ดูงานทั้งหมด'}
+            </button>
+            <button
+              onClick={() => setPdfModal(true)}
+              disabled={visible.length === 0}
+              className="rounded-lg border border-rose-700 bg-rose-950/40 px-3 py-1.5 text-xs text-rose-300 transition-all hover:border-rose-500 disabled:opacity-40"
+              title="ออกเป็น PDF (พิมพ์/บันทึกเป็น PDF) — ตามห้องที่เลือก"
+            >
+              📄 Export PDF
             </button>
             <button
               onClick={() => exportCSV(assignment, submissions)}
