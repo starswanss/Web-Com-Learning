@@ -261,6 +261,57 @@ Rules:
   }));
 }
 
+export interface DetailedQuestion { id: string; question: string; answer: string; scoreMax?: number; scoreKind?: 'K' | 'P' }
+export interface DetailedResult { id: string; comment: string; score?: number }
+
+/**
+ * Grade a single submission question-by-question: a short Thai comment for every
+ * question, plus a 0..scoreMax score for the questions that carry one (K/P).
+ */
+export async function gradeDetailed(
+  assignmentTitle: string,
+  assignmentDescription: string,
+  questions: DetailedQuestion[],
+  rubric?: string,
+): Promise<DetailedResult[]> {
+  if (questions.length === 0) return [];
+  const rubricBlock = rubric ? `\n\nเกณฑ์การให้คะแนนจากครู:\n${rubric}` : '';
+  const qText = questions.map((q, i) => {
+    const scoreInfo = q.scoreMax
+      ? ` — ให้คะแนน 0 ถึง ${q.scoreMax}${q.scoreKind ? ` (ประเภท ${q.scoreKind})` : ''}`
+      : ' — ไม่ต้องให้คะแนน (score = null)';
+    return `[ข้อ ${i + 1}]${scoreInfo}\nคำถาม: ${q.question}\nคำตอบนักเรียน: ${capText(q.answer, 800)}`;
+  }).join('\n\n');
+
+  const prompt = `คุณเป็นผู้ช่วยครูวิชาวิทยาการคำนวณ ม.3 ตรวจคำตอบของนักเรียน "รายข้อ"
+งาน: ${assignmentTitle}
+คำชี้แจง: ${assignmentDescription}${rubricBlock}
+
+${qText}
+
+ตอบกลับเป็น JSON array เท่านั้น (ห้ามมีข้อความอื่น) จำนวน ${questions.length} รายการ เรียงตามลำดับข้อ:
+[{"comment":"ความเห็นสั้นๆ ภาษาไทย 1-2 ประโยค สุภาพ สร้างสรรค์","score": คะแนนเป็นตัวเลข 0 ถึงคะแนนเต็มของข้อนั้น ถ้าข้อนั้นไม่ต้องให้คะแนนให้ใส่ null}, ...]
+กติกา: ให้คะแนนตามความถูกต้อง/คุณภาพของคำตอบ · ถ้าไม่ได้ตอบหรือตอบผิดให้คะแนนต่ำ · comment ต้องอ้างถึงคำตอบจริง`;
+
+  const model = await getModelId();
+  const completion = await withRetry(() =>
+    getGroq().chat.completions.create({ model, messages: [{ role: 'user', content: prompt }], temperature: 0.3 })
+  );
+  const text = completion.choices[0].message.content?.trim() ?? '';
+
+  let parsed: Array<{ comment?: string; score?: number | null }>;
+  try { parsed = parseJson(text, true); } catch { throw new Error('detailed parse failed'); }
+
+  return questions.map((q, i) => {
+    const p = parsed[i] ?? {};
+    let score: number | undefined;
+    if (q.scoreMax && typeof p.score === 'number' && isFinite(p.score)) {
+      score = Math.max(0, Math.min(q.scoreMax, Math.round(p.score)));
+    }
+    return { id: q.id, comment: String(p.comment ?? '').slice(0, 500), score };
+  });
+}
+
 /** Convert block-based answers to readable text for AI grading */
 export function answersToText(
   blocks: Array<{ id: string; type: string; question?: string; [key: string]: unknown }>,

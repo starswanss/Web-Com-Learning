@@ -328,6 +328,7 @@ export default function SubmissionsPage({ params }: { params: Promise<{ id: stri
   const [saving, setSaving] = useState(false);
   const [saveError, setSaveError] = useState<string | null>(null);
   const [quickGrading, setQuickGrading] = useState(false);
+  const [detailedGrading, setDetailedGrading] = useState(false);
   const [batchGrading, setBatchGrading] = useState(false);
   const [autoGrading, setAutoGrading] = useState(false);
   const [approving, setApproving] = useState(false);
@@ -589,6 +590,33 @@ export default function SubmissionsPage({ params }: { params: Promise<{ id: stri
       setFeedback(data.feedback);
     } catch { setSaveError('ตรวจ AI ไม่สำเร็จ: ไม่สามารถเชื่อมต่อได้'); }
     finally { setQuickGrading(false); }
+  }
+
+  // AI ตรวจรายข้อ: เติมคอมเมนต์รายข้อ + คะแนน KPA ลงในฟอร์ม (ครูปรับแก้แล้วกด "บันทึกคะแนน")
+  async function handleDetailedGrade() {
+    if (!selected) return;
+    setDetailedGrading(true); setSaveError(null);
+    try {
+      const res = await fetch(`/api/teacher/ai-grade-detailed/${selected.id}`, { method: 'POST' });
+      const data = await res.json();
+      if (!res.ok) {
+        if (res.status === 400) { setSaveError('ไม่มีข้อคำถามที่จะตรวจ'); return; }
+        if (res.status === 429) { setSaveError(`โควต้า AI เต็มชั่วคราว: ${data.detail ?? 'กรุณาลองใหม่ใน 1 นาที'}`); return; }
+        setSaveError(`ตรวจละเอียด AI ไม่สำเร็จ: ${data.detail ?? data.error ?? 'กรุณาลองใหม่'}`);
+        return;
+      }
+      // Fill the grade form; teacher reviews then "บันทึกคะแนน".
+      const qc = (data.questionComments ?? {}) as Record<string, string>;
+      const qsNum = (data.questionScores ?? {}) as Record<string, number>;
+      setQComments((prev) => ({ ...prev, ...qc }));
+      setQScores((prev) => ({ ...prev, ...Object.fromEntries(Object.entries(qsNum).map(([k, v]) => [k, String(v)])) }));
+      const updated: Submission = { ...selected, questionComments: { ...(selected.questionComments ?? {}), ...qc }, questionScores: { ...(selected.questionScores ?? {}), ...qsNum } };
+      setSubmissions((prev) => prev.map((s) => (s.id === selected.id ? updated : s)));
+      setSelected(updated);
+      setSaveError(null);
+      setBatchResult('🤖 AI เติมคอมเมนต์รายข้อ + คะแนน KPA แล้ว — ตรวจ/แก้ไข แล้วกด “บันทึกคะแนน”');
+    } catch { setSaveError('ตรวจละเอียด AI ไม่สำเร็จ: ไม่สามารถเชื่อมต่อได้'); }
+    finally { setDetailedGrading(false); }
   }
 
   async function handleApproveAll() {
@@ -1075,6 +1103,14 @@ export default function SubmissionsPage({ params }: { params: Promise<{ id: stri
                           className="rounded-lg border border-blue-700 bg-blue-950/40 px-3 py-1.5 text-xs text-blue-300 transition-all hover:border-blue-500 disabled:opacity-40"
                         >
                           {quickGrading ? '…' : 'ตรวจเร็ว AI'}
+                        </button>
+                        <button
+                          onClick={handleDetailedGrade}
+                          disabled={detailedGrading}
+                          title="AI ให้คอมเมนต์รายข้อ + คะแนน KPA รายข้อ (ปรับแก้ได้ก่อนบันทึก)"
+                          className="rounded-lg border border-fuchsia-700 bg-fuchsia-950/40 px-3 py-1.5 text-xs text-fuchsia-300 transition-all hover:border-fuchsia-500 disabled:opacity-40"
+                        >
+                          {detailedGrading ? '…' : '🤖 ตรวจละเอียด AI (คอมเมนต์+KPA)'}
                         </button>
                       </div>
                     </div>
