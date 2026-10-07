@@ -249,16 +249,18 @@ async function exportPDF(assignment: Assignment | null, submissions: Submission[
         }
       }
     }).join('');
-    const scoreLine = typeof s.score === 'number' ? ` · คะแนน: <b>${s.score}/100</b>` : '';
     return `<section class="stu">
       <div class="hd">
         <div class="nm">${esc(s.studentName || '—')}</div>
-        <div class="meta">รหัสประจำตัว: <b>${esc(code || '—')}</b> · อีเมล: ${esc(s.studentEmail || '—')} · ห้อง: ${esc(s.classId)}${scoreLine}</div>
+        <div class="meta">รหัสประจำตัว: <b>${esc(code || '—')}</b> · อีเมล: ${esc(s.studentEmail || '—')} · ห้อง: ${esc(s.classId)}</div>
       </div>
       ${kpaTable}
       ${(assignment.blocks ?? []).length ? bodyHtml : `<p class="muted">${s.content ? esc(s.content) : 'ไม่มีคำตอบแบบข้อ'}</p>`}
       ${s.feedback ? `<p class="fb"><b>Feedback รวม:</b> ${esc(s.feedback)}</p>` : ''}
-      ${sigBlock}
+      <div class="foot">
+        <div class="credit">ใบงานจากระบบ e-Learning : web-com-learning.vercel.app<br/>พัฒนาโดยนายวชิรวิทย์ วงษ์รักษา</div>
+        ${sigBlock}
+      </div>
     </section>`;
   }).join('');
 
@@ -290,8 +292,10 @@ async function exportPDF(assignment: Assignment | null, submissions: Submission[
       table.kpa{width:auto;margin:4px 0 8px} table.kpa th,table.kpa td{text-align:center;padding:3px 7px;min-width:34px}
       table.kpa th{background:#eef2ff} table.kpa .lbl{background:#f3f4f6;font-weight:700} table.kpa .sm{font-size:9px;color:#666;font-weight:400}
       ul,ol{margin:1px 0;padding-left:16px} u{text-decoration:underline;color:#1d4ed8}
-      /* signature pinned to the bottom-right of the student's page */
-      .sign{margin-top:auto;align-self:flex-end;padding-top:14px;max-width:300px;text-align:center;page-break-inside:avoid}
+      /* bottom row: credit (left) + signature (right), pinned to the page bottom */
+      .foot{margin-top:auto;display:flex;justify-content:space-between;align-items:flex-end;gap:12px;padding-top:14px;page-break-inside:avoid}
+      .credit{font-size:9px;color:#888;line-height:1.3;max-width:55%}
+      .sign{max-width:300px;text-align:center}
       .sign .sigimg{max-height:52px;max-width:200px;display:block;margin:0 auto} .sign .sigspace{height:30px}
       .sigln{margin-bottom:1px;font-size:12px} .sigrole{color:#444}
       /* margin:0 on the page removes the browser's own header/footer (date, title, url, page no.) */
