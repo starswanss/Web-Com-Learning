@@ -250,13 +250,16 @@ async function exportPDF(assignment: Assignment | null, submissions: Submission[
       }
     }).join('');
     return `<section class="stu">
-      <div class="hd">
-        <div class="nm">${esc(s.studentName || '—')}</div>
-        <div class="meta">รหัสประจำตัว: <b>${esc(code || '—')}</b> · อีเมล: ${esc(s.studentEmail || '—')} · ห้อง: ${esc(s.classId)}</div>
-      </div>
-      ${kpaTable}
-      ${(assignment.blocks ?? []).length ? bodyHtml : `<p class="muted">${s.content ? esc(s.content) : 'ไม่มีคำตอบแบบข้อ'}</p>`}
-      ${s.feedback ? `<p class="fb"><b>Feedback รวม:</b> ${esc(s.feedback)}</p>` : ''}
+      <div class="content"><div class="scaleable">
+        <div class="doctitle">${esc(assignment.title)} — ${esc(classLabel)}</div>
+        <div class="hd">
+          <div class="nm">${esc(s.studentName || '—')}</div>
+          <div class="meta">รหัสประจำตัว: <b>${esc(code || '—')}</b> · อีเมล: ${esc(s.studentEmail || '—')} · ห้อง: ${esc(s.classId)}</div>
+        </div>
+        ${kpaTable}
+        ${(assignment.blocks ?? []).length ? bodyHtml : `<p class="muted">${s.content ? esc(s.content) : 'ไม่มีคำตอบแบบข้อ'}</p>`}
+        ${s.feedback ? `<p class="fb"><b>Feedback รวม:</b> ${esc(s.feedback)}</p>` : ''}
+      </div></div>
       <div class="foot">
         <div class="credit">ใบงานจากระบบ e-Learning : web-com-learning.vercel.app<br/>พัฒนาโดยนายวชิรวิทย์ วงษ์รักษา</div>
         ${sigBlock}
@@ -270,11 +273,14 @@ async function exportPDF(assignment: Assignment | null, submissions: Submission[
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
     <link href="https://fonts.googleapis.com/css2?family=Sarabun:wght@400;500;600;700&display=swap" rel="stylesheet" />
     <style>
-      *{box-sizing:border-box} body{font-family:'Sarabun','TH Sarabun New',system-ui,'Segoe UI',sans-serif;color:#111;margin:14px;font-size:13px;line-height:1.4}
-      h1{font-size:16px;margin:0 0 2px} .sub{color:#555;margin:0 0 8px;font-size:11px}
-      /* each student starts on a new page but flows across pages if long (no forced empty page) */
-      .stu{border:1px solid #ddd;border-radius:6px;padding:10px;margin-bottom:10px;display:flex;flex-direction:column;min-height:0}
+      @page{size:A4;margin:0}
+      *{box-sizing:border-box} body{font-family:'Sarabun','TH Sarabun New',system-ui,'Segoe UI',sans-serif;color:#111;margin:0;font-size:13px;line-height:1.4}
+      /* one A4 page per student; content auto-shrinks to fit (never 2 pages) */
+      .stu{width:210mm;height:297mm;padding:9mm;display:flex;flex-direction:column;overflow:hidden}
       .stu + .stu{page-break-before:always}
+      .content{flex:1 1 auto;min-height:0;overflow:hidden}
+      .scaleable{transform-origin:top left} /* JS scales this down if it overflows */
+      .doctitle{font-size:13px;font-weight:700;margin-bottom:4px;color:#334}
       .hd{border-bottom:2px solid #333;padding-bottom:4px;margin-bottom:6px}
       .nm{font-size:14px;font-weight:700} .meta{font-size:11px;color:#444;margin-top:1px}
       table{width:100%;border-collapse:collapse;margin-top:3px} th,td{border:1px solid #ccc;padding:4px 6px;vertical-align:top;text-align:left}
@@ -292,19 +298,32 @@ async function exportPDF(assignment: Assignment | null, submissions: Submission[
       table.kpa{width:auto;margin:4px 0 8px} table.kpa th,table.kpa td{text-align:center;padding:3px 7px;min-width:34px}
       table.kpa th{background:#eef2ff} table.kpa .lbl{background:#f3f4f6;font-weight:700} table.kpa .sm{font-size:9px;color:#666;font-weight:400}
       ul,ol{margin:1px 0;padding-left:16px} u{text-decoration:underline;color:#1d4ed8}
-      /* bottom row: credit (left) + signature (right), pinned to the page bottom */
-      .foot{margin-top:auto;display:flex;justify-content:space-between;align-items:flex-end;gap:12px;padding-top:14px;page-break-inside:avoid}
+      /* bottom row (fixed, outside the scaled area): credit left + signature right */
+      .foot{flex:0 0 auto;display:flex;justify-content:space-between;align-items:flex-end;gap:12px;padding-top:8px}
       .credit{font-size:9px;color:#888;line-height:1.3;max-width:55%}
       .sign{max-width:300px;text-align:center}
       .sign .sigimg{max-height:52px;max-width:200px;display:block;margin:0 auto} .sign .sigspace{height:30px}
       .sigln{margin-bottom:1px;font-size:12px} .sigrole{color:#444}
-      /* margin:0 on the page removes the browser's own header/footer (date, title, url, page no.) */
-      @media print{@page{margin:0} body{margin:0;padding:11mm} .stu{border:none;border-radius:0;padding:0;min-height:calc(100vh - 34mm)}}
     </style></head><body>
-    <h1>${esc(assignment.title)}</h1>
-    <p class="sub">${esc(classLabel)} · ${submissions.length} คน</p>
-    ${students || '<p class="muted">ไม่มีงานที่จะออก</p>'}
-    <script>window.onload=function(){var f=(document.fonts&&document.fonts.ready)?document.fonts.ready:Promise.resolve();f.then(function(){setTimeout(function(){window.print();},400);});};<\/script>
+    ${students || '<p class="muted" style="padding:20px">ไม่มีงานที่จะออก</p>'}
+    <script>
+      function fitAll(){
+        document.querySelectorAll('.content').forEach(function(c){
+          var sc = c.querySelector('.scaleable'); if(!sc) return;
+          sc.style.transform=''; sc.style.width='';
+          var avail = c.clientHeight, h = sc.scrollHeight;
+          if(h > avail && avail > 0){
+            var s = avail / h;
+            sc.style.transform = 'scale(' + s + ')';
+            sc.style.width = (100 / s) + '%';
+          }
+        });
+      }
+      window.onload=function(){
+        var f=(document.fonts&&document.fonts.ready)?document.fonts.ready:Promise.resolve();
+        f.then(function(){ fitAll(); setTimeout(function(){ fitAll(); window.print(); }, 250); });
+      };
+    <\/script>
   </body></html>`;
 
   win.document.open();
