@@ -303,7 +303,7 @@ async function exportPDF(assignment: Assignment | null, submissions: Submission[
       .foot{flex:0 0 auto;display:flex;justify-content:space-between;align-items:flex-end;gap:12px;padding-top:8px}
       .credit{font-size:9px;color:#888;line-height:1.3;max-width:55%}
       .sign{width:300px;max-width:300px;text-align:center}
-      .sign .sigimg{width:100%;max-width:260px;height:88px;object-fit:contain;display:block;margin:0 auto -4px} .sign .sigspace{height:40px}
+      .sign .sigimg{width:100%;max-width:260px;height:88px;object-fit:contain;object-position:bottom;display:block;margin:0 auto -18px} .sign .sigspace{height:40px}
       .sigln{margin-bottom:1px;font-size:12px} .sigrole{color:#444}
     </style></head><body>
     ${students || '<p class="muted" style="padding:20px">ไม่มีงานที่จะออก</p>'}
