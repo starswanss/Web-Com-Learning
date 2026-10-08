@@ -302,8 +302,8 @@ async function exportPDF(assignment: Assignment | null, submissions: Submission[
       /* bottom row (fixed, outside the scaled area): credit left + signature right */
       .foot{flex:0 0 auto;display:flex;justify-content:space-between;align-items:flex-end;gap:12px;padding-top:8px}
       .credit{font-size:9px;color:#888;line-height:1.3;max-width:55%}
-      .sign{max-width:300px;text-align:center}
-      .sign .sigimg{max-height:52px;max-width:200px;display:block;margin:0 auto} .sign .sigspace{height:30px}
+      .sign{width:300px;max-width:300px;text-align:center}
+      .sign .sigimg{width:100%;max-width:260px;height:88px;object-fit:contain;display:block;margin:0 auto -4px} .sign .sigspace{height:40px}
       .sigln{margin-bottom:1px;font-size:12px} .sigrole{color:#444}
     </style></head><body>
     ${students || '<p class="muted" style="padding:20px">ไม่มีงานที่จะออก</p>'}
