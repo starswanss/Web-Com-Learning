@@ -115,3 +115,58 @@ export async function POST(req: NextRequest) {
 
   return NextResponse.json({ id: docRef.id, score: null, feedback: null, graded: false, xpGain }, { status: 201 });
 }
+
+// ── PATCH: student edits / resubmits their own work (while not yet reviewed) ───────
+export async function PATCH(req: NextRequest) {
+  const student = await getStudent();
+  if (!student) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+
+  if (!rateLimit(`edit:${student.uid}`, 15, 60_000)) {
+    return NextResponse.json({ error: 'แก้ไขบ่อยเกินไป กรุณารอสักครู่' }, { status: 429 });
+  }
+
+  const formData = await req.formData();
+  const assignmentId = formData.get('assignmentId') as string;
+  const content = (formData.get('content') as string) ?? '';
+  const answersRaw = formData.get('answers') as string | null;
+  const answers = answersRaw ? (JSON.parse(answersRaw) as Record<string, string | string[]>) : null;
+  const preUploadedFileUrl = (formData.get('fileUrl') as string | null) ?? null;
+  const tabSwitchRaw = formData.get('tabSwitchCount') as string | null;
+  const burstRaw = formData.get('burstInsertCount') as string | null;
+
+  if (!assignmentId) return NextResponse.json({ error: 'Missing assignmentId' }, { status: 400 });
+
+  const existing = await adminDb
+    .collection('submissions')
+    .where('assignmentId', '==', assignmentId)
+    .where('studentId', '==', student.uid)
+    .limit(1)
+    .get();
+  if (existing.empty) return NextResponse.json({ error: 'ยังไม่ได้ส่งงานนี้' }, { status: 404 });
+
+  const doc = existing.docs[0];
+  if (doc.data().status === 'reviewed') {
+    return NextResponse.json({ error: 'งานนี้ครูตรวจแล้ว แก้ไขไม่ได้' }, { status: 403 });
+  }
+
+  // Replace the answers/content and reset grading (teacher re-grades). XP stays.
+  const update: Record<string, unknown> = {
+    content: content || null,
+    answers: answers ?? null,
+    status: 'submitted',
+    score: null,
+    feedback: null,
+    plagiarismSuspicion: 0,
+    gradedAt: null,
+    reviewedAt: null,
+    submittedAt: FieldValue.serverTimestamp(),
+  };
+  if (preUploadedFileUrl) update.driveWebViewLink = preUploadedFileUrl;
+  if (tabSwitchRaw) update.tabSwitchCount = parseInt(tabSwitchRaw, 10) || 0;
+  if (burstRaw) update.burstInsertCount = parseInt(burstRaw, 10) || 0;
+
+  await doc.ref.update(update);
+  invalidateLeaderboards();
+
+  return NextResponse.json({ id: doc.id, ok: true });
+}

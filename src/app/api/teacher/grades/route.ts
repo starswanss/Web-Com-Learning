@@ -26,10 +26,17 @@ function cleanIds(v: unknown): string[] {
   return v.filter((x): x is string => typeof x === 'string' && !!x).slice(0, 200);
 }
 
-/** Average the student's reviewed scores over the given assignments → 0..1. */
+/**
+ * Percentage over the given assignments → 0..1. Divides by the NUMBER OF
+ * ASSIGNMENTS (not only the ones submitted), so a missing/ungraded assignment
+ * counts as 0 — a student who did fewer gets a lower average. `ids` should be
+ * pre-filtered to the assignments that apply to the student's class.
+ */
 function pctFromAssignments(ids: string[], scored: Map<string, number>): number {
-  const vals = ids.map((id) => scored.get(id)).filter((v): v is number => typeof v === 'number');
-  return vals.length > 0 ? vals.reduce((a, b) => a + b, 0) / vals.length / 100 : 0;
+  if (ids.length === 0) return 0;
+  let sum = 0;
+  for (const id of ids) sum += scored.get(id) ?? 0; // missing / ungraded = 0
+  return sum / (ids.length * 100);
 }
 const DEFAULT_EXAM: Exam = { midterm: 20, final: 20 };
 
@@ -140,19 +147,24 @@ export async function GET(req: NextRequest) {
   const unitMatched: Record<string, number> = {};
   for (const u of units) unitMatched[u.id] = unitAssignmentIds(u).length;
 
+  // Which assignments apply to each student's class (missing ones count as 0).
+  const assignmentClasses = new Map(assignments.map((a) => [a.id, (a.classIds as string[]) ?? []]));
+
   // Build rows with per-unit / exam percentages (0..1) used by "เกลี่ยอัตโนมัติ".
   const rows = students.map((s) => {
     const scored = subIndex.get(s.uid) ?? new Map<string, number>();
-    const allScores = Array.from(scored.values());
-    const overallPct = allScores.length > 0
-      ? allScores.reduce((a, b) => a + b, 0) / allScores.length / 100
-      : 0;
+    // Assignments assigned to this student's class — the denominator base.
+    const applicable = assignments
+      .filter((a) => (assignmentClasses.get(a.id) ?? []).includes(s.classId))
+      .map((a) => a.id);
+    const appSet = new Set(applicable);
+    const overallPct = pctFromAssignments(applicable, scored);
 
     const unitPct: Record<string, number> = {};
     for (const u of units) {
-      const ids = unitAssignmentIds(u);
-      // No assignments bound at all → fall back to the student's overall average.
-      unitPct[u.id] = ids.length === 0 ? overallPct : pctFromAssignments(ids, scored);
+      const bound = unitAssignmentIds(u).filter((id) => appSet.has(id));
+      // No assignments bound to this unit → fall back to the overall average.
+      unitPct[u.id] = unitAssignmentIds(u).length === 0 ? overallPct : pctFromAssignments(bound, scored);
     }
 
     return {
@@ -162,8 +174,8 @@ export async function GET(req: NextRequest) {
       email: s.email,
       classId: s.classId,
       unitPct,
-      midtermPct: pctFromAssignments(midtermAssignments, scored),
-      finalPct: pctFromAssignments(finalAssignments, scored),
+      midtermPct: pctFromAssignments(midtermAssignments.filter((id) => appSet.has(id)), scored),
+      finalPct: pctFromAssignments(finalAssignments.filter((id) => appSet.has(id)), scored),
       saved: savedScores[s.uid] ?? {},
       savedExam: savedExams[s.uid] ?? { midterm: 0, final: 0 },
     };

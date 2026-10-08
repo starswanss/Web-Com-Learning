@@ -83,6 +83,7 @@ export default function SubmissionPage({ params }: { params: Promise<{ id: strin
   const [content, setContent] = useState('');
   const [attachedImageUrl, setAttachedImageUrl] = useState<string | null>(null);
   const [submitting, setSubmitting] = useState(false);
+  const [editing, setEditing] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [result, setResult] = useState<{ score: number; feedback: string } | null>(null);
   const [pasteBlocked, setPasteBlocked] = useState(false);
@@ -323,15 +324,16 @@ export default function SubmissionPage({ params }: { params: Promise<{ id: strin
       }
       if (attachedImageUrl) fd.append('fileUrl', attachedImageUrl);
 
-      const res = await fetch('/api/submissions', { method: 'POST', body: fd });
-      if (res.status === 409) return setError('คุณส่งงานนี้ไปแล้ว');
+      const res = await fetch('/api/submissions', { method: editing ? 'PATCH' : 'POST', body: fd });
+      if (!editing && res.status === 409) return setError('คุณส่งงานนี้ไปแล้ว');
+      if (editing && res.status === 403) return setError('งานนี้ครูตรวจแล้ว แก้ไขไม่ได้');
       if (!res.ok) throw new Error();
 
       const data = await res.json();
-      if (data.graded && typeof data.score === 'number') {
+      if (!editing && data.graded && typeof data.score === 'number') {
         setResult({ score: data.score, feedback: data.feedback });
       }
-      if (typeof data.xpGain === 'number' && data.xpGain > 0) {
+      if (!editing && typeof data.xpGain === 'number' && data.xpGain > 0) {
         setXpGain(data.xpGain);
         setTimeout(() => setXpGain(null), 4000);
       }
@@ -347,15 +349,28 @@ export default function SubmissionPage({ params }: { params: Promise<{ id: strin
         id: data.id,
         content,
         answers,
-        score: data.graded ? data.score : undefined,
-        feedback: data.graded ? data.feedback : undefined,
-        status: data.graded ? 'graded' : 'submitted',
+        driveWebViewLink: attachedImageUrl ?? undefined,
+        score: !editing && data.graded ? data.score : undefined,
+        feedback: !editing && data.graded ? data.feedback : undefined,
+        status: !editing && data.graded ? 'graded' : 'submitted',
       });
+      setEditing(false);
     } catch {
       setError('เกิดข้อผิดพลาด กรุณาลองใหม่');
     } finally {
       setSubmitting(false);
     }
+  }
+
+  function startEdit() {
+    if (!submission) return;
+    setAnswers(submission.answers ?? {});
+    setContent(submission.content ?? '');
+    setAttachedImageUrl(submission.driveWebViewLink ?? null);
+    setResult(null);
+    setError(null);
+    setEditing(true);
+    window.scrollTo({ top: 0, behavior: 'smooth' });
   }
 
   function startQuiz() {
@@ -447,8 +462,13 @@ export default function SubmissionPage({ params }: { params: Promise<{ id: strin
           </div>
         ) : assignment?.contentType === 'quiz' && !quizStarted && !submission ? (
           <QuizRulesScreen assignment={assignment} onStart={startQuiz} />
-        ) : submission ? (
-          <SubmissionView submission={submission} assignment={assignment} />
+        ) : submission && !editing ? (
+          <SubmissionView
+            submission={submission}
+            assignment={assignment}
+            canEdit={submission.status !== 'reviewed' && !assignment?.isGroupWork && assignment?.contentType !== 'quiz'}
+            onEdit={startEdit}
+          />
         ) : assignment?.isGroupWork && myGroup === undefined ? (
           <div className="flex justify-center py-12">
             <div className="h-6 w-6 animate-spin rounded-full border-2 border-slate-700 border-t-slate-300" />
@@ -599,14 +619,25 @@ export default function SubmissionPage({ params }: { params: Promise<{ id: strin
               </div>
             )}
 
+            {editing && (
+              <div className="rounded-xl border border-amber-800/50 bg-amber-950/20 px-4 py-2.5 text-center text-xs text-amber-300">
+                ✏️ กำลังแก้ไขงานที่ส่งไปแล้ว — กด “บันทึกการแก้ไข” เพื่อส่งใหม่
+              </div>
+            )}
             <button
               id="submit-btn"
               type="submit"
               disabled={submitting}
               className="w-full rounded-xl bg-blue-600 py-3 text-sm font-medium text-white transition-all hover:bg-blue-500 disabled:opacity-50 active:scale-95"
             >
-              {submitting ? 'กำลังส่งและตรวจงาน…' : 'ส่งงาน'}
+              {submitting ? (editing ? 'กำลังบันทึก…' : 'กำลังส่งและตรวจงาน…') : (editing ? 'บันทึกการแก้ไข' : 'ส่งงาน')}
             </button>
+            {editing && (
+              <button type="button" onClick={() => { setEditing(false); setError(null); }}
+                className="w-full rounded-xl border border-slate-700 py-2 text-sm text-slate-400 transition-all hover:border-slate-500 hover:text-slate-200">
+                ยกเลิกการแก้ไข
+              </button>
+            )}
           </form>
         )}
       </div>
@@ -1240,15 +1271,31 @@ function OrderingBlockRenderer({
 function SubmissionView({
   submission: s,
   assignment,
+  canEdit,
+  onEdit,
 }: {
   submission: Submission;
   assignment: Assignment | null;
+  canEdit?: boolean;
+  onEdit?: () => void;
 }) {
   const hasScore = typeof s.score === 'number';
   const hasAnswers = s.answers && Object.keys(s.answers).length > 0;
 
   return (
     <div className="space-y-4">
+      {/* Edit / resubmit — while the teacher hasn't finalised the grade */}
+      {canEdit && onEdit && (
+        <div className="flex items-center justify-between gap-3 rounded-2xl border border-amber-800/50 bg-amber-950/20 px-4 py-3">
+          <p className="text-xs text-amber-300">ส่งผิด หรืออยากแก้ไข? แก้ไขงานแล้วส่งใหม่ได้ (ก่อนครูตรวจ)</p>
+          <button
+            onClick={onEdit}
+            className="shrink-0 rounded-xl border border-amber-600 bg-amber-950/50 px-4 py-2 text-sm font-semibold text-amber-200 transition-all hover:border-amber-400 active:scale-95"
+          >
+            ✏️ แก้ไข / ส่งใหม่
+          </button>
+        </div>
+      )}
       <div className="rounded-2xl border border-slate-800 bg-slate-900 p-6">
         <p className="mb-3 text-xs font-medium uppercase tracking-wider text-slate-500">
           คำตอบที่ส่ง
