@@ -239,12 +239,10 @@ async function exportPDF(assignment: Assignment | null, submissions: Submission[
         default: {
           if (!QT.includes(b.type)) return '';
           const comment = s.questionComments?.[b.id] ?? '';
-          return `<div class="qrow">
-            <div class="qmain">
-              <div class="qtext">${numMap.get(b.id)}. ${esc(b.question ?? '')}</div>
-              <div class="ans">${answerHtml(b, s.answers?.[b.id], imgMap)}</div>
-            </div>
-            <div class="qcm">${comment ? `<span class="cmt">💬 ${esc(comment)}</span>` : '<span class="muted">—</span>'}</div>
+          return `<div class="qcard">
+            <div class="qtext">${numMap.get(b.id)}. ${esc(b.question ?? '')}</div>
+            <div class="ans">${answerHtml(b, s.answers?.[b.id], imgMap)}</div>
+            ${comment ? `<div class="qcm"><span class="cmt">💬 ครู: ${esc(comment)}</span></div>` : ''}
           </div>`;
         }
       }
@@ -257,7 +255,7 @@ async function exportPDF(assignment: Assignment | null, submissions: Submission[
           <div class="meta">รหัสประจำตัว: <b>${esc(code || '—')}</b> · อีเมล: ${esc(s.studentEmail || '—')} · ห้อง: ${esc(s.classId)}</div>
         </div>
         ${kpaTable}
-        ${(assignment.blocks ?? []).length ? bodyHtml : `<p class="muted">${s.content ? esc(s.content) : 'ไม่มีคำตอบแบบข้อ'}</p>`}
+        ${(assignment.blocks ?? []).length ? `<div class="cols">${bodyHtml}</div>` : `<p class="muted">${s.content ? esc(s.content) : 'ไม่มีคำตอบแบบข้อ'}</p>`}
         ${s.feedback ? `<p class="fb"><b>Feedback รวม:</b> ${esc(s.feedback)}</p>` : ''}
       </div></div>
       <div class="foot">
@@ -274,7 +272,7 @@ async function exportPDF(assignment: Assignment | null, submissions: Submission[
     <link href="https://fonts.googleapis.com/css2?family=Sarabun:wght@400;500;600;700&display=swap" rel="stylesheet" />
     <style>
       @page{size:A4;margin:0}
-      *{box-sizing:border-box} body{font-family:'Sarabun','TH Sarabun New',system-ui,'Segoe UI',sans-serif;color:#111;margin:0;font-size:13px;line-height:1.4}
+      *{box-sizing:border-box} body{font-family:'Sarabun','TH Sarabun New',system-ui,'Segoe UI',sans-serif;color:#111;margin:0;font-size:14.5px;line-height:1.4}
       /* one A4 page per student; content auto-shrinks to fit (never 2 pages) */
       .stu{width:210mm;height:297mm;padding:9mm;display:flex;flex-direction:column;overflow:hidden}
       .stu + .stu{page-break-before:always}
@@ -284,18 +282,21 @@ async function exportPDF(assignment: Assignment | null, submissions: Submission[
       .hd{border-bottom:2px solid #333;padding-bottom:4px;margin-bottom:6px}
       .nm{font-size:14px;font-weight:700} .meta{font-size:11px;color:#444;margin-top:1px}
       table{width:100%;border-collapse:collapse;margin-top:3px} th,td{border:1px solid #ccc;padding:4px 6px;vertical-align:top;text-align:left}
-      th{background:#f3f4f6;font-size:11px}
-      /* worksheet content blocks */
-      .bk-h{font-size:14px;font-weight:700;margin:8px 0 2px} .bk-p{margin:3px 0;white-space:pre-wrap}
-      .bk-img{margin:6px 0;text-align:center} .bk-img img{max-width:100%;max-height:260px;border:1px solid #ccc;border-radius:5px}
-      .bk-img .cap{font-size:11px;color:#666;margin-top:1px} .bk-info{border:1px solid #c7d2fe;background:#eef2ff;border-radius:5px;padding:6px;margin:5px 0}
-      /* question row: answer left, teacher comment right */
-      .qrow{display:flex;gap:8px;border:1px solid #ccc;border-radius:5px;padding:6px 8px;margin:5px 0;page-break-inside:avoid}
-      .qmain{flex:1 1 66%;min-width:0} .qcm{flex:0 0 32%;border-left:1px solid #ddd;padding-left:8px}
+      th{background:#f3f4f6;font-size:12px}
+      /* two-column flow for EVERYTHING (questions + images); only section
+         headings span the full width as dividers */
+      .cols{column-count:2;column-gap:12px;margin-top:4px;column-fill:balance}
+      .bk-h{-webkit-column-span:all;column-span:all;font-size:15px;font-weight:700;margin:8px 0 3px;border-bottom:1px solid #e5e7eb;padding-bottom:2px}
+      .bk-p{margin:3px 0;white-space:pre-wrap;break-inside:avoid}
+      .bk-img{margin:6px 0;text-align:center;break-inside:avoid;-webkit-column-break-inside:avoid} .bk-img img{max-width:100%;max-height:220px;border:1px solid #ccc;border-radius:5px}
+      .bk-img .cap{font-size:12px;color:#666;margin-top:1px} .bk-info{border:1px solid #c7d2fe;background:#eef2ff;border-radius:5px;padding:6px;margin:5px 0;break-inside:avoid}
+      /* question card (stacked): question, answer, teacher comment */
+      .qcard{break-inside:avoid;-webkit-column-break-inside:avoid;border:1px solid #ccc;border-radius:6px;padding:6px 8px;margin:0 0 7px;background:#fcfcfd}
       .qtext{font-weight:600;margin-bottom:2px} .ans{color:#1d4ed8;white-space:pre-wrap}
-      .ans img{max-width:100%;max-height:170px;border:1px solid #ccc;border-radius:5px} .pre{white-space:pre-wrap}
-      .cmt{color:#b45309} .muted{color:#999} .fb{margin-top:5px;font-size:12px}
-      table.kpa{width:auto;margin:4px 0 8px} table.kpa th,table.kpa td{text-align:center;padding:3px 7px;min-width:34px}
+      .qcm{border-top:1px dashed #ddd;margin-top:3px;padding-top:3px}
+      .ans img{max-width:100%;max-height:160px;border:1px solid #ccc;border-radius:5px} .pre{white-space:pre-wrap}
+      .cmt{color:#b45309} .muted{color:#999} .fb{margin-top:5px;font-size:13px}
+      table.kpa{width:100%;table-layout:fixed;margin:4px 0 8px} table.kpa th,table.kpa td{text-align:center;padding:4px 6px}
       table.kpa th{background:#eef2ff} table.kpa .lbl{background:#f3f4f6;font-weight:700} table.kpa .sm{font-size:9px;color:#666;font-weight:400}
       ul,ol{margin:1px 0;padding-left:16px} u{text-decoration:underline;color:#1d4ed8}
       /* bottom row (fixed, outside the scaled area): credit left + signature right */
@@ -307,21 +308,29 @@ async function exportPDF(assignment: Assignment | null, submissions: Submission[
     </style></head><body>
     ${students || '<p class="muted" style="padding:20px">ไม่มีงานที่จะออก</p>'}
     <script>
-      function fitAll(){
-        document.querySelectorAll('.content').forEach(function(c){
-          var sc = c.querySelector('.scaleable'); if(!sc) return;
-          sc.style.transform=''; sc.style.width='';
-          var avail = c.clientHeight, h = sc.scrollHeight;
-          if(h > avail && avail > 0){
-            var s = avail / h;
-            sc.style.transform = 'scale(' + s + ')';
-            sc.style.width = (100 / s) + '%';
-          }
-        });
+      // Scale each student's content to FILL its page: enlarge when short,
+      // shrink when long. Iterative because changing width reflows the columns.
+      function fitOne(c){
+        var sc = c.querySelector('.scaleable'); if(!sc) return;
+        var avail = c.clientHeight; if(avail <= 0) return;
+        var s = 1;
+        for(var i=0;i<7;i++){
+          sc.style.width = (100/s) + '%';
+          sc.style.transform = 'scale(' + s + ')';
+          var hh = sc.getBoundingClientRect().height; // visual (scaled) height
+          if(hh <= 0) break;
+          var ns = s * (avail / hh) * 0.995; // small safety margin
+          ns = Math.max(0.55, Math.min(1.8, ns));
+          if(Math.abs(ns - s) < 0.01){ s = ns; break; }
+          s = ns;
+        }
+        sc.style.width = (100/s) + '%';
+        sc.style.transform = 'scale(' + s + ')';
       }
+      function fitAll(){ document.querySelectorAll('.content').forEach(fitOne); }
       window.onload=function(){
         var f=(document.fonts&&document.fonts.ready)?document.fonts.ready:Promise.resolve();
-        f.then(function(){ fitAll(); setTimeout(function(){ fitAll(); window.print(); }, 250); });
+        f.then(function(){ fitAll(); setTimeout(function(){ fitAll(); window.print(); }, 300); });
       };
     <\/script>
   </body></html>`;
