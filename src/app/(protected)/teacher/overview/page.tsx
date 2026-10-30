@@ -9,6 +9,8 @@ interface AssignmentOverview {
   id: string;
   title: string;
   contentType: ContentType;
+  academicYear: number | null;
+  term: number | null;
   unit: string | null;
   dueDate: { _seconds: number } | null;
   classIds: string[];
@@ -43,6 +45,9 @@ export default function TeacherOverviewPage() {
   const [subject, setSubject] = useState<{ id: string; name: string } | null>(null);
   const [typeFilter, setTypeFilter] = useState<ContentType | 'all'>('all');
   const [pendingOnly, setPendingOnly] = useState(false);
+  // Term filter: '' = ทุกเทอม, otherwise "year/term" (e.g. "2568/1")
+  const [termFilter, setTermFilter] = useState<string>('');
+  const [termReady, setTermReady] = useState(false);
 
   useEffect(() => {
     if (profile?.role !== 'teacher') return;
@@ -54,11 +59,26 @@ export default function TeacherOverviewPage() {
       .then((r) => r.json())
       .then((data) => setAssignments(Array.isArray(data) ? data : []))
       .finally(() => setFetching(false));
+    // Default the term filter to the active term.
+    fetch('/api/teacher/reset-term')
+      .then((r) => r.json())
+      .then((d) => { if (d?.currentTerm) setTermFilter(`${d.currentTerm.year}/${d.currentTerm.term}`); })
+      .catch(() => {})
+      .finally(() => setTermReady(true));
   }, [profile]);
 
   if (loading || !profile) return <Spinner />;
 
-  const byType = typeFilter === 'all' ? assignments : assignments.filter((a) => a.contentType === typeFilter);
+  const termKey = (a: AssignmentOverview) => (a.academicYear && a.term ? `${a.academicYear}/${a.term}` : '');
+  // Distinct terms present (newest first) for the dropdown.
+  const terms = Array.from(new Set(assignments.map(termKey).filter(Boolean)))
+    .sort((x, y) => y.localeCompare(x, undefined, { numeric: true }));
+  // Only apply the term filter once we know the terms (avoid hiding everything
+  // before the default resolves, and when the selected term isn't present).
+  const effectiveTerm = termReady && termFilter && terms.includes(termFilter) ? termFilter : '';
+
+  const byTerm = effectiveTerm ? assignments.filter((a) => termKey(a) === effectiveTerm) : assignments;
+  const byType = typeFilter === 'all' ? byTerm : byTerm.filter((a) => a.contentType === typeFilter);
   const filtered = pendingOnly ? byType.filter((a) => a.submittedCount + a.gradedCount > 0) : byType;
   const totalSubmissions = byType.reduce((a, b) => a + b.totalSubmissions, 0);
   const pendingGrade = byType.reduce((a, b) => a + b.submittedCount, 0);
@@ -76,10 +96,26 @@ export default function TeacherOverviewPage() {
               {subject && <p className="text-xs text-slate-500">{subject.name}</p>}
             </div>
           </div>
-          <Link href="/teacher/assignments/new"
-            className="rounded-xl bg-blue-600 px-4 py-2 text-sm font-medium text-white transition-all hover:bg-blue-500 active:scale-95">
-            + สร้างใบงาน
-          </Link>
+          <div className="flex items-center gap-2">
+            {terms.length > 0 && (
+              <select
+                value={effectiveTerm}
+                onChange={(e) => setTermFilter(e.target.value)}
+                className="rounded-lg border border-blue-800 bg-blue-950/30 px-3 py-1.5 text-xs text-blue-200"
+                title="เลือกเทอมที่จะดูงาน"
+              >
+                <option value="">🗓 ทุกเทอม</option>
+                {terms.map((t) => {
+                  const [y, n] = t.split('/');
+                  return <option key={t} value={t}>ปี {y} เทอม {n}</option>;
+                })}
+              </select>
+            )}
+            <Link href="/teacher/assignments/new"
+              className="rounded-xl bg-blue-600 px-4 py-2 text-sm font-medium text-white transition-all hover:bg-blue-500 active:scale-95">
+              + สร้างใบงาน
+            </Link>
+          </div>
         </div>
       </header>
 

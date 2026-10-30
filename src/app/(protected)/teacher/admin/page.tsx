@@ -23,6 +23,8 @@ function currentThaiYear() {
 export default function TeacherAdminPage() {
   const { profile, loading } = useAuth();
   const [year, setYear] = useState(currentThaiYear());
+  const [term, setTerm] = useState<1 | 2>(1);
+  const [wipeStudents, setWipeStudents] = useState(false);
   const [resetting, setResetting] = useState(false);
 
   // Backfill XP state
@@ -54,7 +56,7 @@ export default function TeacherAdminPage() {
   const [knFetching, setKnFetching] = useState(false);
   const [knApplying, setKnApplying] = useState(false);
   const [knError, setKnError] = useState<string | null>(null);
-  const [result, setResult] = useState<{ reset: number; year: number; yearFolderId: string | null } | null>(null);
+  const [result, setResult] = useState<{ reset: number; year: number; term?: number; wipedStudents?: boolean; yearFolderId: string | null } | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [confirmed, setConfirmed] = useState(false);
 
@@ -259,7 +261,7 @@ export default function TeacherAdminPage() {
       const res = await fetch('/api/teacher/reset-term', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ year }),
+        body: JSON.stringify({ year, term, wipeStudents }),
       });
       if (!res.ok) throw new Error('Failed');
       const data = await res.json();
@@ -681,43 +683,45 @@ export default function TeacherAdminPage() {
         {/* Reset Term */}
         <section className="rounded-2xl border border-red-900/60 bg-red-950/10 p-6 space-y-5">
           <div>
-            <h2 className="text-base font-semibold text-red-400">🔄 รีเซ็ตเทอมใหม่</h2>
+            <h2 className="text-base font-semibold text-red-400">🔄 เริ่มเทอมใหม่ / รีเซ็ต</h2>
             <p className="mt-1 text-sm text-slate-400">
-              รีเซ็ตข้อมูลนักเรียนทั้งหมดให้พร้อมรับนักเรียนรุ่นใหม่ นักเรียนจะต้องเลือกห้องและวิชาใหม่เมื่อ login ครั้งหน้า
+              ตั้ง<strong className="text-slate-200">เทอมที่กำลังสอน</strong> — ใบงานที่สร้างใหม่จะถูกบันทึกเป็นของเทอมนี้ และดูงานแยกตามเทอมได้ที่หน้าภาพรวม
             </p>
           </div>
 
-          <div className="rounded-xl border border-amber-800 bg-amber-950/20 p-4 space-y-1 text-sm text-amber-300">
-            <p className="font-semibold">⚠ ผลที่จะเกิดขึ้น:</p>
-            <ul className="ml-4 list-disc space-y-0.5 text-amber-400/80">
-              <li>นักเรียนทุกคน จะต้องเลือกห้องและวิชาใหม่</li>
-              <li>ข้อมูลการส่งงานและคะแนนเดิม<strong> ยังคงอยู่</strong> ในระบบ</li>
-              <li>สร้างโฟลเดอร์ Google Drive ใหม่สำหรับปีการศึกษา {year}</li>
-              <li>งานที่ส่งใหม่จะไปอยู่ในโฟลเดอร์ปีใหม่โดยอัตโนมัติ</li>
-            </ul>
+          <div className="flex flex-wrap items-end gap-4">
+            <div>
+              <label className="mb-1.5 block text-sm font-medium text-slate-300">ปีการศึกษา (พ.ศ.)</label>
+              <input type="number" value={year} onChange={(e) => setYear(parseInt(e.target.value))}
+                min={2560} max={2599} className="input w-36 text-sm" />
+            </div>
+            <div>
+              <label className="mb-1.5 block text-sm font-medium text-slate-300">เทอม</label>
+              <div className="flex gap-2">
+                {([1, 2] as const).map((t) => (
+                  <button key={t} type="button" onClick={() => setTerm(t)}
+                    className={`rounded-xl border px-5 py-2 text-sm font-semibold transition-all ${
+                      term === t ? 'border-blue-500 bg-blue-500/10 text-blue-300' : 'border-slate-700 text-slate-400 hover:border-slate-600'
+                    }`}>
+                    เทอม {t}
+                  </button>
+                ))}
+              </div>
+            </div>
           </div>
 
-          <div>
-            <label className="mb-1.5 block text-sm font-medium text-slate-300">ปีการศึกษา (พ.ศ.)</label>
-            <input
-              type="number"
-              value={year}
-              onChange={(e) => setYear(parseInt(e.target.value))}
-              min={2560}
-              max={2599}
-              className="input w-40 text-sm"
-            />
-          </div>
+          <label className="flex cursor-pointer items-start gap-3 rounded-xl border border-amber-800/60 bg-amber-950/20 p-3">
+            <input type="checkbox" checked={wipeStudents} onChange={(e) => setWipeStudents(e.target.checked)} className="mt-0.5 accent-amber-500 h-4 w-4" />
+            <span className="text-sm text-amber-300">
+              ล้างข้อมูลนักเรียน (ขึ้นปีการศึกษาใหม่ / รับรุ่นใหม่)
+              <span className="mt-0.5 block text-xs text-amber-400/70">นักเรียนทุกคนต้องเลือกห้อง+วิชาใหม่ · <strong>ไม่ต้องติ๊ก</strong>ถ้าแค่เปลี่ยนจากเทอม 1 เป็นเทอม 2 (นักเรียนเดิม) · งาน/คะแนนเดิมยังอยู่เสมอ</span>
+            </span>
+          </label>
 
           <label className="flex cursor-pointer items-center gap-3">
-            <input
-              type="checkbox"
-              checked={confirmed}
-              onChange={(e) => setConfirmed(e.target.checked)}
-              className="accent-red-500 h-4 w-4"
-            />
+            <input type="checkbox" checked={confirmed} onChange={(e) => setConfirmed(e.target.checked)} className="accent-red-500 h-4 w-4" />
             <span className="text-sm text-slate-300">
-              ฉันเข้าใจและต้องการรีเซ็ตนักเรียนทั้งหมดสำหรับปีการศึกษา {year}
+              ยืนยันตั้งเทอมปัจจุบันเป็น <strong className="text-slate-100">ปี {year} เทอม {term}</strong>{wipeStudents ? ' และล้างข้อมูลนักเรียนทั้งหมด' : ''}
             </span>
           </label>
 
@@ -726,7 +730,7 @@ export default function TeacherAdminPage() {
             disabled={!confirmed || resetting}
             className="rounded-xl bg-red-700 px-6 py-2.5 text-sm font-medium text-white hover:bg-red-600 transition-all disabled:opacity-40 disabled:cursor-not-allowed"
           >
-            {resetting ? 'กำลังรีเซ็ต…' : 'รีเซ็ตเทอมใหม่'}
+            {resetting ? 'กำลังดำเนินการ…' : `ตั้งเป็นเทอม ${term}${wipeStudents ? ' + รีเซ็ตนักเรียน' : ''}`}
           </button>
 
           {error && (
@@ -735,11 +739,10 @@ export default function TeacherAdminPage() {
 
           {result && (
             <div className="rounded-xl border border-emerald-800 bg-emerald-950/20 p-4 text-sm text-emerald-300 space-y-1">
-              <p className="font-semibold">✓ รีเซ็ตสำเร็จ</p>
-              <p>รีเซ็ตนักเรียนแล้ว: <strong>{result.reset} คน</strong></p>
-              <p>ปีการศึกษา: <strong>{result.year}</strong></p>
+              <p className="font-semibold">✓ สำเร็จ — เทอมปัจจุบัน: ปี {result.year} เทอม {result.term ?? term}</p>
+              {result.wipedStudents && <p>รีเซ็ตนักเรียนแล้ว: <strong>{result.reset} คน</strong></p>}
               {result.yearFolderId && (
-                <p>สร้างโฟลเดอร์ Drive ใหม่แล้ว: <span className="text-slate-400 text-xs">{result.yearFolderId}</span></p>
+                <p>โฟลเดอร์ Drive: <span className="text-slate-400 text-xs">{result.yearFolderId}</span></p>
               )}
             </div>
           )}

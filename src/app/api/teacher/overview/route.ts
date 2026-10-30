@@ -76,6 +76,8 @@ async function computeOverview(uid: string, subjectId: string | null) {
       id: d.id,
       title: data.title,
       contentType: data.contentType ?? 'worksheet',
+      academicYear: (data.academicYear as number) ?? null,
+      term: (data.term as number) ?? null,
       unit: data.unit ?? null,
       dueDate: data.dueDate ?? null,
       classIds: data.classIds ?? [],

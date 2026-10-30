@@ -85,9 +85,21 @@ export async function POST(req: NextRequest) {
     }
   }
 
+  // Tag with the active term so work can be viewed/filtered per term.
+  let termYear = new Date().getFullYear() + 543;
+  let termNo = 1;
+  try {
+    const cfg = await adminDb.collection('system').doc('config').get();
+    const ct = cfg.exists ? cfg.data()?.currentTerm : null;
+    if (ct && typeof ct.year === 'number') termYear = ct.year;
+    if (ct && (ct.term === 1 || ct.term === 2)) termNo = ct.term;
+  } catch { /* default to current year / term 1 */ }
+
   const docRef = await adminDb.collection('assignments').add({
     title,
     description,
+    academicYear: termYear,
+    term: termNo,
     dueDate: dueDate ? new Date(dueDate) : null,
     classIds,
     teacherId: uid,

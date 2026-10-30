@@ -22,37 +22,49 @@ function currentThaiYear(): number {
   return new Date().getFullYear() + 543;
 }
 
+// Return the active term so the UI can show / default to it.
+export async function GET() {
+  const uid = await getTeacherUid();
+  if (!uid) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+  const snap = await adminDb.collection('system').doc('config').get();
+  const data = snap.exists ? snap.data() : null;
+  const year = (data?.currentTerm?.year as number) ?? (data?.academicYear as number) ?? currentThaiYear();
+  const term = (data?.currentTerm?.term as number) ?? 1;
+  return NextResponse.json({ currentTerm: { year, term } });
+}
+
 export async function POST(req: NextRequest) {
   const uid = await getTeacherUid();
   if (!uid) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
 
   const body = await req.json().catch(() => ({}));
   const targetYear: number = body.year ?? currentThaiYear();
+  const term: number = body.term === 2 ? 2 : 1; // เทอม 1 หรือ 2
+  // Only wipe students (class/subject/onboarding) when explicitly asked — e.g. a
+  // brand-new academic year. Switching term keeps the same students.
+  const wipeStudents: boolean = body.wipeStudents === true;
 
-  // 1. Get all student users
-  const usersSnap = await adminDb.collection('users').where('role', '==', 'student').get();
-  if (usersSnap.empty) return NextResponse.json({ reset: 0, year: targetYear });
-
-  // 2. Reset each student in batches of 500 (Firestore batch limit)
-  const BATCH_SIZE = 500;
-  const docs = usersSnap.docs;
   let reset = 0;
-
-  for (let i = 0; i < docs.length; i += BATCH_SIZE) {
-    const batch = adminDb.batch();
-    docs.slice(i, i + BATCH_SIZE).forEach((d) => {
-      batch.update(d.ref, {
-        onboardingComplete: false,
-        classId: FieldValue.delete(),
-        subjectId: FieldValue.delete(),
-        updatedAt: FieldValue.serverTimestamp(),
+  if (wipeStudents) {
+    const usersSnap = await adminDb.collection('users').where('role', '==', 'student').get();
+    const BATCH_SIZE = 500;
+    const docs = usersSnap.docs;
+    for (let i = 0; i < docs.length; i += BATCH_SIZE) {
+      const batch = adminDb.batch();
+      docs.slice(i, i + BATCH_SIZE).forEach((d) => {
+        batch.update(d.ref, {
+          onboardingComplete: false,
+          classId: FieldValue.delete(),
+          subjectId: FieldValue.delete(),
+          updatedAt: FieldValue.serverTimestamp(),
+        });
+        reset++;
       });
-      reset++;
-    });
-    await batch.commit();
+      await batch.commit();
+    }
   }
 
-  // 3. Create new academic year folder in Drive
+  // Create the year folder in Drive.
   let yearFolderId: string | null = null;
   try {
     yearFolderId = await ensureYearFolder(targetYear);
@@ -60,13 +72,15 @@ export async function POST(req: NextRequest) {
     // Drive creation failure should not block the reset
   }
 
-  // 4. Log the reset in system config
+  // Set the active term — new assignments are tagged with it; teachers can still
+  // view past terms' work.
   await adminDb.collection('system').doc('config').set({
     lastResetAt: FieldValue.serverTimestamp(),
     lastResetBy: uid,
     academicYear: targetYear,
+    currentTerm: { year: targetYear, term },
     yearFolderDriveId: yearFolderId,
   }, { merge: true });
 
-  return NextResponse.json({ reset, year: targetYear, yearFolderId });
+  return NextResponse.json({ reset, year: targetYear, term, wipedStudents: wipeStudents, yearFolderId });
 }
