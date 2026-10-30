@@ -4,6 +4,7 @@ import { useEffect, useState, useCallback } from 'react';
 import { useAuth } from '@/context/AuthContext';
 import { useRouter } from 'next/navigation';
 import Link from 'next/link';
+import TermSelect from '@/components/TermSelect';
 
 interface Unit { id: string; name: string; k: number; p: number; a: number; assignmentIds?: string[] }
 interface KPA { k: number; p: number; a: number }
@@ -64,6 +65,7 @@ export default function GradesPage() {
 
   const [subjects, setSubjects] = useState<{ id: string; name: string }[]>([]);
   const [subjectId, setSubjectId] = useState<string | null | undefined>(undefined);
+  const [term, setTerm] = useState<string | undefined>(undefined);
   const [units, setUnits] = useState<Unit[]>([]);
   const [examCfg, setExamCfg] = useState<Exam>({ midterm: 20, final: 20 });
   const [midtermAssignments, setMidtermAssignments] = useState<string[]>([]);
@@ -95,11 +97,18 @@ export default function GradesPage() {
       .catch(() => {});
   }, [profile]);
 
+  const gradesUrl = useCallback(() => {
+    const p = new URLSearchParams();
+    if (subjectId) p.set('subject', subjectId);
+    if (term) p.set('term', term);
+    const qs = p.toString();
+    return `/api/teacher/grades${qs ? `?${qs}` : ''}`;
+  }, [subjectId, term]);
+
   const load = useCallback(() => {
-    if (profile?.role !== 'teacher' || subjectId === undefined) return;
+    if (profile?.role !== 'teacher' || subjectId === undefined || term === undefined) return;
     setFetching(true);
-    const url = subjectId ? `/api/teacher/grades?subject=${subjectId}` : '/api/teacher/grades';
-    fetch(url)
+    fetch(gradesUrl())
       .then((r) => r.json())
       .then((d) => {
         const u: Unit[] = Array.isArray(d.units) ? d.units : [];
@@ -122,7 +131,7 @@ export default function GradesPage() {
         setExams(seedExam);
       })
       .finally(() => setFetching(false));
-  }, [profile, subjectId]);
+  }, [profile, subjectId, term, gradesUrl]);
 
   useEffect(() => { load(); }, [load]);
 
@@ -206,7 +215,7 @@ export default function GradesPage() {
     if (overLimit) { setMsg(`คะแนนเต็มรวมต้องไม่เกิน 100 (ตอนนี้ ${maxTotal})`); return; }
     setSavingCfg(true); setMsg(null);
     try {
-      const url = subjectId ? `/api/teacher/grades?subject=${subjectId}` : '/api/teacher/grades';
+      const url = gradesUrl();
       const res = await fetch(url, {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
@@ -449,7 +458,7 @@ export default function GradesPage() {
   async function saveScores() {
     setSavingScores(true); setMsg(null);
     try {
-      const url = subjectId ? `/api/teacher/grades?subject=${subjectId}` : '/api/teacher/grades';
+      const url = gradesUrl();
       const res = await fetch(url, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -512,6 +521,7 @@ export default function GradesPage() {
               <option value="">📚 ทุกวิชา</option>
               {subjects.map((s) => <option key={s.id} value={s.id}>{s.name}</option>)}
             </select>
+            <TermSelect value={term} onChange={setTerm} />
             <select
               value={classFilter}
               onChange={(e) => setClassFilter(e.target.value)}

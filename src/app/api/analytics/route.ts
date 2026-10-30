@@ -1,7 +1,8 @@
-import { NextResponse } from 'next/server';
+import { NextRequest, NextResponse } from 'next/server';
 import { adminAuth, adminDb } from '@/lib/firebase/admin';
 import { cookies } from 'next/headers';
 import { cachedGlobal } from '@/lib/server-cache';
+import { parseTerm } from '@/lib/term';
 
 const STATS_TTL = 120_000; // 2 min; invalidated on submit/grade
 
@@ -19,15 +20,16 @@ async function getTeacherUid(): Promise<string | null> {
   }
 }
 
-export async function GET() {
+export async function GET(req: NextRequest) {
   const teacherUid = await getTeacherUid();
   if (!teacherUid) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
 
-  const result = await cachedGlobal(`analytics:${teacherUid}`, STATS_TTL, () => computeAnalytics(teacherUid));
+  const term = new URL(req.url).searchParams.get('term');
+  const result = await cachedGlobal(`analytics:${teacherUid}:${term ?? 'all'}`, STATS_TTL, () => computeAnalytics(teacherUid, term));
   return NextResponse.json(result);
 }
 
-async function computeAnalytics(teacherUid: string) {
+async function computeAnalytics(teacherUid: string, term: string | null) {
   const assignmentsSnap = await adminDb
     .collection('assignments')
     .where('teacherId', '==', teacherUid)
@@ -35,9 +37,13 @@ async function computeAnalytics(teacherUid: string) {
 
   if (assignmentsSnap.empty) return { perClass: {}, assignments: [] };
 
-  const assignmentIds = assignmentsSnap.docs.map((d) => d.id);
+  const t = parseTerm(term);
+  const termDocs = assignmentsSnap.docs.filter((d) => !t || (d.data().academicYear === t.year && d.data().term === t.no));
+  if (termDocs.length === 0) return { classStats: [], assignmentStats: [], totalSubmissions: 0, scoreDistribution: [], weeklyTrend: [] };
+
+  const assignmentIds = termDocs.map((d) => d.id);
   const assignmentTitles = Object.fromEntries(
-    assignmentsSnap.docs.map((d) => [d.id, d.data().title as string])
+    termDocs.map((d) => [d.id, d.data().title as string])
   );
 
   const allSubmissions: Record<string, unknown>[] = [];

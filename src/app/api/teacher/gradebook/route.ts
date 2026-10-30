@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { adminAuth, adminDb } from '@/lib/firebase/admin';
 import { cookies } from 'next/headers';
 import { cachedGlobal } from '@/lib/server-cache';
+import { filterByTerm } from '@/lib/term';
 
 const STATS_TTL = 120_000; // 2 min; invalidated on submit/grade
 
@@ -23,16 +24,17 @@ export async function GET(req: NextRequest) {
 
   const { searchParams } = new URL(req.url);
   const subjectId = searchParams.get('subject');
+  const term = searchParams.get('term');
 
   const result = await cachedGlobal(
-    `gradebook:${uid}:${subjectId ?? 'all'}`,
+    `gradebook:${uid}:${subjectId ?? 'all'}:${term ?? 'all'}`,
     STATS_TTL,
-    () => computeGradebook(uid, subjectId),
+    () => computeGradebook(uid, subjectId, term),
   );
   return NextResponse.json(result);
 }
 
-async function computeGradebook(uid: string, subjectId: string | null) {
+async function computeGradebook(uid: string, subjectId: string | null, term: string | null) {
   // 1. Get all assignments for this teacher
   const assignmentsSnap = await adminDb
     .collection('assignments')
@@ -45,6 +47,8 @@ async function computeGradebook(uid: string, subjectId: string | null) {
     subjectId?: string;
     classIds: string[];
     contentType?: string;
+    academicYear?: number | null;
+    term?: number | null;
     createdAt?: { _seconds?: number; seconds?: number };
   }>;
 
@@ -56,6 +60,7 @@ async function computeGradebook(uid: string, subjectId: string | null) {
   if (subjectId) {
     assignments = assignments.filter((a) => a.subjectId === subjectId);
   }
+  assignments = filterByTerm(assignments, term);
 
   if (assignments.length === 0) {
     return { assignments: [], students: [] };

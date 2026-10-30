@@ -4,6 +4,7 @@ import { useEffect, useState, useCallback } from 'react';
 import { useRouter } from 'next/navigation';
 import { useAuth } from '@/context/AuthContext';
 import Link from 'next/link';
+import TermSelect from '@/components/TermSelect';
 
 interface NotSubmittedStudent {
   uid: string;
@@ -31,6 +32,7 @@ export default function SubmissionStatsPage() {
 
   const [subjects, setSubjects] = useState<Subject[]>([]);
   const [selectedSubject, setSelectedSubject] = useState<string>('');
+  const [term, setTerm] = useState<string | undefined>(undefined);
   const [stats, setStats] = useState<AssignmentStat[]>([]);
   const [fetching, setFetching] = useState(false);
   const [expandedId, setExpandedId] = useState<string | null>(null);
@@ -59,10 +61,11 @@ export default function SubmissionStatsPage() {
   const loadStats = useCallback(async () => {
     setFetching(true);
     try {
-      const url = selectedSubject
-        ? `/api/teacher/submission-stats?subject=${encodeURIComponent(selectedSubject)}`
-        : '/api/teacher/submission-stats';
-      const res = await fetch(url);
+      const sp = new URLSearchParams();
+      if (selectedSubject) sp.set('subject', selectedSubject);
+      if (term) sp.set('term', term);
+      const qs = sp.toString();
+      const res = await fetch(`/api/teacher/submission-stats${qs ? `?${qs}` : ''}`);
       const data = await res.json();
       setStats(Array.isArray(data) ? data : []);
     } catch {
@@ -70,11 +73,11 @@ export default function SubmissionStatsPage() {
     } finally {
       setFetching(false);
     }
-  }, [selectedSubject]);
+  }, [selectedSubject, term]);
 
   useEffect(() => {
-    if (profile?.role === 'teacher') loadStats();
-  }, [profile, loadStats]);
+    if (profile?.role === 'teacher' && term !== undefined) loadStats();
+  }, [profile, term, loadStats]);
 
   if (loading || !profile) {
     return (
@@ -140,6 +143,8 @@ export default function SubmissionStatsPage() {
               <option key={s.id} value={s.id}>{s.name}</option>
             ))}
           </select>
+
+          <TermSelect value={term} onChange={setTerm} className="rounded-xl border border-blue-800 bg-blue-950/30 px-3 py-2 text-sm text-blue-200" />
 
           <select
             value={classFilter}

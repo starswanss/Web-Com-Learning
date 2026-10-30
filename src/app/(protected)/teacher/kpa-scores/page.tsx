@@ -4,9 +4,10 @@ import { useEffect, useState, useCallback } from 'react';
 import { useAuth } from '@/context/AuthContext';
 import { useRouter } from 'next/navigation';
 import Link from 'next/link';
+import TermSelect from '@/components/TermSelect';
 
 interface Block { id: string; type: string; question?: string; scoreMax?: number; scoreKind?: 'K' | 'P' }
-interface AssignmentItem { id: string; title: string; contentType?: string; subjectId?: string | null; blocks?: Block[]; attitudeMax?: number | null }
+interface AssignmentItem { id: string; title: string; contentType?: string; subjectId?: string | null; blocks?: Block[]; attitudeMax?: number | null; academicYear?: number | null; term?: number | null }
 interface Sub {
   id: string;
   studentId: string;
@@ -31,6 +32,7 @@ export default function KpaScoresPage() {
   const [subjects, setSubjects] = useState<{ id: string; name: string }[]>([]);
   const [subjectId, setSubjectId] = useState<string | null | undefined>(undefined);
   const [assignments, setAssignments] = useState<AssignmentItem[]>([]);
+  const [term, setTerm] = useState<string | undefined>(undefined);
   const [selectedId, setSelectedId] = useState('');
   const [assignment, setAssignment] = useState<AssignmentItem | null>(null);
   const [subs, setSubs] = useState<Sub[]>([]);
@@ -51,14 +53,16 @@ export default function KpaScoresPage() {
 
   // Load the assignment list (only those that have KPA scoring configured).
   useEffect(() => {
-    if (profile?.role !== 'teacher' || subjectId === undefined) return;
+    if (profile?.role !== 'teacher' || subjectId === undefined || term === undefined) return;
     const url = subjectId ? `/api/assignments?subject=${subjectId}` : '/api/assignments';
     fetch(url).then((r) => r.json()).then((d) => {
-      const list: AssignmentItem[] = Array.isArray(d) ? d.filter(hasKpa) : [];
+      const t = term ? term.split('/').map(Number) : null; // [year, no]
+      const list: AssignmentItem[] = (Array.isArray(d) ? d.filter(hasKpa) : [])
+        .filter((a: AssignmentItem) => !t || (a.academicYear === t[0] && a.term === t[1]));
       setAssignments(list);
       setSelectedId((cur) => (list.some((a) => a.id === cur) ? cur : (list[0]?.id ?? '')));
     }).catch(() => {});
-  }, [profile, subjectId]);
+  }, [profile, subjectId, term]);
 
   const loadScores = useCallback(() => {
     if (!selectedId) { setAssignment(null); setSubs([]); return; }
@@ -132,6 +136,7 @@ export default function KpaScoresPage() {
               <option value="">📚 ทุกวิชา</option>
               {subjects.map((s) => <option key={s.id} value={s.id}>{s.name}</option>)}
             </select>
+            <TermSelect value={term} onChange={setTerm} />
             <select value={selectedId} onChange={(e) => setSelectedId(e.target.value)}
               className="max-w-[260px] rounded-lg border border-slate-700 bg-slate-800 px-3 py-1.5 text-xs text-slate-200">
               {assignments.length === 0 ? <option value="">— ไม่มีใบงานที่ตั้งคะแนน KPA —</option>

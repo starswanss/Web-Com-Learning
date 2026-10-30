@@ -3,6 +3,7 @@ import { adminAuth, adminDb } from '@/lib/firebase/admin';
 import { cookies } from 'next/headers';
 import { trackReads, flushReadsIfDue } from '@/lib/read-tracker';
 import { cachedGlobal } from '@/lib/server-cache';
+import { parseTerm } from '@/lib/term';
 
 const STATS_TTL = 120_000; // 2 min; invalidated on submit/grade
 
@@ -54,16 +55,17 @@ export async function GET(req: NextRequest) {
   const url = new URL(req.url);
   const subjectId = url.searchParams.get('subject');
   const assignmentId = url.searchParams.get('assignmentId');
+  const term = url.searchParams.get('term');
 
   const stats = await cachedGlobal(
-    `submission-stats:${uid}:${subjectId ?? 'all'}:${assignmentId ?? 'all'}`,
+    `submission-stats:${uid}:${subjectId ?? 'all'}:${assignmentId ?? 'all'}:${term ?? 'all'}`,
     STATS_TTL,
-    () => computeStats(uid, subjectId, assignmentId),
+    () => computeStats(uid, subjectId, assignmentId, term),
   );
   return NextResponse.json(stats);
 }
 
-async function computeStats(uid: string, subjectId: string | null, assignmentId: string | null): Promise<AssignmentStat[]> {
+async function computeStats(uid: string, subjectId: string | null, assignmentId: string | null, term: string | null): Promise<AssignmentStat[]> {
   // Fetch active subjects for this teacher to filter out orphaned assignments
   const subjectsSnap = await adminDb.collection('subjects').where('teacherId', '==', uid).get();
   const activeSubjectIds = new Set(subjectsSnap.docs.map(d => d.id));
@@ -75,6 +77,7 @@ async function computeStats(uid: string, subjectId: string | null, assignmentId:
   }
 
   const assignmentsSnap = await assignmentsQuery.get();
+  const t = parseTerm(term);
   const allAssignments = assignmentsSnap.docs
     .filter(d => {
       const data = d.data();
@@ -82,7 +85,9 @@ async function computeStats(uid: string, subjectId: string | null, assignmentId:
       // Only include assignments whose subjectId exists in active subjects,
       // and skip ใบความรู้ (knowledge) — students never submit those.
       const ct = (data.contentType as string) ?? 'worksheet';
-      return sid && activeSubjectIds.has(sid) && ct !== 'knowledge';
+      if (!(sid && activeSubjectIds.has(sid) && ct !== 'knowledge')) return false;
+      if (t && (data.academicYear !== t.year || data.term !== t.no)) return false;
+      return true;
     })
     .map(d => ({
       id: d.id,

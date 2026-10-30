@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { adminAuth, adminDb } from '@/lib/firebase/admin';
 import { cookies } from 'next/headers';
+import { parseTerm } from '@/lib/term';
 
 async function getTeacherUid(): Promise<string | null> {
   try {
@@ -50,6 +51,14 @@ function subjectKey(subjectId: string | null): string {
   return subjectId && subjectId.trim() ? subjectId.trim() : 'all';
 }
 
+// Config/scores are stored per (subject, term). No term keeps the legacy key so
+// existing data still loads; a specific term gets its own document.
+function docKey(subjectId: string | null, termStr: string | null): string {
+  const s = subjectKey(subjectId);
+  const t = parseTerm(termStr);
+  return t ? `${s}__t${t.year}-${t.no}` : s;
+}
+
 /** รหัสประจำตัว: the school email's local-part (best available student id). */
 function studentCodeFromEmail(email: string): string {
   return (email ?? '').split('@')[0] ?? '';
@@ -60,8 +69,11 @@ export async function GET(req: NextRequest) {
   const uid = await getTeacherUid();
   if (!uid) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
 
-  const subjectId = new URL(req.url).searchParams.get('subject');
-  const key = subjectKey(subjectId);
+  const url = new URL(req.url);
+  const subjectId = url.searchParams.get('subject');
+  const termStr = url.searchParams.get('term');
+  const termSel = parseTerm(termStr);
+  const key = docKey(subjectId, termStr);
 
   // Config + saved manual scores.
   const [configSnap, scoresSnap] = await Promise.all([
@@ -87,7 +99,8 @@ export async function GET(req: NextRequest) {
   const assignmentsSnap = await aQuery.get();
   const assignments = assignmentsSnap.docs
     .map((d): { id: string } & Record<string, unknown> => ({ id: d.id, ...d.data() }))
-    .filter((a) => ['worksheet', 'quiz'].includes((a.contentType as string) ?? 'worksheet'));
+    .filter((a) => ['worksheet', 'quiz'].includes((a.contentType as string) ?? 'worksheet'))
+    .filter((a) => !termSel || (a.academicYear === termSel.year && a.term === termSel.no));
 
   // Map assignmentId → normalised unit name (for grouping by unit).
   const assignmentUnit = new Map<string, string>();
@@ -209,7 +222,9 @@ export async function PUT(req: NextRequest) {
   const uid = await getTeacherUid();
   if (!uid) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
 
-  const subjectId = new URL(req.url).searchParams.get('subject');
+  const u2 = new URL(req.url);
+  const subjectId = u2.searchParams.get('subject');
+  const termStr = u2.searchParams.get('term');
   const body = await req.json().catch(() => ({}));
   const units = body?.units;
   if (!Array.isArray(units)) return NextResponse.json({ error: 'Missing units' }, { status: 400 });
@@ -234,7 +249,7 @@ export async function PUT(req: NextRequest) {
     );
   }
 
-  await adminDb.collection('gradeConfigs').doc(`${uid}__${subjectKey(subjectId)}`)
+  await adminDb.collection('gradeConfigs').doc(`${uid}__${docKey(subjectId, termStr)}`)
     .set({ units: clean, midterm: exam.midterm, final: exam.final, midtermAssignments, finalAssignments }, { merge: true });
   return NextResponse.json({ ok: true, units: clean, exam, midtermAssignments, finalAssignments, fullMarks: total });
 }
@@ -244,7 +259,9 @@ export async function POST(req: NextRequest) {
   const uid = await getTeacherUid();
   if (!uid) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
 
-  const subjectId = new URL(req.url).searchParams.get('subject');
+  const u3 = new URL(req.url);
+  const subjectId = u3.searchParams.get('subject');
+  const termStr = u3.searchParams.get('term');
   const body = await req.json().catch(() => ({}));
   const scores = body?.scores;
   if (!scores || typeof scores !== 'object') {
@@ -270,7 +287,7 @@ export async function POST(req: NextRequest) {
     cleanExams[studentUid] = { midterm: clampNum(v?.midterm), final: clampNum(v?.final) };
   }
 
-  await adminDb.collection('gradeScores').doc(`${uid}__${subjectKey(subjectId)}`)
+  await adminDb.collection('gradeScores').doc(`${uid}__${docKey(subjectId, termStr)}`)
     .set({ scores: clean, exams: cleanExams }, { merge: false });
   return NextResponse.json({ ok: true });
 }

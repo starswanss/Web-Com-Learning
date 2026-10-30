@@ -5,6 +5,7 @@ import { useAuth } from '@/context/AuthContext';
 import Link from 'next/link';
 import { levelColor, levelBarColor } from '@/lib/xp';
 import { cachedFetch } from '@/lib/client-cache';
+import TermSelect from '@/components/TermSelect';
 
 interface LeaderboardEntry {
   rank: number;
@@ -161,6 +162,7 @@ export default function TeacherLeaderboardPage() {
   const [fetching, setFetching] = useState(true);
   const [subjects, setSubjects] = useState<{ id: string; name: string }[]>([]);
   const [subjectId, setSubjectId] = useState<string | null | undefined>(undefined);
+  const [term, setTerm] = useState<string | undefined>(undefined);
   const [classFilter, setClassFilter] = useState('');
   const [activeTab, setActiveTab] = useState<'score' | 'level'>('score');
 
@@ -176,9 +178,14 @@ export default function TeacherLeaderboardPage() {
   }, [profile]);
 
   useEffect(() => {
-    if (profile?.role !== 'teacher' || subjectId === undefined) return;
+    if (profile?.role !== 'teacher' || subjectId === undefined || term === undefined) return;
     setFetching(true);
-    const url = subjectId ? `/api/teacher/leaderboard?subject=${subjectId}` : '/api/teacher/leaderboard';
+    const sp = new URLSearchParams();
+    if (subjectId) sp.set('subject', subjectId);
+    if (term) sp.set('term', term);
+    const qs = sp.toString();
+    const url = `/api/teacher/leaderboard${qs ? `?${qs}` : ''}`;
+    // Level ranking is XP-based (not per-term), so it only takes the subject.
     const levelUrl = subjectId ? `/api/teacher/level-ranking?subject=${subjectId}` : '/api/teacher/level-ranking';
     Promise.all([
       cachedFetch<LeaderboardEntry[]>(url),
@@ -187,7 +194,7 @@ export default function TeacherLeaderboardPage() {
       setEntries(Array.isArray(scoreData) ? scoreData : []);
       setLevelEntries(Array.isArray(levelData) ? levelData : []);
     }).catch(() => {}).finally(() => setFetching(false));
-  }, [profile, subjectId]);
+  }, [profile, subjectId, term]);
 
   if (loading || !profile) return <Spinner />;
 
@@ -234,6 +241,7 @@ export default function TeacherLeaderboardPage() {
               <option value="">📚 ทุกวิชา</option>
               {subjects.map((s) => <option key={s.id} value={s.id}>{s.name}</option>)}
             </select>
+            <TermSelect value={term} onChange={setTerm} />
             <Link
               href="/teacher/bonus-points"
               className="rounded-xl border border-yellow-700 px-3 py-1.5 text-xs text-yellow-400 hover:border-yellow-600 hover:text-yellow-300 transition-all"

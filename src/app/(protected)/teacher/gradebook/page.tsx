@@ -4,6 +4,7 @@ import { useEffect, useState } from 'react';
 import { useAuth } from '@/context/AuthContext';
 import { useRouter } from 'next/navigation';
 import Link from 'next/link';
+import TermSelect from '@/components/TermSelect';
 
 interface AssignmentCol {
   id: string;
@@ -49,6 +50,7 @@ export default function GradebookPage() {
   const [subjects, setSubjects] = useState<{ id: string; name: string }[]>([]);
   // null = ทุกวิชา; undefined = not yet initialised from localStorage
   const [subjectId, setSubjectId] = useState<string | null | undefined>(undefined);
+  const [term, setTerm] = useState<string | undefined>(undefined); // undefined until TermSelect resolves
 
   useEffect(() => {
     if (!loading && profile?.role !== 'teacher') router.push('/dashboard');
@@ -67,19 +69,22 @@ export default function GradebookPage() {
       .catch(() => {});
   }, [profile]);
 
-  // Re-fetch the gradebook whenever the chosen subject changes.
+  // Re-fetch the gradebook whenever the chosen subject or term changes.
   useEffect(() => {
-    if (profile?.role !== 'teacher' || subjectId === undefined) return;
+    if (profile?.role !== 'teacher' || subjectId === undefined || term === undefined) return;
     setFetching(true);
-    const url = subjectId ? `/api/teacher/gradebook?subject=${subjectId}` : '/api/teacher/gradebook';
-    fetch(url)
+    const params = new URLSearchParams();
+    if (subjectId) params.set('subject', subjectId);
+    if (term) params.set('term', term);
+    const qs = params.toString();
+    fetch(`/api/teacher/gradebook${qs ? `?${qs}` : ''}`)
       .then((r) => r.json())
       .then((d) => {
         setAssignments(Array.isArray(d.assignments) ? d.assignments : []);
         setStudents(Array.isArray(d.students) ? d.students : []);
       })
       .finally(() => setFetching(false));
-  }, [profile, subjectId]);
+  }, [profile, subjectId, term]);
 
   if (loading || !profile) return <Spinner />;
 
@@ -119,6 +124,7 @@ export default function GradebookPage() {
               <option value="">📚 ทุกวิชา</option>
               {subjects.map((s) => <option key={s.id} value={s.id}>{s.name}</option>)}
             </select>
+            <TermSelect value={term} onChange={setTerm} />
             <select
               value={filterClass}
               onChange={(e) => setFilterClass(e.target.value)}

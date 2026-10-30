@@ -4,6 +4,7 @@ import { useEffect, useRef, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { useAuth } from '@/context/AuthContext';
 import Link from 'next/link';
+import TermSelect from '@/components/TermSelect';
 import {
   Chart,
   BarController,
@@ -37,6 +38,7 @@ export default function AnalyticsPage() {
   const router = useRouter();
   const [data, setData] = useState<AnalyticsData | null>(null);
   const [fetching, setFetching] = useState(true);
+  const [term, setTerm] = useState<string | undefined>(undefined);
   const submissionsChartRef = useRef<HTMLCanvasElement>(null);
   const scoresChartRef = useRef<HTMLCanvasElement>(null);
   const distributionChartRef = useRef<HTMLCanvasElement>(null);
@@ -47,12 +49,13 @@ export default function AnalyticsPage() {
   }, [loading, profile, router]);
 
   useEffect(() => {
-    if (profile?.role !== 'teacher') return;
-    fetch('/api/analytics')
+    if (profile?.role !== 'teacher' || term === undefined) return;
+    setFetching(true);
+    fetch(`/api/analytics${term ? `?term=${term}` : ''}`)
       .then((r) => r.json())
       .then((d: AnalyticsData) => setData(d))
       .finally(() => setFetching(false));
-  }, [profile]);
+  }, [profile, term]);
 
   useEffect(() => {
     if (!data || !submissionsChartRef.current || !scoresChartRef.current) return;
@@ -141,6 +144,7 @@ export default function AnalyticsPage() {
             ← กลับ
           </Link>
           <h1 className="text-xl font-semibold text-slate-100">Analytics</h1>
+          <div className="ml-auto"><TermSelect value={term} onChange={setTerm} /></div>
         </div>
 
         {fetching ? (

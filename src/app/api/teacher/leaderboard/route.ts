@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { adminAuth, adminDb } from '@/lib/firebase/admin';
 import { cookies } from 'next/headers';
 import { cachedGlobal } from '@/lib/server-cache';
+import { filterByTerm } from '@/lib/term';
 
 const LB_TTL = 300_000; // 5 min; invalidated on grade/bonus/submit
 
@@ -24,16 +25,17 @@ export async function GET(req: NextRequest) {
   const { searchParams } = new URL(req.url);
   const subjectId = searchParams.get('subject');
   const classFilter = searchParams.get('classId');
+  const term = searchParams.get('term');
 
   const result = await cachedGlobal(
-    `teacher-leaderboard:${uid}:${subjectId ?? 'all'}:${classFilter ?? 'all'}`,
+    `teacher-leaderboard:${uid}:${subjectId ?? 'all'}:${classFilter ?? 'all'}:${term ?? 'all'}`,
     LB_TTL,
-    () => computeLeaderboard(uid, subjectId, classFilter),
+    () => computeLeaderboard(uid, subjectId, classFilter, term),
   );
   return NextResponse.json(result);
 }
 
-async function computeLeaderboard(uid: string, subjectId: string | null, classFilter: string | null) {
+async function computeLeaderboard(uid: string, subjectId: string | null, classFilter: string | null, term: string | null) {
   const base = adminDb.collection('assignments').where('teacherId', '==', uid);
   const assignmentsSnap = subjectId
     ? await base.where('subjectId', '==', subjectId).get()
@@ -41,7 +43,11 @@ async function computeLeaderboard(uid: string, subjectId: string | null, classFi
 
   if (assignmentsSnap.empty) return [];
 
-  const assignmentIds = assignmentsSnap.docs.map((d) => d.id);
+  const assignmentIds = filterByTerm(
+    assignmentsSnap.docs.map((d) => ({ id: d.id, academicYear: d.data().academicYear as number | undefined, term: d.data().term as number | undefined })),
+    term,
+  ).map((a) => a.id);
+  if (assignmentIds.length === 0) return [];
 
   const submissionsSnap = await adminDb
     .collection('submissions')
