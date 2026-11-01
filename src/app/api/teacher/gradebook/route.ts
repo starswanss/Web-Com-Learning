@@ -3,6 +3,7 @@ import { adminAuth, adminDb } from '@/lib/firebase/admin';
 import { cookies } from 'next/headers';
 import { cachedGlobal } from '@/lib/server-cache';
 import { filterByTerm } from '@/lib/term';
+import { getStudentsInClasses } from '@/lib/students-cache';
 
 const STATS_TTL = 120_000; // 2 min; invalidated on submit/grade
 
@@ -78,27 +79,9 @@ async function computeGradebook(uid: string, subjectId: string | null, term: str
     new Set(assignments.flatMap((a) => a.classIds ?? []))
   );
 
-  // 3. Fetch students in those classes (chunked by 10 for Firestore 'in' limit)
-  const CHUNK = 10;
+  // 3. Students in those classes — from the shared cached roster (no per-call read)
   const studentMap = new Map<string, { uid: string; displayName: string; email: string; classId: string }>();
-
-  for (let i = 0; i < allClassIds.length; i += CHUNK) {
-    const chunk = allClassIds.slice(i, i + CHUNK);
-    const usersSnap = await adminDb
-      .collection('users')
-      .where('classId', 'in', chunk)
-      .where('role', '==', 'student')
-      .get();
-    usersSnap.docs.forEach((d) => {
-      const data = d.data();
-      studentMap.set(d.id, {
-        uid: d.id,
-        displayName: (data.displayName as string) ?? '',
-        email: (data.email as string) ?? '',
-        classId: data.classId as string,
-      });
-    });
-  }
+  for (const s of await getStudentsInClasses(allClassIds)) studentMap.set(s.uid, s);
 
   // 4. Fetch submissions for all assignments (chunked by 30)
   const assignmentIds = assignments.map((a) => a.id);

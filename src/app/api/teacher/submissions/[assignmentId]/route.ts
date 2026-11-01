@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { adminAuth, adminDb } from '@/lib/firebase/admin';
 import { cookies } from 'next/headers';
 import { trackReads, flushReadsIfDue } from '@/lib/read-tracker';
+import { getStudentsInClasses } from '@/lib/students-cache';
 
 async function getTeacherUid(): Promise<string | null> {
   try {
@@ -47,22 +48,12 @@ export async function GET(
     if (cid) submittedPerClass.set(cid, (submittedPerClass.get(cid) ?? 0) + 1);
   });
 
-  // Get total enrolled students per class from users collection
+  // Total enrolled students per class + emails — from the shared cached roster
+  // (no per-request student reads).
   const totalPerClass = new Map<string, number>();
-  const CHUNK = 10;
-  for (let i = 0; i < classIds.length; i += CHUNK) {
-    const chunk = classIds.slice(i, i + CHUNK);
-    const usersSnap = await adminDb
-      .collection('users')
-      .where('classId', 'in', chunk)
-      .where('role', '==', 'student')
-      .get();
-    usersSnap.docs.forEach((d) => {
-      const cid = d.data().classId as string;
-      totalPerClass.set(cid, (totalPerClass.get(cid) ?? 0) + 1);
-      const email = d.data().email as string | undefined;
-      if (email) emailByUid.set(d.id, email);
-    });
+  for (const st of await getStudentsInClasses(classIds)) {
+    totalPerClass.set(st.classId, (totalPerClass.get(st.classId) ?? 0) + 1);
+    if (st.email) emailByUid.set(st.uid, st.email);
   }
 
   // Attach each submitter's email (for PDF export: รหัสประจำตัว = ส่วนหน้าอีเมล)
@@ -74,9 +65,8 @@ export async function GET(
     total: totalPerClass.get(cid) ?? 0,
   }));
 
-  // 1 user + assignment + submissions + class-student counts
-  const studentCountReads = Array.from(totalPerClass.values()).reduce((a, b) => a + b, 0);
-  trackReads(uid, 2 + submissionsSnap.size + studentCountReads);
+  // assignment + submissions (students come from the shared cache → not counted)
+  trackReads(uid, 2 + submissionsSnap.size);
   await flushReadsIfDue();
 
   return NextResponse.json({

@@ -21,6 +21,7 @@ export function invalidateLeaderboards(): void {
   // Teacher stat pages (scan submissions / users)
   invalidatePrefix('submission-stats:');
   invalidatePrefix('gradebook:');
+  invalidatePrefix('grades:');
   invalidatePrefix('overview:');
   invalidatePrefix('students:');
   invalidatePrefix('analytics:');

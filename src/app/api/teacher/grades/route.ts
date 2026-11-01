@@ -2,6 +2,8 @@ import { NextRequest, NextResponse } from 'next/server';
 import { adminAuth, adminDb } from '@/lib/firebase/admin';
 import { cookies } from 'next/headers';
 import { parseTerm } from '@/lib/term';
+import { getStudentsInClasses } from '@/lib/students-cache';
+import { cachedGlobal, invalidatePrefix } from '@/lib/server-cache';
 
 async function getTeacherUid(): Promise<string | null> {
   try {
@@ -75,6 +77,7 @@ export async function GET(req: NextRequest) {
   const termSel = parseTerm(termStr);
   const key = docKey(subjectId, termStr);
 
+  const result = await cachedGlobal(`grades:${uid}:${key}`, 45_000, async () => {
   // Config + saved manual scores.
   const [configSnap, scoresSnap] = await Promise.all([
     adminDb.collection('gradeConfigs').doc(`${uid}__${key}`).get(),
@@ -108,27 +111,8 @@ export async function GET(req: NextRequest) {
 
   const allClassIds = Array.from(new Set(assignments.flatMap((a) => (a.classIds as string[]) ?? [])));
 
-  // Students in those classes.
-  const students: Array<{ uid: string; displayName: string; email: string; classId: string }> = [];
-  const CHUNK = 10;
-  for (let i = 0; i < allClassIds.length; i += CHUNK) {
-    const chunk = allClassIds.slice(i, i + CHUNK);
-    if (chunk.length === 0) break;
-    const usersSnap = await adminDb
-      .collection('users')
-      .where('classId', 'in', chunk)
-      .where('role', '==', 'student')
-      .get();
-    usersSnap.docs.forEach((d) => {
-      const data = d.data();
-      students.push({
-        uid: d.id,
-        displayName: (data.displayName as string) ?? '',
-        email: (data.email as string) ?? '',
-        classId: (data.classId as string) ?? '',
-      });
-    });
-  }
+  // Students in those classes — from the shared cached roster (no per-call read).
+  const students = await getStudentsInClasses(allClassIds);
 
   // Reviewed submissions: studentId → assignmentId → score.
   const assignmentIds = assignments.map((a) => a.id);
@@ -210,11 +194,13 @@ export async function GET(req: NextRequest) {
     }))
     .sort((x, y) => x.title.localeCompare(y.title, 'th'));
 
-  return NextResponse.json({
-    units, exam, midtermAssignments, finalAssignments,
-    fullMarks: fullMarks(units, exam), unitMatched,
-    assignments: assignmentList, students: rows,
+    return {
+      units, exam, midtermAssignments, finalAssignments,
+      fullMarks: fullMarks(units, exam), unitMatched,
+      assignments: assignmentList, students: rows,
+    };
   });
+  return NextResponse.json(result);
 }
 
 // ── PUT: save the unit config ────────────────────────────────────────────────────
@@ -251,6 +237,7 @@ export async function PUT(req: NextRequest) {
 
   await adminDb.collection('gradeConfigs').doc(`${uid}__${docKey(subjectId, termStr)}`)
     .set({ units: clean, midterm: exam.midterm, final: exam.final, midtermAssignments, finalAssignments }, { merge: true });
+  invalidatePrefix(`grades:${uid}:`);
   return NextResponse.json({ ok: true, units: clean, exam, midtermAssignments, finalAssignments, fullMarks: total });
 }
 
@@ -289,6 +276,7 @@ export async function POST(req: NextRequest) {
 
   await adminDb.collection('gradeScores').doc(`${uid}__${docKey(subjectId, termStr)}`)
     .set({ scores: clean, exams: cleanExams }, { merge: false });
+  invalidatePrefix(`grades:${uid}:`);
   return NextResponse.json({ ok: true });
 }
 

@@ -4,6 +4,7 @@ import { cookies } from 'next/headers';
 import { trackReads, flushReadsIfDue } from '@/lib/read-tracker';
 import { cachedGlobal } from '@/lib/server-cache';
 import { parseTerm } from '@/lib/term';
+import { getStudentsInClasses } from '@/lib/students-cache';
 
 const STATS_TTL = 120_000; // 2 min; invalidated on submit/grade
 
@@ -104,18 +105,11 @@ async function computeStats(uid: string, subjectId: string | null, assignmentId:
   // Collect all unique classIds
   const allClassIds = [...new Set(targetAssignments.flatMap(a => a.classIds))];
 
-  // Fetch students across all classes — chunked (Firestore 'in' limit = 10)
-  const studentDocs = await queryInChunks(
-    adminDb.collection('users') as unknown as FirebaseFirestore.CollectionReference,
-    'classId',
-    allClassIds,
-    q => q.where('role', '==', 'student')
-  );
-
-  const students = studentDocs.map(d => ({
-    uid: d.id,
-    name: (d.data().displayName as string) ?? '',
-    classId: (d.data().classId as string) ?? '',
+  // Students across all classes — from the shared cached roster (no per-call read)
+  const students = (await getStudentsInClasses(allClassIds)).map(s => ({
+    uid: s.uid,
+    name: s.displayName,
+    classId: s.classId,
   }));
 
   // Fetch all submissions for target assignments — chunked
@@ -136,7 +130,8 @@ async function computeStats(uid: string, subjectId: string | null, assignmentId:
   });
 
   // 1 user doc + subjects + assignments + students + submissions
-  trackReads(uid, 1 + subjectsSnap.size + assignmentsSnap.size + studentDocs.length + submissionDocs.length);
+  // students come from the shared cache → not counted here
+  trackReads(uid, 1 + subjectsSnap.size + assignmentsSnap.size + submissionDocs.length);
   await flushReadsIfDue();
 
   const stats: AssignmentStat[] = targetAssignments.map(a => {
