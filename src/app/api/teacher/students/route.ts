@@ -98,9 +98,12 @@ async function computeStudents(uid: string, subjectId: string | null, term: stri
     });
   }
 
-  // Lookup email from users collection for each studentId
+  // Look up the live user doc for each submitter. A student is only CURRENTLY
+  // enrolled if their user doc still exists, is a student, and has a classId.
+  // Students who were deleted or wiped on a term/year reset keep their
+  // submissions (history for admin) but must drop off this progress roster.
   const studentIds = Array.from(studentMap.keys());
-  const emailMap = new Map<string, string>();
+  const userInfo = new Map<string, { email: string; classId: string }>();
   for (let i = 0; i < studentIds.length; i += CHUNK) {
     const chunk = studentIds.slice(i, i + CHUNK);
     const usersSnap = await adminDb
@@ -108,33 +111,40 @@ async function computeStudents(uid: string, subjectId: string | null, term: stri
       .where('__name__', 'in', chunk)
       .get();
     usersSnap.docs.forEach((d) => {
-      const email = (d.data().email as string) ?? '';
-      if (email) emailMap.set(d.id, email);
+      const data = d.data();
+      if (data.role !== 'student') return;
+      const classId = (data.classId as string) ?? '';
+      if (!classId) return; // wiped / unassigned — not on the current roster
+      userInfo.set(d.id, { email: (data.email as string) ?? '', classId });
     });
   }
 
-  const result = Array.from(studentMap.values()).map((s) => {
-    const totalForClass = assignmentsPerClass.get(s.classId) ?? assignmentIds.length;
-    const avgScore = s.scores.length > 0
-      ? Math.round(s.scores.reduce((a, b) => a + b, 0) / s.scores.length)
-      : null;
-    return {
-      studentId: s.studentId,
-      studentName: s.studentName,
-      email: emailMap.get(s.studentId) ?? '',
-      classId: s.classId,
-      submittedCount: s.submittedCount,
-      totalAssignments: totalForClass,
-      avgScore,
-      tabSwitchTotal: s.tabSwitchTotal,
-      scores: s.scores,
-      // aliases for export-report compatibility
-      uid: s.studentId,
-      displayName: s.studentName,
-      submitted: s.submittedCount,
-      graded: s.scores.length,
-    };
-  });
+  const result = Array.from(studentMap.values())
+    .filter((s) => userInfo.has(s.studentId))
+    .map((s) => {
+      const info = userInfo.get(s.studentId)!;
+      const classId = info.classId; // current class, not the one stored on old submissions
+      const totalForClass = assignmentsPerClass.get(classId) ?? assignmentIds.length;
+      const avgScore = s.scores.length > 0
+        ? Math.round(s.scores.reduce((a, b) => a + b, 0) / s.scores.length)
+        : null;
+      return {
+        studentId: s.studentId,
+        studentName: s.studentName,
+        email: info.email,
+        classId,
+        submittedCount: s.submittedCount,
+        totalAssignments: totalForClass,
+        avgScore,
+        tabSwitchTotal: s.tabSwitchTotal,
+        scores: s.scores,
+        // aliases for export-report compatibility
+        uid: s.studentId,
+        displayName: s.studentName,
+        submitted: s.submittedCount,
+        graded: s.scores.length,
+      };
+    });
 
   result.sort((a, b) => a.classId.localeCompare(b.classId) || a.studentName.localeCompare(b.studentName));
 
