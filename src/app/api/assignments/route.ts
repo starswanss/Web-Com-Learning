@@ -47,7 +47,8 @@ export async function POST(req: NextRequest) {
   const title = formData.get('title') as string;
   const description = formData.get('description') as string;
   const dueDate = formData.get('dueDate') as string;
-  const classIds = JSON.parse(formData.get('classIds') as string) as string[];
+  const classIdsRaw = formData.get('classIds') as string | null;
+  let classIds: string[] = classIdsRaw ? (JSON.parse(classIdsRaw) as string[]) : [];
   const file = formData.get('file') as File | null;
   const blocksRaw = formData.get('blocks') as string | null;
   const blocks = blocksRaw ? JSON.parse(blocksRaw) : [];
@@ -64,11 +65,20 @@ export async function POST(req: NextRequest) {
   const groupSize = groupSizeRaw ? parseInt(groupSizeRaw, 10) : null;
   const attitudeMaxRaw = formData.get('attitudeMax') as string | null;
   const attitudeMax = attitudeMaxRaw ? Math.max(0, parseInt(attitudeMaxRaw, 10) || 0) : null;
-  // dueDate is required only for worksheet; quiz/knowledge can omit it
-  const dueDateRequired = contentType === 'worksheet';
 
-  if (!title || (dueDateRequired && !dueDate) || !classIds.length) {
-    return NextResponse.json({ error: 'Missing required fields' }, { status: 400 });
+  // Classes are no longer chosen by the teacher: an assignment goes to EVERY
+  // class in its subject (students in the subject all see it; their class is
+  // recorded automatically when they submit). Derive from the subject here.
+  if (classIds.length === 0 && subjectId) {
+    const subjSnap = await adminDb.collection('subjects').doc(subjectId).get();
+    if (subjSnap.exists && subjSnap.data()?.teacherId === uid) {
+      classIds = (subjSnap.data()?.classIds as string[]) ?? [];
+    }
+  }
+
+  // Title + subject required; due date is now optional for every type.
+  if (!title || !subjectId || classIds.length === 0) {
+    return NextResponse.json({ error: 'กรุณาเลือกวิชา และตั้งชื่องาน (วิชานี้ต้องมีห้องอย่างน้อย 1 ห้อง)' }, { status: 400 });
   }
 
   let fileUrl: string | undefined;

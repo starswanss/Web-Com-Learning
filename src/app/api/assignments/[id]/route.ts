@@ -59,8 +59,9 @@ export async function PATCH(
   const attMaxRaw = formData.get('attitudeMax') as string | null;
   const attitudeMax = attMaxRaw !== null ? (attMaxRaw ? Math.max(0, parseInt(attMaxRaw, 10) || 0) : null) : (snap.data()?.attitudeMax ?? null);
 
-  const dueDateRequired = contentType === 'worksheet';
-  if (!title || (dueDateRequired && !dueDate) || !classIds.length) {
+  // Due date is now optional for every type; classes are kept from the existing
+  // assignment (teacher no longer picks them).
+  if (!title || !classIds.length) {
     return NextResponse.json({ error: 'Missing required fields' }, { status: 400 });
   }
 

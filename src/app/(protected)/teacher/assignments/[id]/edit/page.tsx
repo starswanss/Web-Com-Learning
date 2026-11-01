@@ -5,7 +5,7 @@ import { useRouter } from 'next/navigation';
 import { useAuth } from '@/context/AuthContext';
 import Link from 'next/link';
 import {
-  ALL_CLASSES, makeBlock, groupBlocks, BLOCK_LABELS, BlockCard,
+  makeBlock, groupBlocks, BLOCK_LABELS, BlockCard,
   type FormBlock, type BlockType,
 } from '../../_builder';
 import { CONTENT_TYPE_LABELS, type ContentType } from '@/types';
@@ -59,12 +59,6 @@ export default function EditAssignmentPage({ params }: { params: Promise<{ id: s
       .finally(() => setFetching(false));
   }, [profile, id]);
 
-  function toggleClass(cls: string) {
-    setSelectedClasses((p) => p.includes(cls) ? p.filter((c) => c !== cls) : [...p, cls]);
-  }
-  function toggleAll() {
-    setSelectedClasses((p) => p.length === ALL_CLASSES.length ? [] : [...ALL_CLASSES]);
-  }
   function addBlock(type: BlockType) { setBlocks((p) => [...p, makeBlock(type)]); }
   function updateBlock(id: string, updated: FormBlock) { setBlocks((p) => p.map((b) => b.id === id ? updated : b)); }
   function moveBlock(index: number, dir: -1 | 1) {
@@ -83,8 +77,6 @@ export default function EditAssignmentPage({ params }: { params: Promise<{ id: s
     e.preventDefault();
     setError(null);
     if (!title.trim()) return setError('กรุณากรอกชื่อใบงาน');
-    if (contentType === 'worksheet' && !dueDate) return setError('กรุณาเลือกวันกำหนดส่ง');
-    if (selectedClasses.length === 0) return setError('กรุณาเลือกห้องอย่างน้อย 1 ห้อง');
 
     setSubmitting(true);
     try {
@@ -139,41 +131,14 @@ export default function EditAssignmentPage({ params }: { params: Promise<{ id: s
                   placeholder="เช่น ใบงานที่ 1 — อัลกอริทึม" className="input" />
               </div>
 
-              {contentType === 'worksheet' && (
-                <div>
-                  <label className="mb-1.5 block text-sm font-medium text-slate-300">วันกำหนดส่ง *</label>
-                  <input type="datetime-local" value={dueDate} onChange={(e) => setDueDate(e.target.value)} className="input" />
-                </div>
-              )}
               {contentType === 'quiz' && (
                 <div className="rounded-xl border border-purple-800 bg-purple-950/20 px-4 py-3 text-sm text-purple-300">
-                  ⏸ แบบทดสอบเปิด/ปิดจากหน้าหลัก — ไม่มีวันกำหนดส่ง
-                </div>
-              )}
-              {contentType === 'knowledge' && (
-                <div>
-                  <label className="mb-1.5 block text-sm font-medium text-slate-300">วันกำหนดส่ง (ไม่บังคับ)</label>
-                  <input type="datetime-local" value={dueDate} onChange={(e) => setDueDate(e.target.value)} className="input" />
+                  ⏸ แบบทดสอบเปิด/ปิดจากหน้าหลัก
                 </div>
               )}
 
-              <div>
-                <div className="mb-2 flex items-center justify-between">
-                  <label className="text-sm font-medium text-slate-300">ห้องที่มอบหมาย *</label>
-                  <button type="button" onClick={toggleAll} className="text-xs text-blue-400 hover:text-blue-300">
-                    {selectedClasses.length === ALL_CLASSES.length ? 'ยกเลิกทั้งหมด' : 'เลือกทั้งหมด'}
-                  </button>
-                </div>
-                <div className="grid grid-cols-3 gap-2 sm:grid-cols-6">
-                  {ALL_CLASSES.map((cls) => (
-                    <button key={cls} type="button" onClick={() => toggleClass(cls)}
-                      className={`rounded-xl border py-2.5 text-xs font-medium transition-all ${
-                        selectedClasses.includes(cls)
-                          ? 'border-blue-500 bg-blue-500/10 text-blue-400'
-                          : 'border-slate-700 bg-slate-900 text-slate-400 hover:border-slate-600'
-                      }`}>{cls}</button>
-                  ))}
-                </div>
+              <div className="rounded-xl border border-blue-900/50 bg-blue-950/20 px-4 py-3 text-xs text-blue-300">
+                👥 งานนี้มอบให้<strong> ทุกห้องในวิชา</strong> ({selectedClasses.length} ห้อง) — นักเรียนส่งแล้วแยกตามห้องอัตโนมัติ
               </div>
 
               <div className="grid gap-4 sm:grid-cols-2">
