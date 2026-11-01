@@ -50,6 +50,31 @@ export async function POST(req: NextRequest) {
   return NextResponse.json({ id: ref.id }, { status: 201 });
 }
 
+export async function PATCH(req: NextRequest) {
+  const uid = await getTeacherUid();
+  if (!uid) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+
+  const { id, name, classIds } = await req.json();
+  if (!id) return NextResponse.json({ error: 'Missing id' }, { status: 400 });
+  if (!name?.trim() || !Array.isArray(classIds) || classIds.length === 0) {
+    return NextResponse.json({ error: 'Missing name or classIds' }, { status: 400 });
+  }
+
+  const ref = adminDb.collection('subjects').doc(id);
+  const snap = await ref.get();
+  if (!snap.exists || snap.data()?.teacherId !== uid) {
+    return NextResponse.json({ error: 'Not found' }, { status: 404 });
+  }
+
+  await ref.update({
+    name: name.trim(),
+    classIds,
+    updatedAt: FieldValue.serverTimestamp(),
+  });
+
+  return NextResponse.json({ ok: true });
+}
+
 export async function DELETE(req: NextRequest) {
   const uid = await getTeacherUid();
   if (!uid) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
