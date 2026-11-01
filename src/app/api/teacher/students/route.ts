@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { adminAuth, adminDb } from '@/lib/firebase/admin';
 import { cookies } from 'next/headers';
 import { cachedGlobal } from '@/lib/server-cache';
+import { filterByTerm } from '@/lib/term';
 
 const STATS_TTL = 120_000; // 2 min; invalidated on submit/grade
 
@@ -25,33 +26,35 @@ export async function GET(req: NextRequest) {
 
   const { searchParams } = new URL(req.url);
   const subjectId = searchParams.get('subject');
+  const term = searchParams.get('term');
 
   const result = await cachedGlobal(
-    `students:${uid}:${subjectId ?? 'all'}`,
+    `students:${uid}:${subjectId ?? 'all'}:${term ?? 'all'}`,
     STATS_TTL,
-    () => computeStudents(uid, subjectId),
+    () => computeStudents(uid, subjectId, term),
   );
   return NextResponse.json(result);
 }
 
-async function computeStudents(uid: string, subjectId: string | null) {
+async function computeStudents(uid: string, subjectId: string | null, term: string | null) {
   const base = adminDb.collection('assignments').where('teacherId', '==', uid);
-  const assignmentsSnap = subjectId
+  const snap = subjectId
     ? await base.where('subjectId', '==', subjectId).get()
     : await base.get();
 
-  if (assignmentsSnap.empty) return [];
+  // Keep only the chosen term's assignments so the roster reflects who was
+  // active that term — students who only submitted in other terms drop off.
+  const assignmentDocs = filterByTerm(
+    snap.docs.map((d) => ({ _doc: d, academicYear: d.data().academicYear as number | undefined, term: d.data().term as number | undefined })),
+    term,
+  ).map((x) => x._doc);
 
-  const assignmentIds = assignmentsSnap.docs.map((d) => d.id);
+  if (assignmentDocs.length === 0) return [];
 
-  const allClassIds = new Set<string>();
-  assignmentsSnap.docs.forEach((d) => {
-    const cids = d.data().classIds as string[] | undefined;
-    if (cids) cids.forEach((c) => allClassIds.add(c));
-  });
+  const assignmentIds = assignmentDocs.map((d) => d.id);
 
   const assignmentsPerClass = new Map<string, number>();
-  assignmentsSnap.docs.forEach((d) => {
+  assignmentDocs.forEach((d) => {
     const cids = d.data().classIds as string[] | undefined;
     if (!cids) return;
     cids.forEach((c) => assignmentsPerClass.set(c, (assignmentsPerClass.get(c) ?? 0) + 1));

@@ -3,6 +3,7 @@
 import { useEffect, useState } from 'react';
 import { useAuth } from '@/context/AuthContext';
 import Link from 'next/link';
+import TermSelect from '@/components/TermSelect';
 
 interface StudentStat {
   studentId: string;
@@ -65,20 +66,25 @@ export default function TeacherStudentsPage() {
   const [fetching, setFetching] = useState(true);
   const [subject, setSubject] = useState<{ id: string; name: string } | null>(null);
   const [classFilter, setClassFilter] = useState('');
+  const [term, setTerm] = useState<string | undefined>(undefined);
   const [parentLinkState, setParentLinkState] = useState<{ studentId: string; url: string } | null>(null);
   const [generatingLink, setGeneratingLink] = useState<string | null>(null);
 
   useEffect(() => {
     if (profile?.role !== 'teacher') return;
+    if (term === undefined) return; // wait for TermSelect to resolve the default
     const saved = localStorage.getItem('lms_subject');
     const sub = saved ? JSON.parse(saved) : null;
     setSubject(sub);
-    const url = sub ? `/api/teacher/students?subject=${sub.id}` : '/api/teacher/students';
-    fetch(url)
+    setFetching(true);
+    const qs = new URLSearchParams();
+    if (sub) qs.set('subject', sub.id);
+    if (term) qs.set('term', term);
+    fetch(`/api/teacher/students?${qs}`)
       .then((r) => r.json())
       .then((data) => setStudents(Array.isArray(data) ? data : []))
       .finally(() => setFetching(false));
-  }, [profile]);
+  }, [profile, term]);
 
   async function generateParentLink(studentId: string) {
     setGeneratingLink(studentId);
@@ -117,6 +123,7 @@ export default function TeacherStudentsPage() {
               {subject && <p className="text-xs text-slate-500">{subject.name}</p>}
             </div>
           </div>
+          <TermSelect value={term} onChange={setTerm} />
         </div>
       </header>
 
