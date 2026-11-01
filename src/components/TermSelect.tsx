@@ -7,11 +7,10 @@ import { useEffect, useState } from 'react';
  * for ทุกเทอม). When the page passes `value === undefined`, this resolves a
  * default once and reports it via `onChange`.
  *
- * The DEFAULT follows the system's active term (set in Admin): every menu shows
- * the current term unless the teacher has manually picked another term WHILE on
- * the same active term. The saved pick is stored together with the active term
- * it was made against; once Admin changes the active term, the stale pick is
- * dropped and all menus snap to the new current term.
+ * The DEFAULT is "ทุกเทอม" (all terms) so no menu ever hides work — assignments
+ * belong to a subject and carry across terms/years. The teacher can still pick a
+ * specific term to narrow a report; that pick is remembered until Admin changes
+ * the active term, at which point it resets back to "all".
  */
 const CUR_KEY = 'lms_term';
 
@@ -38,9 +37,9 @@ export default function TermSelect({
         setTerms(list);
         setCurrent(cur);
         if (value === undefined) {
-          // Default = the system's current term (if it has data); a saved pick
-          // only sticks while the active term hasn't changed since.
-          let init = cur && list.includes(cur) ? cur : '';
+          // Default = ทุกเทอม (''); a saved pick only sticks while the active
+          // term hasn't changed since it was made.
+          let init = '';
           try {
             const raw = localStorage.getItem(CUR_KEY);
             if (raw) {
