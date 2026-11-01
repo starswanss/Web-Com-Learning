@@ -63,14 +63,6 @@ function dueDateColor(s: number) {
   if (d < 7)   return 'bg-amber-400';
   return 'bg-emerald-500';
 }
-function dueDateStatus(s: number) {
-  const diff = s * 1000 - Date.now(); const d = diff / 86400000;
-  if (diff < 0) return { dot: 'bg-red-600',    text: 'text-red-500',    label: 'เกินกำหนด' };
-  if (d < 1)    return { dot: 'bg-red-500',    text: 'text-red-400',    label: 'วันนี้!' };
-  if (d < 3)    return { dot: 'bg-orange-500', text: 'text-orange-400', label: `${Math.ceil(d)} วัน` };
-  if (d < 7)    return { dot: 'bg-amber-400',  text: 'text-amber-400',  label: `${Math.ceil(d)} วัน` };
-  return         { dot: 'bg-emerald-500', text: 'text-emerald-400', label: `${Math.ceil(d)} วัน` };
-}
 function todayDayIndex() {
   const d = new Date().getDay();
   return (d === 0 || d === 6) ? 0 : d - 1;
@@ -505,9 +497,6 @@ function AssignmentRow({
   stat?: { total: number; submitted: number; notSubmitted: Array<{ uid: string; name: string; classId: string }> };
 }) {
   const [showMissing, setShowMissing] = useState(false);
-  const due = a.dueDate?._seconds;
-  const dueStr = due ? new Date(due*1000).toLocaleDateString('th-TH',{day:'numeric',month:'short'}) : null;
-  const status = due ? dueDateStatus(due) : null;
   const isQuiz = a.contentType === 'quiz';
   const isKnowledge = a.contentType === 'knowledge';
 
@@ -532,18 +521,6 @@ function AssignmentRow({
               {a.isOpen ? (isQuiz ? 'เปิดสอบอยู่' : 'เปิดอยู่') : 'ปิดอยู่'}
             </span>
           )}
-          {status && dueStr && (
-            <span className={`flex items-center gap-1 text-[10px] ${status.text}`}>
-              <span className={`h-1.5 w-1.5 rounded-full ${status.dot}`}/>
-              ส่ง {dueStr} · {status.label}
-            </span>
-          )}
-          <div className="flex flex-wrap gap-1">
-            {a.classIds.slice(0,4).map(c => (
-              <span key={c} className="rounded-full border border-slate-700/60 bg-slate-800/60 px-1.5 py-0.5 text-[9px] text-slate-400">{c}</span>
-            ))}
-            {a.classIds.length > 4 && <span className="text-[9px] text-slate-600">+{a.classIds.length-4}</span>}
-          </div>
           {/* Submission stat badge — hidden for knowledge sheets */}
           {!isKnowledge && stat && stat.total > 0 && (
             <button

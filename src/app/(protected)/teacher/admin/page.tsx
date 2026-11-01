@@ -26,6 +26,8 @@ export default function TeacherAdminPage() {
   const [term, setTerm] = useState<1 | 2>(1);
   const [wipeStudents, setWipeStudents] = useState(false);
   const [resetting, setResetting] = useState(false);
+  const [dueClearing, setDueClearing] = useState(false);
+  const [dueResult, setDueResult] = useState<number | null>(null);
 
   // Backfill XP state
   const [bfPreview, setBfPreview] = useState<BackfillResult | null>(null);
@@ -250,6 +252,18 @@ export default function TeacherAdminPage() {
       setKnResult(data); setKnPreview(null);
     } catch (e) { setKnError(e instanceof Error ? e.message : 'เกิดข้อผิดพลาด'); }
     finally { setKnApplying(false); }
+  }
+
+  async function handleClearDue() {
+    if (!confirm('ล้างวันกำหนดส่งออกจากงานเก่าทั้งหมด? (ใบงานยังอยู่ ลบแค่วันที่)')) return;
+    setDueClearing(true); setDueResult(null);
+    try {
+      const res = await fetch('/api/admin/clear-due-dates', { method: 'POST' });
+      const data = await res.json();
+      if (!res.ok) throw new Error();
+      setDueResult(data.cleared ?? 0);
+    } catch { setError('ล้างวันกำหนดส่งไม่สำเร็จ'); }
+    finally { setDueClearing(false); }
   }
 
   async function handleReset() {
@@ -677,6 +691,27 @@ export default function TeacherAdminPage() {
             <div className="rounded-xl border border-amber-800 bg-amber-950/30 px-4 py-3 text-sm text-amber-400">
               ✅ ลบสำเร็จ — {knResult.straySubmissions} รายการ · คืน XP {knResult.xpReversed}
             </div>
+          )}
+        </section>
+
+        {/* Clear due dates on old assignments */}
+        <section className="rounded-2xl border border-slate-800 bg-slate-900 p-6 space-y-4">
+          <div>
+            <h2 className="text-base font-semibold text-slate-200">🗓 ล้างวันกำหนดส่งของงานเก่า</h2>
+            <p className="mt-1 text-sm text-slate-400">
+              ระบบใหม่ไม่ใช้วันกำหนดส่งแล้ว — งานเก่าที่เคยตั้งวันไว้จะยัง<strong className="text-slate-300">แสดงวันเวลาอยู่</strong>
+              กดเพื่อลบวันกำหนดส่งออกจากงานเก่าทั้งหมด (ตัว<strong className="text-slate-300">ใบงานยังอยู่ครบ</strong> ลบแค่วันที่)
+            </p>
+          </div>
+          <button
+            onClick={handleClearDue}
+            disabled={dueClearing}
+            className="rounded-xl border border-slate-600 bg-slate-800 px-5 py-2 text-sm font-medium text-slate-200 hover:border-slate-500 disabled:opacity-50 transition-all"
+          >
+            {dueClearing ? 'กำลังล้าง…' : '🗓 ล้างวันกำหนดส่งทั้งหมด'}
+          </button>
+          {dueResult !== null && (
+            <p className="text-sm text-emerald-400">✅ ล้างวันกำหนดส่งแล้ว {dueResult} งาน</p>
           )}
         </section>
 

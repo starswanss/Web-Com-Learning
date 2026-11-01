@@ -22,16 +22,6 @@ interface AssignmentOverview {
   totalSubmissions: number;
 }
 
-function dueDateStatus(seconds: number): { dot: string; text: string; label: string } {
-  const diff = seconds * 1000 - Date.now();
-  const days = diff / 86400000;
-  if (diff < 0) return { dot: 'bg-red-600', text: 'text-red-500', label: 'เกินกำหนด' };
-  if (days < 1) return { dot: 'bg-red-500', text: 'text-red-400', label: 'วันนี้!' };
-  if (days < 3) return { dot: 'bg-orange-500', text: 'text-orange-400', label: `${Math.ceil(days)} วัน` };
-  if (days < 7) return { dot: 'bg-amber-400', text: 'text-amber-400', label: `${Math.ceil(days)} วัน` };
-  return { dot: 'bg-emerald-500', text: 'text-emerald-400', label: `${Math.ceil(days)} วัน` };
-}
-
 const TYPE_FILTERS: { key: ContentType | 'all'; label: string }[] = [
   { key: 'all', label: 'ทั้งหมด' },
   { key: 'worksheet', label: '📝 ใบงาน' },
@@ -176,11 +166,6 @@ export default function TeacherOverviewPage() {
 
 function OverviewCard({ assignment: a }: { assignment: AssignmentOverview }) {
   const ctMeta = CONTENT_TYPE_LABELS[a.contentType] ?? CONTENT_TYPE_LABELS.worksheet;
-  const due = a.dueDate?._seconds;
-  const dueStr = due
-    ? new Date(due * 1000).toLocaleDateString('th-TH', { day: 'numeric', month: 'long', year: 'numeric' })
-    : '—';
-  const status = due ? dueDateStatus(due) : null;
   const total = a.totalSubmissions;
   const reviewedPct = total > 0 ? Math.round((a.reviewedCount / total) * 100) : 0;
 
@@ -206,25 +191,6 @@ function OverviewCard({ assignment: a }: { assignment: AssignmentOverview }) {
           </div>
 
           <h3 className="font-medium text-slate-100 truncate">{a.title}</h3>
-
-          <div className="mt-1.5 flex flex-wrap items-center gap-x-3 gap-y-1 text-xs">
-            {status && (
-              <span className={`flex items-center gap-1 ${status.text}`}>
-                <span className={`h-1.5 w-1.5 rounded-full ${status.dot}`} />
-                {dueStr} · {status.label}
-              </span>
-            )}
-            <div className="flex flex-wrap gap-1">
-              {a.classIds.slice(0, 4).map((c) => (
-                <span key={c} className="rounded border border-slate-700 bg-slate-800 px-1.5 py-0.5 text-slate-400">
-                  {c}
-                </span>
-              ))}
-              {a.classIds.length > 4 && (
-                <span className="text-slate-500">+{a.classIds.length - 4}</span>
-              )}
-            </div>
-          </div>
 
           {/* Status breakdown */}
           <div className="mt-3 flex flex-wrap items-center gap-x-4 gap-y-1 text-xs">

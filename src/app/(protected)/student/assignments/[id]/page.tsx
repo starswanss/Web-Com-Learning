@@ -399,18 +399,6 @@ export default function SubmissionPage({ params }: { params: Promise<{ id: strin
             {assignment.description && (
               <p className="mt-2 text-sm text-slate-400">{assignment.description}</p>
             )}
-            {assignment.dueDate && (
-              <p className="mt-3 text-xs text-slate-500">
-                กำหนดส่ง:{' '}
-                {new Date(assignment.dueDate._seconds * 1000).toLocaleDateString('th-TH', {
-                  day: 'numeric',
-                  month: 'long',
-                  year: 'numeric',
-                  hour: '2-digit',
-                  minute: '2-digit',
-                })}
-              </p>
-            )}
             {assignment.driveWebViewLink && (
               <a
                 href={assignment.driveWebViewLink}
