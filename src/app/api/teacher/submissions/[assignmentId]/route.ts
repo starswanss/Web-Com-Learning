@@ -88,21 +88,43 @@ export async function GET(
     if (cid) submittedPerClass.set(cid, (submittedPerClass.get(cid) ?? 0) + 1);
   });
 
-  // Total enrolled students per class — from the shared cached roster
-  // (no per-request student reads).
+  // Rooms are driven by where students ACTUALLY are now, not the assignment's
+  // original classIds: an assignment is subject-wide, so the roster is every
+  // room in its subject. (The old classIds often point at rooms no current
+  // student is in, which showed empty "ส่ง 0 คน" chips and hid the real room.)
+  let rosterClassIds = classIds;
+  let subjectRead = 0;
+  const subjectId = assignmentData.subjectId as string | undefined;
+  if (subjectId) {
+    const subjSnap = await adminDb.collection('subjects').doc(subjectId).get();
+    subjectRead = 1;
+    const sc = (subjSnap.exists ? (subjSnap.data()?.classIds as string[]) : []) ?? [];
+    if (sc.length) rosterClassIds = sc;
+  }
+
+  // Enrolled students per class — from the shared cached roster.
   const totalPerClass = new Map<string, number>();
-  for (const st of await getStudentsInClasses(classIds)) {
+  for (const st of await getStudentsInClasses(rosterClassIds)) {
     totalPerClass.set(st.classId, (totalPerClass.get(st.classId) ?? 0) + 1);
   }
 
-  const classStats = classIds.map((cid) => ({
-    classId: cid,
-    submitted: submittedPerClass.get(cid) ?? 0,
-    total: totalPerClass.get(cid) ?? 0,
-  }));
+  // Show a chip for every room that has an enrolled student OR a submission,
+  // sorted by room number (ม.3/9 before ม.3/10).
+  const roomNum = (c: string) => { const m = c.match(/(\d+)\s*$/); return m ? parseInt(m[1], 10) : 999; };
+  const rooms = new Set<string>();
+  totalPerClass.forEach((n, c) => { if (n > 0) rooms.add(c); });
+  submittedPerClass.forEach((_, c) => { if (c) rooms.add(c); });
+  const classStats = Array.from(rooms)
+    .sort((a, b) => roomNum(a) - roomNum(b) || a.localeCompare(b, 'th'))
+    .map((cid) => ({
+      classId: cid,
+      submitted: submittedPerClass.get(cid) ?? 0,
+      total: totalPerClass.get(cid) ?? 0,
+    }));
 
-  // assignment + submissions + submitter user docs (roster totals are cached).
-  trackReads(uid, 2 + submissionsSnap.size + userReads);
+  // assignment + submissions + submitter user docs + optional subject
+  // (roster totals are cached).
+  trackReads(uid, 2 + submissionsSnap.size + userReads + subjectRead);
   await flushReadsIfDue();
 
   return NextResponse.json({
