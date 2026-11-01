@@ -3,6 +3,8 @@ import { adminAuth, adminDb } from '@/lib/firebase/admin';
 import { cookies } from 'next/headers';
 import { FieldValue } from 'firebase-admin/firestore';
 import { ensureYearFolder } from '@/lib/google-drive';
+import { invalidateGlobal } from '@/lib/server-cache';
+import { invalidateLeaderboards } from '@/lib/leaderboard-cache';
 
 async function getTeacherUid(): Promise<string | null> {
   try {
@@ -81,6 +83,11 @@ export async function POST(req: NextRequest) {
     currentTerm: { year: targetYear, term },
     yearFolderDriveId: yearFolderId,
   }, { merge: true });
+
+  // The active term changed — drop the terms list cache and all term-keyed
+  // dashboards so every menu re-reads the new current term immediately.
+  invalidateGlobal(`terms:${uid}`);
+  invalidateLeaderboards();
 
   return NextResponse.json({ reset, year: targetYear, term, wipedStudents: wipeStudents, yearFolderId });
 }

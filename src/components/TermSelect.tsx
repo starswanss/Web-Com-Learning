@@ -5,9 +5,16 @@ import { useEffect, useState } from 'react';
 /**
  * Shared term (เทอม) dropdown. Controlled by `value` (a "YYYY/N" string, or ''
  * for ทุกเทอม). When the page passes `value === undefined`, this resolves a
- * default once — the saved choice (localStorage `lms_term`), else the active
- * term — and reports it via `onChange`. The choice is shared across all menus.
+ * default once and reports it via `onChange`.
+ *
+ * The DEFAULT follows the system's active term (set in Admin): every menu shows
+ * the current term unless the teacher has manually picked another term WHILE on
+ * the same active term. The saved pick is stored together with the active term
+ * it was made against; once Admin changes the active term, the stale pick is
+ * dropped and all menus snap to the new current term.
  */
+const CUR_KEY = 'lms_term';
+
 export default function TermSelect({
   value,
   onChange,
@@ -18,6 +25,7 @@ export default function TermSelect({
   className?: string;
 }) {
   const [terms, setTerms] = useState<string[]>([]);
+  const [current, setCurrent] = useState<string>('');
 
   useEffect(() => {
     let cancelled = false;
@@ -26,15 +34,22 @@ export default function TermSelect({
       .then((d) => {
         if (cancelled) return;
         const list: string[] = Array.isArray(d?.terms) ? d.terms : [];
+        const cur: string = typeof d?.current === 'string' ? d.current : '';
         setTerms(list);
+        setCurrent(cur);
         if (value === undefined) {
-          let init = '';
+          // Default = the system's current term (if it has data); a saved pick
+          // only sticks while the active term hasn't changed since.
+          let init = cur && list.includes(cur) ? cur : '';
           try {
-            const saved = localStorage.getItem('lms_term');
-            if (saved !== null) init = saved; // '' = ทุกเทอม chosen explicitly
-            else if (d?.current && list.includes(d.current)) init = d.current; // default: active term
-          } catch { /* ignore */ }
-          if (init && !list.includes(init)) init = ''; // saved term no longer present
+            const raw = localStorage.getItem(CUR_KEY);
+            if (raw) {
+              const saved = JSON.parse(raw) as { sel?: string; cur?: string };
+              if (saved && saved.cur === cur && (saved.sel === '' || (saved.sel && list.includes(saved.sel)))) {
+                init = saved.sel ?? init;
+              }
+            }
+          } catch { /* ignore malformed / legacy value */ }
           onChange(init);
         }
       })
@@ -44,7 +59,7 @@ export default function TermSelect({
   }, []);
 
   function handle(v: string) {
-    try { localStorage.setItem('lms_term', v); } catch { /* ignore */ }
+    try { localStorage.setItem(CUR_KEY, JSON.stringify({ sel: v, cur: current })); } catch { /* ignore */ }
     onChange(v);
   }
 

@@ -26,14 +26,19 @@ export async function GET() {
       adminDb.collection('assignments').where('teacherId', '==', uid).get(),
       adminDb.collection('system').doc('config').get(),
     ]);
-    const terms = Array.from(new Set(
+    const termSet = new Set(
       assignSnap.docs.map((d) => termKeyOf({ academicYear: d.data().academicYear, term: d.data().term })).filter(Boolean)
-    )).sort((x, y) => y.localeCompare(x, undefined, { numeric: true }));
+    );
 
     const cfg = cfgSnap.exists ? cfgSnap.data() : null;
     const cy = (cfg?.currentTerm?.year as number) ?? (cfg?.academicYear as number) ?? null;
     const ct = (cfg?.currentTerm?.term as number) ?? null;
     const current = cy && ct ? `${cy}/${ct}` : '';
+    // Always expose the active term so menus can default to it right after a
+    // term switch, even before any assignment has been tagged for it.
+    if (current) termSet.add(current);
+    const terms = Array.from(termSet).sort((x, y) => y.localeCompare(x, undefined, { numeric: true }));
+
     const hasUntagged = assignSnap.docs.some((d) => !termKeyOf({ academicYear: d.data().academicYear, term: d.data().term }));
 
     return { current, terms, hasUntagged };
