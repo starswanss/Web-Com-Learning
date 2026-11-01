@@ -19,13 +19,17 @@ async function getTeacherUid(): Promise<string | null> {
 }
 
 export async function GET(
-  _req: NextRequest,
+  req: NextRequest,
   { params }: { params: Promise<{ assignmentId: string }> }
 ) {
   const uid = await getTeacherUid();
   if (!uid) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
 
   const { assignmentId } = await params;
+  // ?all=1 → include submissions from students who have since been wiped on a
+  // term/year reset or deleted (their work is kept as history). Default view
+  // shows only currently-enrolled students.
+  const includeInactive = new URL(req.url).searchParams.get('all') === '1';
 
   const [assignmentSnap, submissionsSnap] = await Promise.all([
     adminDb.collection('assignments').doc(assignmentId).get(),
@@ -66,11 +70,15 @@ export async function GET(
     });
   }
 
+  // Default: only currently-enrolled submitters. With ?all=1: everyone, but
+  // flag the inactive ones and keep their frozen name/class as history.
   const submissions = submissionsRaw
-    .filter((s) => s.studentId && liveInfo.has(s.studentId))
+    .filter((s) => includeInactive || (s.studentId && liveInfo.has(s.studentId)))
     .map((s) => {
-      const info = liveInfo.get(s.studentId!)!;
-      return { ...s, classId: info.classId, studentName: s.studentName || info.displayName, studentEmail: info.email };
+      const info = s.studentId ? liveInfo.get(s.studentId) : undefined;
+      return info
+        ? { ...s, classId: info.classId, studentName: s.studentName || info.displayName, studentEmail: info.email, active: true }
+        : { ...s, active: false };
     });
 
   // Count submissions per class (from the filtered list, so counts match rows).

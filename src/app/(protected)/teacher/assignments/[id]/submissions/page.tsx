@@ -26,6 +26,7 @@ interface Submission {
   status: string;
   submittedAt?: { _seconds: number };
   reviewedAt?: { _seconds: number };
+  active?: boolean; // false = student has since been wiped/deleted (historical)
 }
 
 interface AssignmentBlock {
@@ -367,6 +368,7 @@ export default function SubmissionsPage({ params }: { params: Promise<{ id: stri
   const [batchResult, setBatchResult] = useState<string | null>(null);
   const [deleting, setDeleting] = useState<string | null>(null);
   const [classFilter, setClassFilter] = useState<string | null>(null);
+  const [showInactive, setShowInactive] = useState(false);
   const [viewAll, setViewAll] = useState(false);
 
   // PDF export dialog (signature shows only in the exported report)
@@ -536,7 +538,8 @@ export default function SubmissionsPage({ params }: { params: Promise<{ id: stri
 
   useEffect(() => {
     if (profile?.role !== 'teacher' || !id) return;
-    fetch(`/api/teacher/submissions/${id}`)
+    setFetching(true);
+    fetch(`/api/teacher/submissions/${id}${showInactive ? '?all=1' : ''}`)
       .then((r) => r.json())
       .then((data) => {
         setAssignment(data.assignment ?? null);
@@ -556,7 +559,7 @@ export default function SubmissionsPage({ params }: { params: Promise<{ id: stri
         }
       })
       .finally(() => setFetching(false));
-  }, [profile, id]);
+  }, [profile, id, showInactive]);
 
   function seedKpa(sub: Submission) {
     setQScores(Object.fromEntries(Object.entries(sub.questionScores ?? {}).map(([k, v]) => [k, String(v)])));
@@ -880,6 +883,17 @@ export default function SubmissionsPage({ params }: { params: Promise<{ id: stri
             >
               👁 มุมมองนักเรียน
             </Link>
+            <button
+              onClick={() => setShowInactive((v) => !v)}
+              title="รวมงานของนักเรียนที่ถูกล้างห้อง/ออกจากระบบแล้ว (งานเทอมก่อน)"
+              className={`rounded-lg border px-3 py-1.5 text-xs font-semibold transition-all ${
+                showInactive
+                  ? 'border-amber-600 bg-amber-950/50 text-amber-300'
+                  : 'border-slate-600 bg-slate-800 text-slate-300 hover:border-slate-500'
+              }`}
+            >
+              {showInactive ? '👥 เฉพาะนักเรียนปัจจุบัน' : '🗄 ดูงานเก่า'}
+            </button>
             <button
               onClick={() => setViewAll((v) => !v)}
               className={`rounded-lg border px-3 py-1.5 text-xs font-semibold transition-all ${
@@ -1311,7 +1325,12 @@ function GradeAllRow({
       {/* Student header */}
       <div className="mb-3 flex items-center justify-between gap-3 flex-wrap">
         <div>
-          <p className="font-medium text-slate-100">{sub.studentName}</p>
+          <p className="font-medium text-slate-100">
+            {sub.studentName}
+            {sub.active === false && (
+              <span className="ml-2 rounded-full border border-amber-800/60 bg-amber-950/40 px-1.5 py-0.5 text-[9px] font-bold text-amber-400">เก่า</span>
+            )}
+          </p>
           <p className="text-xs text-slate-500">{sub.classId}</p>
         </div>
         <div className="flex items-center gap-2">
@@ -1435,7 +1454,10 @@ function SubmissionCard({
             {statusLabel(sub.status)}
           </span>
         </div>
-        <p className="mt-0.5 text-xs text-slate-500">{sub.classId}</p>
+        <p className="mt-0.5 text-xs text-slate-500">
+          {sub.classId}
+          {sub.active === false && <span className="ml-1.5 text-amber-500">· เก่า</span>}
+        </p>
         {typeof sub.score === 'number' && (
           <p className={`mt-1 text-xs font-semibold ${sub.score >= 60 ? 'text-emerald-400' : 'text-red-400'}`}>
             {sub.score}/100
