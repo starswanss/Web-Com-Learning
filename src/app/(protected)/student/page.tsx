@@ -65,6 +65,23 @@ function scoreColor(n: number) {
   return 'text-red-400 border-red-800/60 bg-red-950/40';
 }
 
+/** Group items by unit (หน่วย). Units sort by Thai name; items with no unit
+ *  fall into one group that renders last and without a divider header. */
+function groupByUnit<T extends { unit?: string }>(items: T[]): Array<[string, T[]]> {
+  const m = new Map<string, T[]>();
+  items.forEach((it) => {
+    const key = it.unit ?? '';
+    if (!m.has(key)) m.set(key, []);
+    m.get(key)!.push(it);
+  });
+  return Array.from(m.entries()).sort(([a], [b]) => {
+    if (a === b) return 0;
+    if (a === '') return 1; // no-unit group last
+    if (b === '') return -1;
+    return a.localeCompare(b, 'th');
+  });
+}
+
 const MONTH_NAMES_TH = ['มกราคม','กุมภาพันธ์','มีนาคม','เมษายน','พฤษภาคม','มิถุนายน','กรกฎาคม','สิงหาคม','กันยายน','ตุลาคม','พฤศจิกายน','ธันวาคม'];
 const DAY_NAMES_TH   = ['อา','จ','อ','พ','พฤ','ศ','ส'];
 
@@ -152,37 +169,16 @@ export default function StudentPage() {
     .sort((a,b) => a.dueDate!._seconds - b.dueDate!._seconds)
     .slice(0, 6);
 
-  /* ── Content-type + unit groups for pending section ── */
-  const CT_ORDER: ContentType[] = ['knowledge', 'worksheet', 'quiz'];
-  type CtGroup = { ct: ContentType; unitGroups: Map<string, AssignmentWithSubmission[]> };
-  const ctGroups: CtGroup[] = CT_ORDER
-    .map(ct => ({
-      ct,
-      unitGroups: (() => {
-        const m = new Map<string, AssignmentWithSubmission[]>();
-        pending.filter(a => (a.contentType ?? 'worksheet') === ct).forEach(a => {
-          const key = a.unit ?? '';
-          if (!m.has(key)) m.set(key, []);
-          m.get(key)!.push(a);
-        });
-        return m;
-      })(),
-    }))
-    .filter(g => g.unitGroups.size > 0);
-
-  /* ── Unit groups for submitted/graded (flat, no ct split needed) ── */
-  const submittedByUnit = new Map<string, AssignmentWithSubmission[]>();
-  submitted.forEach(a => {
-    const key = a.unit ?? '';
-    if (!submittedByUnit.has(key)) submittedByUnit.set(key, []);
-    submittedByUnit.get(key)!.push(a);
-  });
-  const gradedByUnit = new Map<string, AssignmentWithSubmission[]>();
-  graded.forEach(a => {
-    const key = a.unit ?? '';
-    if (!gradedByUnit.has(key)) gradedByUnit.set(key, []);
-    gradedByUnit.get(key)!.push(a);
-  });
+  /* ── Unit groups — the SAME shape for all three sections so they read
+     consistently. Pending work is ordered soonest-due first (overdue rises to
+     the top of its unit); the content-type is shown as a badge on each row,
+     so no extra content-type nesting is needed. ── */
+  const pendingSorted = [...pending].sort(
+    (a, b) => (a.dueDate?._seconds ?? Infinity) - (b.dueDate?._seconds ?? Infinity),
+  );
+  const pendingGroups   = groupByUnit(pendingSorted);
+  const submittedGroups = groupByUnit(submitted);
+  const gradedGroups    = groupByUnit(graded);
 
   /* ── Score bar color ── */
   const scoreBarColor = avgScore === null ? 'bg-slate-700'
@@ -306,122 +302,21 @@ export default function StudentPage() {
             {/* ══ MAIN CONTENT ══ */}
             <div className="grid gap-5 xl:grid-cols-[1fr_280px]">
 
-              {/* ── LEFT: Assignment Sections ── */}
-              <div className="space-y-4 min-w-0 xl:order-1 order-2">
-
-                {/* Pending */}
-                <section className="overflow-hidden rounded-2xl border border-slate-800/80 bg-slate-900">
-                  <div className="flex items-center gap-3 border-b border-slate-800/80 bg-blue-500/5 px-5 py-3.5">
-                    <div className="h-4 w-0.5 rounded-full bg-blue-500" />
-                    <h2 className="text-sm font-bold uppercase tracking-wide text-blue-400">งานที่ต้องทำ</h2>
-                    <span className="rounded-full bg-slate-800 px-2.5 py-0.5 text-xs font-semibold text-slate-400">{pending.length}</span>
-                  </div>
-
-                  {pending.length === 0 ? (
-                    <div className="flex flex-col items-center justify-center gap-1 py-10">
-                      <span className="text-2xl">🎉</span>
-                      <p className="text-xs text-slate-700">ไม่มีงานค้าง</p>
-                    </div>
-                  ) : (
-                    <div className="divide-y divide-slate-800/50">
-                      {ctGroups.map(({ ct, unitGroups }) => {
-                        const meta = CONTENT_TYPE_LABELS[ct];
-                        const total = Array.from(unitGroups.values()).flat().length;
-                        return (
-                          <div key={ct}>
-                            {/* Content-type header inside the section */}
-                            <div className={`flex items-center gap-2 px-5 py-2.5 ${
-                              ct === 'knowledge' ? 'bg-emerald-500/5' :
-                              ct === 'worksheet'  ? 'bg-blue-500/5'    :
-                                                    'bg-purple-500/5'
-                            }`}>
-                              <span className="text-base">{meta.icon}</span>
-                              <span className={`text-sm font-bold uppercase tracking-wide ${
-                                ct === 'knowledge' ? 'text-emerald-500' :
-                                ct === 'worksheet'  ? 'text-blue-500'    :
-                                                      'text-purple-500'
-                              }`}>{meta.label}</span>
-                              <span className="rounded-full bg-slate-800 px-2 py-0.5 text-[11px] text-slate-500">{total}</span>
-                            </div>
-                            {Array.from(unitGroups.entries()).map(([unit, items]) => (
-                              <div key={unit}>
-                                {unit && (
-                                  <div className="flex items-center gap-3 border-b border-slate-800/40 bg-slate-950/40 px-5 py-2.5">
-                                    <div className={`h-5 w-1 shrink-0 rounded-full ${
-                                      ct === 'knowledge' ? 'bg-emerald-500' :
-                                      ct === 'worksheet'  ? 'bg-blue-500'    :
-                                                            'bg-purple-500'
-                                    }`} />
-                                    <span className="text-sm font-bold text-slate-300">{unit}</span>
-                                    <span className="rounded-full border border-slate-700/60 bg-slate-800/60 px-2 py-0.5 text-xs text-slate-400">
-                                      {items.length} รายการ
-                                    </span>
-                                  </div>
-                                )}
-                                {items.map(a => <AssignmentRow key={a.id} assignment={a} />)}
-                              </div>
-                            ))}
-                          </div>
-                        );
-                      })}
-                    </div>
-                  )}
-                </section>
-
-                {/* Submitted */}
+              {/* ── LEFT: Assignment Sections — the student's work comes first
+                     (on mobile too), in a clear progression รอส่ง → รอตรวจ → ตรวจแล้ว ── */}
+              <div className="space-y-4 min-w-0 xl:order-1 order-1">
+                <Section tone="blue" title="งานที่ต้องทำ" count={pending.length}
+                  groups={pendingGroups} emptyIcon="🎉" emptyText="ไม่มีงานค้าง" />
                 {submitted.length > 0 && (
-                  <section className="overflow-hidden rounded-2xl border border-slate-800/80 bg-slate-900">
-                    <div className="flex items-center gap-3 border-b border-slate-800/80 bg-amber-500/5 px-5 py-3.5">
-                      <div className="h-4 w-0.5 rounded-full bg-amber-400" />
-                      <h2 className="text-sm font-bold uppercase tracking-wide text-amber-400">รอตรวจ</h2>
-                      <span className="rounded-full bg-slate-800 px-2.5 py-0.5 text-xs font-semibold text-slate-400">{submitted.length}</span>
-                    </div>
-                    <div className="divide-y divide-slate-800/50">
-                      {Array.from(submittedByUnit.entries()).map(([unit, items]) => (
-                        <div key={unit}>
-                          {unit && (
-                            <div className="flex items-center gap-3 border-b border-slate-800/40 bg-slate-950/40 px-5 py-2.5">
-                              <div className="h-5 w-1 shrink-0 rounded-full bg-amber-400" />
-                              <span className="text-sm font-bold text-slate-300">{unit}</span>
-                              <span className="rounded-full border border-slate-700/60 bg-slate-800/60 px-2 py-0.5 text-xs text-slate-400">{items.length} รายการ</span>
-                            </div>
-                          )}
-                          {items.map(a => <AssignmentRow key={a.id} assignment={a} />)}
-                        </div>
-                      ))}
-                    </div>
-                  </section>
+                  <Section tone="amber" title="รอตรวจ" count={submitted.length} groups={submittedGroups} />
                 )}
-
-                {/* Graded */}
                 {graded.length > 0 && (
-                  <section className="overflow-hidden rounded-2xl border border-slate-800/80 bg-slate-900">
-                    <div className="flex items-center gap-3 border-b border-slate-800/80 bg-emerald-500/5 px-5 py-3.5">
-                      <div className="h-4 w-0.5 rounded-full bg-emerald-500" />
-                      <h2 className="text-sm font-bold uppercase tracking-wide text-emerald-400">ตรวจแล้ว</h2>
-                      <span className="rounded-full bg-slate-800 px-2.5 py-0.5 text-xs font-semibold text-slate-400">{graded.length}</span>
-                    </div>
-                    <div className="divide-y divide-slate-800/50">
-                      {Array.from(gradedByUnit.entries()).map(([unit, items]) => (
-                        <div key={unit}>
-                          {unit && (
-                            <div className="flex items-center gap-3 border-b border-slate-800/40 bg-slate-950/40 px-5 py-2.5">
-                              <div className="h-5 w-1 shrink-0 rounded-full bg-emerald-500" />
-                              <span className="text-sm font-bold text-slate-300">{unit}</span>
-                              <span className="rounded-full border border-slate-700/60 bg-slate-800/60 px-2 py-0.5 text-xs text-slate-400">{items.length} รายการ</span>
-                            </div>
-                          )}
-                          {items.map(a => <AssignmentRow key={a.id} assignment={a} />)}
-                        </div>
-                      ))}
-                    </div>
-                  </section>
+                  <Section tone="emerald" title="ตรวจแล้ว" count={graded.length} groups={gradedGroups} />
                 )}
-
               </div>
 
               {/* ── RIGHT: Sidebar ── */}
-              <div className="space-y-4 xl:order-2 order-1">
+              <div className="space-y-4 xl:order-2 order-2">
 
                 {/* Profile Card */}
                 <ProfileCard
@@ -679,6 +574,61 @@ function ProfileCard({
         )}
       </div>
     </div>
+  );
+}
+
+/* One assignment section (รอส่ง / รอตรวจ / ตรวจแล้ว). All three share this
+   shape — a colored header + unit-grouped rows — so the page reads as one
+   consistent system instead of three bespoke blocks. */
+const SECTION_STYLE = {
+  blue:    { line: 'bg-blue-500',    headBg: 'bg-blue-500/5',    text: 'text-blue-400',    bar: 'bg-blue-500' },
+  amber:   { line: 'bg-amber-400',   headBg: 'bg-amber-500/5',   text: 'text-amber-400',   bar: 'bg-amber-400' },
+  emerald: { line: 'bg-emerald-500', headBg: 'bg-emerald-500/5', text: 'text-emerald-400', bar: 'bg-emerald-500' },
+} as const;
+
+function Section({
+  tone, title, count, groups, emptyIcon, emptyText,
+}: {
+  tone: keyof typeof SECTION_STYLE;
+  title: string;
+  count: number;
+  groups: Array<[string, AssignmentWithSubmission[]]>;
+  emptyIcon?: string;
+  emptyText?: string;
+}) {
+  const s = SECTION_STYLE[tone];
+  return (
+    <section className="overflow-hidden rounded-2xl border border-slate-800/80 bg-slate-900">
+      <div className={`flex items-center gap-3 border-b border-slate-800/80 px-5 py-3.5 ${s.headBg}`}>
+        <div className={`h-4 w-0.5 rounded-full ${s.line}`} />
+        <h2 className={`text-sm font-bold ${s.text}`}>{title}</h2>
+        <span className="rounded-full bg-slate-800 px-2.5 py-0.5 text-xs font-semibold text-slate-400">{count}</span>
+      </div>
+
+      {count === 0 ? (
+        <div className="flex flex-col items-center justify-center gap-1 py-10">
+          <span className="text-2xl">{emptyIcon ?? '🎉'}</span>
+          <p className="text-xs text-slate-700">{emptyText ?? 'ไม่มีรายการ'}</p>
+        </div>
+      ) : (
+        <div className="divide-y divide-slate-800/50">
+          {groups.map(([unit, items]) => (
+            <div key={unit || '__none__'}>
+              {unit && (
+                <div className="flex items-center gap-3 border-b border-slate-800/40 bg-slate-950/40 px-5 py-2.5">
+                  <div className={`h-5 w-1 shrink-0 rounded-full ${s.bar}`} />
+                  <span className="text-sm font-bold text-slate-300">{unit}</span>
+                  <span className="rounded-full border border-slate-700/60 bg-slate-800/60 px-2 py-0.5 text-xs text-slate-400">
+                    {items.length} รายการ
+                  </span>
+                </div>
+              )}
+              {items.map(a => <AssignmentRow key={a.id} assignment={a} />)}
+            </div>
+          ))}
+        </div>
+      )}
+    </section>
   );
 }
 

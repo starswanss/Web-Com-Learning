@@ -150,9 +150,6 @@ export default function TeacherPage() {
   const totalAssignments = assignments.length;
   const openQuizzes  = assignments.filter(a => a.contentType === 'quiz' && a.isOpen).length;
   const dueThisWeek  = assignments.filter(a => { if (!a.dueDate) return false; const d = a.dueDate._seconds*1000-Date.now(); return d>0 && d<7*86400000; }).length;
-  const knowledgeCount = assignments.filter(a => (a.contentType??'worksheet') === 'knowledge').length;
-  const worksheetCount = assignments.filter(a => (a.contentType??'worksheet') === 'worksheet').length;
-  const quizCount      = assignments.filter(a => (a.contentType??'worksheet') === 'quiz').length;
 
   const today = new Date();
   const firstDay = new Date(calYear, calMonth, 1).getDay();
@@ -182,13 +179,13 @@ export default function TeacherPage() {
     return acc;
   }, {} as Record<ContentType, Assignment[]>);
 
+  // The per-type counts (ใบความรู้/ใบงาน/แบบทดสอบ) already appear on each
+  // section header below, so the top row keeps only the summary + the two
+  // numbers a teacher acts on: what's open and what's due soon.
   const STATS = [
-    { label: 'ทั้งหมด',      value: totalAssignments, color: 'text-slate-100',   line: 'bg-slate-500',   glow: 'from-slate-500/8' },
-    { label: 'ใบความรู้',    value: knowledgeCount,  color: 'text-emerald-300', line: 'bg-emerald-500', glow: 'from-emerald-500/10' },
-    { label: 'ใบงาน',        value: worksheetCount,  color: 'text-blue-300',    line: 'bg-blue-500',    glow: 'from-blue-500/10' },
-    { label: 'แบบทดสอบ',    value: quizCount,       color: 'text-purple-300',  line: 'bg-purple-500',  glow: 'from-purple-500/10' },
-    { label: 'เปิดสอบอยู่', value: openQuizzes,     color: 'text-emerald-300', line: 'bg-emerald-400', glow: 'from-emerald-400/10' },
-    { label: 'ส่งสัปดาห์นี้', value: dueThisWeek,  color: 'text-amber-300',   line: 'bg-amber-400',   glow: 'from-amber-400/10' },
+    { label: 'งานทั้งหมด',    value: totalAssignments, color: 'text-slate-100',   line: 'bg-slate-500',  glow: 'from-slate-500/8' },
+    { label: 'เปิดสอบอยู่',   value: openQuizzes,      color: 'text-emerald-300', line: 'bg-emerald-400', glow: 'from-emerald-400/10' },
+    { label: 'ส่งสัปดาห์นี้', value: dueThisWeek,      color: 'text-amber-300',   line: 'bg-amber-400',   glow: 'from-amber-400/10' },
   ];
 
   return (
@@ -235,7 +232,7 @@ export default function TeacherPage() {
         ) : (
           <>
             {/* ══ STAT CARDS ══ */}
-            <div className="grid grid-cols-3 gap-3 lg:grid-cols-6">
+            <div className="grid grid-cols-3 gap-3">
               {STATS.map(s => (
                 <div key={s.label} className={`relative overflow-hidden rounded-2xl border border-slate-800/80 bg-gradient-to-b ${s.glow} to-slate-900 p-4`}>
                   <div className={`absolute inset-x-0 top-0 h-[2px] ${s.line}`} />
@@ -292,14 +289,15 @@ export default function TeacherPage() {
                 })}
               </div>
 
-              {/* ── RIGHT: Sidebar ── */}
-              <div className="space-y-4">
+              {/* ── RIGHT: Sidebar — ordered by how often it's used day to day:
+                     ตารางสอน (now) → ปฏิทิน (due dates) → Firestore (monitoring) ── */}
+              <div className="flex flex-col gap-4">
 
-                {/* Firestore usage */}
-                <FirestoreUsageCard />
+                {/* Firestore usage — monitoring, so it sits last */}
+                <div className="order-3"><FirestoreUsageCard /></div>
 
                 {/* Calendar */}
-                <div className="overflow-hidden rounded-2xl border border-slate-800/80 bg-slate-900">
+                <div className="order-2 overflow-hidden rounded-2xl border border-slate-800/80 bg-slate-900">
                   <div className="flex items-center justify-between border-b border-slate-800/80 px-5 py-3.5">
                     <h2 className="text-[11px] font-bold uppercase tracking-widest text-slate-400">ปฏิทิน</h2>
                     <div className="flex items-center gap-1">
@@ -378,7 +376,7 @@ export default function TeacherPage() {
                 </div>
 
                 {/* Timetable */}
-                <div className="overflow-hidden rounded-2xl border border-slate-800/80 bg-slate-900">
+                <div className="order-1 overflow-hidden rounded-2xl border border-slate-800/80 bg-slate-900">
                   <div className="flex items-center justify-between border-b border-slate-800/80 px-5 py-3.5">
                     <div>
                       <p className="text-[9px] font-bold uppercase tracking-widest text-slate-600">ตารางสอน</p>
