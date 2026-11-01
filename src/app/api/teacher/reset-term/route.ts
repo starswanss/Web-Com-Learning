@@ -87,6 +87,7 @@ export async function POST(req: NextRequest) {
   // The active term changed — drop the terms list cache and all term-keyed
   // dashboards so every menu re-reads the new current term immediately.
   invalidateGlobal(`terms:${uid}`);
+  invalidateGlobal('currentTerm/key'); // students' dashboard reads this to hide old-term work
   invalidateLeaderboards();
 
   return NextResponse.json({ reset, year: targetYear, term, wipedStudents: wipeStudents, yearFolderId });
