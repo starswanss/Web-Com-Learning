@@ -4,7 +4,6 @@ import { cookies } from 'next/headers';
 import { DEFAULT_SETTINGS, LevelSettings } from '@/lib/xp';
 import { cachedGlobal } from '@/lib/server-cache';
 import { trackReads, flushReadsIfDue } from '@/lib/read-tracker';
-import { filterByTerm } from '@/lib/term';
 
 /**
  * Combined student dashboard payload in ONE round-trip: profile xp, the
@@ -35,9 +34,10 @@ export async function GET(req: NextRequest) {
   const base = adminDb.collection('assignments').where('classIds', 'array-contains', student.classId);
   const assignmentsQuery = subjectId ? base.where('subjectId', '==', subjectId) : base;
 
-  // All independent reads in parallel; level settings + current term come from
-  // the shared cache (usually 0 reads).
-  const [assignmentsSnap, submissionsSnap, medalsSnap, levelSettings, currentTerm] = await Promise.all([
+  // All independent reads in parallel; level settings comes from the shared
+  // cache (usually 0 reads). Assignments belong to the subject and stay visible
+  // across terms/years — they are NOT filtered by term for students.
+  const [assignmentsSnap, submissionsSnap, medalsSnap, levelSettings] = await Promise.all([
     assignmentsQuery.get(),
     adminDb.collection('submissions').where('studentId', '==', student.uid).get(),
     adminDb.collection('bonusPoints').where('studentId', '==', student.uid).limit(20).get(),
@@ -45,28 +45,13 @@ export async function GET(req: NextRequest) {
       const s = await adminDb.doc('levelSettings/global').get();
       return s.exists ? { ...DEFAULT_SETTINGS, ...(s.data() as Partial<LevelSettings>) } : DEFAULT_SETTINGS;
     }),
-    cachedGlobal<string>('currentTerm/key', 60_000, async () => {
-      const s = await adminDb.doc('system/config').get();
-      const ct = s.exists ? s.data()?.currentTerm : null;
-      return ct?.year && ct?.term ? `${ct.year}/${ct.term}` : '';
-    }),
   ]);
 
   const submissionMap = new Map(
     submissionsSnap.docs.map((d) => [d.data().assignmentId as string, { id: d.id, ...d.data() }]),
   );
 
-  // Students only ever see the CURRENT term's work. Once Admin advances the
-  // term, older (and untagged legacy) assignments drop off their dashboard —
-  // teachers/admin can still review past terms. No active term set = show all.
-  const termDocs = currentTerm
-    ? filterByTerm(
-        assignmentsSnap.docs.map((d) => ({ _doc: d, academicYear: d.data().academicYear as number | undefined, term: d.data().term as number | undefined })),
-        currentTerm,
-      ).map((x) => x._doc)
-    : assignmentsSnap.docs;
-
-  const assignments = termDocs
+  const assignments = assignmentsSnap.docs
     .map((d) => ({ id: d.id, ...d.data(), submission: submissionMap.get(d.id) ?? null }))
     .sort((a, b) => {
       const ta = (a as Record<string, unknown> & { dueDate?: { _seconds?: number } }).dueDate?._seconds ?? 0;
