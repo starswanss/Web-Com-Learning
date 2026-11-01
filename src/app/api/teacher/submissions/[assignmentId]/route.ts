@@ -38,26 +38,54 @@ export async function GET(
 
   const assignmentData = assignmentSnap.data()!;
   const classIds: string[] = assignmentData.classIds ?? [];
-  const submissions = submissionsSnap.docs.map((d) => ({ id: d.id, ...d.data() })) as Array<Record<string, unknown> & { studentId?: string; classId?: string; studentEmail?: string }>;
-  const emailByUid = new Map<string, string>();
+  const submissionsRaw = submissionsSnap.docs.map((d) => ({ id: d.id, ...d.data() })) as Array<
+    Record<string, unknown> & { studentId?: string; studentName?: string; classId?: string; studentEmail?: string }
+  >;
 
-  // Count submissions per class
+  // Keep only submissions from CURRENTLY-ENROLLED students: the live user doc
+  // must still exist, be a student, and have a classId. Students wiped on a
+  // term/year reset (or deleted) keep their submissions as history, but must
+  // not linger on the grading list. Use the live class/name/email too, not the
+  // values frozen on the old submission.
+  const submitterIds = Array.from(
+    new Set(submissionsRaw.map((s) => s.studentId).filter((v): v is string => !!v)),
+  );
+  const liveInfo = new Map<string, { classId: string; displayName: string; email: string }>();
+  const CHUNK = 30;
+  let userReads = 0;
+  for (let i = 0; i < submitterIds.length; i += CHUNK) {
+    const chunk = submitterIds.slice(i, i + CHUNK);
+    const usersSnap = await adminDb.collection('users').where('__name__', 'in', chunk).get();
+    userReads += usersSnap.size;
+    usersSnap.docs.forEach((d) => {
+      const data = d.data();
+      if (data.role !== 'student') return;
+      const classId = (data.classId as string) ?? '';
+      if (!classId) return; // wiped / unassigned
+      liveInfo.set(d.id, { classId, displayName: (data.displayName as string) ?? '', email: (data.email as string) ?? '' });
+    });
+  }
+
+  const submissions = submissionsRaw
+    .filter((s) => s.studentId && liveInfo.has(s.studentId))
+    .map((s) => {
+      const info = liveInfo.get(s.studentId!)!;
+      return { ...s, classId: info.classId, studentName: s.studentName || info.displayName, studentEmail: info.email };
+    });
+
+  // Count submissions per class (from the filtered list, so counts match rows).
   const submittedPerClass = new Map<string, number>();
   submissions.forEach((s) => {
-    const cid = (s as { classId?: string }).classId ?? '';
+    const cid = s.classId ?? '';
     if (cid) submittedPerClass.set(cid, (submittedPerClass.get(cid) ?? 0) + 1);
   });
 
-  // Total enrolled students per class + emails — from the shared cached roster
+  // Total enrolled students per class — from the shared cached roster
   // (no per-request student reads).
   const totalPerClass = new Map<string, number>();
   for (const st of await getStudentsInClasses(classIds)) {
     totalPerClass.set(st.classId, (totalPerClass.get(st.classId) ?? 0) + 1);
-    if (st.email) emailByUid.set(st.uid, st.email);
   }
-
-  // Attach each submitter's email (for PDF export: รหัสประจำตัว = ส่วนหน้าอีเมล)
-  submissions.forEach((s) => { if (s.studentId) s.studentEmail = emailByUid.get(s.studentId) ?? ''; });
 
   const classStats = classIds.map((cid) => ({
     classId: cid,
@@ -65,8 +93,8 @@ export async function GET(
     total: totalPerClass.get(cid) ?? 0,
   }));
 
-  // assignment + submissions (students come from the shared cache → not counted)
-  trackReads(uid, 2 + submissionsSnap.size);
+  // assignment + submissions + submitter user docs (roster totals are cached).
+  trackReads(uid, 2 + submissionsSnap.size + userReads);
   await flushReadsIfDue();
 
   return NextResponse.json({
