@@ -31,8 +31,20 @@ export async function GET(req: NextRequest) {
 
   const subjectId = new URL(req.url).searchParams.get('subject');
 
-  const base = adminDb.collection('assignments').where('classIds', 'array-contains', student.classId);
-  const assignmentsQuery = subjectId ? base.where('subjectId', '==', subjectId) : base;
+  // Visibility is by SUBJECT: a student who belongs to a subject sees EVERY
+  // assignment in it (work is subject-wide, not targeted per room). We only fall
+  // back to class-based visibility when no subject is chosen, or when the chosen
+  // subject does not actually include the student's class (stale / not entitled).
+  let assignmentsQuery = adminDb
+    .collection('assignments')
+    .where('classIds', 'array-contains', student.classId) as FirebaseFirestore.Query;
+  if (subjectId) {
+    const subjDoc = await adminDb.collection('subjects').doc(subjectId).get();
+    const subjClasses = (subjDoc.exists ? (subjDoc.data()?.classIds as string[]) : []) ?? [];
+    if (subjClasses.includes(student.classId)) {
+      assignmentsQuery = adminDb.collection('assignments').where('subjectId', '==', subjectId);
+    }
+  }
 
   // All independent reads in parallel; level settings comes from the shared
   // cache (usually 0 reads). Assignments belong to the subject and stay visible
