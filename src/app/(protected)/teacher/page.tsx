@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useState, useCallback } from 'react';
+import { useEffect, useState, useCallback, useRef, type ReactNode } from 'react';
 import { useRouter } from 'next/navigation';
 import { useAuth } from '@/context/AuthContext';
 import Image from 'next/image';
@@ -18,6 +18,8 @@ interface Assignment {
   driveWebViewLink?: string;
   contentType?: ContentType;
   unit?: string;
+  order?: number;
+  createdAt?: { _seconds: number };
   isOpen?: boolean;
   quizPhase?: QuizPhase;
   pairedQuizId?: string;
@@ -66,6 +68,13 @@ function dueDateColor(s: number) {
 function todayDayIndex() {
   const d = new Date().getDay();
   return (d === 0 || d === 6) ? 0 : d - 1;
+}
+/** Manual order (ascending); unordered items fall to the end, newest first. */
+function byOrder(a: Assignment, b: Assignment) {
+  const oa = typeof a.order === 'number' ? a.order : Infinity;
+  const ob = typeof b.order === 'number' ? b.order : Infinity;
+  if (oa !== ob) return oa - ob;
+  return (b.createdAt?._seconds ?? 0) - (a.createdAt?._seconds ?? 0);
 }
 function currentPeriodIndex() {
   const now = new Date(); const t = now.getHours() * 60 + now.getMinutes();
@@ -143,6 +152,21 @@ export default function TeacherPage() {
       if (res.ok) { const { isOpen } = await res.json(); setAssignments(p => p.map(a => a.id === id ? { ...a, isOpen } : a)); }
     } finally { setToggling(null); }
   }
+
+  // Admin drag-reorder: `ids` is one content-type section in its new order.
+  // Write the index back as each item's `order` (optimistic) and persist it so
+  // every student sees the same sequence.
+  const persistOrder = useCallback((ids: string[]) => {
+    setAssignments(prev => prev.map(a => {
+      const idx = ids.indexOf(a.id);
+      return idx >= 0 ? { ...a, order: idx } : a;
+    }));
+    fetch('/api/assignments/reorder', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ ids }),
+    }).catch(() => {});
+  }, []);
 
   if (loading || !profile) return <Spinner />;
 
@@ -250,7 +274,7 @@ export default function TeacherPage() {
                 {SECTION_ORDER.map(ct => {
                   const meta  = CONTENT_TYPE_LABELS[ct];
                   const smeta = SECTION_META[ct];
-                  const items = grouped[ct];
+                  const items = grouped[ct].slice().sort(byOrder);
                   return (
                     <section key={ct} className="overflow-hidden rounded-2xl border border-slate-800/80 bg-slate-900">
                       {/* Section header */}
@@ -270,18 +294,24 @@ export default function TeacherPage() {
                         </Link>
                       </div>
 
-                      {/* Rows — grouped by unit */}
+                      {/* Rows — flat, in the admin's manual order (drag ⠿ to sort) */}
                       {items.length === 0 ? (
                         <div className="flex flex-col items-center justify-center gap-1 py-10">
                           <span className="text-2xl opacity-20">{meta.icon}</span>
                           <p className="text-xs text-slate-700">{smeta.emptyText}</p>
                         </div>
                       ) : (
-                        <UnitGroupedRows
-                          items={items} accentBorder={smeta.accentBorder}
-                          onDelete={handleDelete} onToggleQuiz={handleToggleQuiz}
-                          deleting={deleting} toggling={toggling}
-                          subStats={subStats}
+                        <ReorderableRows
+                          items={items}
+                          onReorder={persistOrder}
+                          renderRow={(a) => (
+                            <AssignmentRow
+                              assignment={a} accentBorder={smeta.accentBorder}
+                              onDelete={handleDelete} onToggleQuiz={handleToggleQuiz}
+                              deleting={deleting === a.id} toggling={toggling === a.id}
+                              stat={subStats.get(a.id)}
+                            />
+                          )}
                         />
                       )}
                     </section>
@@ -426,55 +456,55 @@ export default function TeacherPage() {
 
 /* ═══════════════════════════ SUB-COMPONENTS ═══════════════════════════ */
 
-/* Groups items by unit, shows a sticky unit-divider row */
 type StatMap = Map<string, { total: number; submitted: number; notSubmitted: Array<{ uid: string; name: string; classId: string }> }>;
 
-function UnitGroupedRows({
-  items, accentBorder, onDelete, onToggleQuiz, deleting, toggling, subStats,
+/* A flat, drag-reorderable list. Only the ⠿ handle starts a drag, so the row's
+   own buttons/links keep working; each row is a drop target. On drop we emit
+   the new id order and the parent persists it. */
+function ReorderableRows<T extends { id: string }>({
+  items, onReorder, renderRow,
 }: {
-  items: Assignment[]; accentBorder: string;
-  onDelete: (id: string) => void; onToggleQuiz: (id: string) => void;
-  deleting: string | null; toggling: string | null;
-  subStats: StatMap;
+  items: T[];
+  onReorder: (ids: string[]) => void;
+  renderRow: (item: T) => ReactNode;
 }) {
-  // Stable sort: by unit then by createdAt desc
-  const sorted = [...items].sort((a, b) => {
-    const ua = a.unit ?? '';
-    const ub = b.unit ?? '';
-    if (ua !== ub) return ua.localeCompare(ub, 'th');
-    return 0;
-  });
+  const [order, setOrder] = useState<T[]>(items);
+  useEffect(() => { setOrder(items); }, [items]);
+  const dragFrom = useRef<number | null>(null);
+  const [overIndex, setOverIndex] = useState<number | null>(null);
 
-  const groups: Array<{ unit: string; rows: Assignment[] }> = [];
-  for (const item of sorted) {
-    const key = item.unit ?? '';
-    if (!groups.length || groups[groups.length - 1].unit !== key) {
-      groups.push({ unit: key, rows: [] });
-    }
-    groups[groups.length - 1].rows.push(item);
+  function drop(to: number) {
+    const from = dragFrom.current;
+    dragFrom.current = null;
+    setOverIndex(null);
+    if (from === null || from === to) return;
+    const next = [...order];
+    const [moved] = next.splice(from, 1);
+    next.splice(to, 0, moved);
+    setOrder(next);
+    onReorder(next.map((x) => x.id));
   }
 
   return (
     <div className="divide-y divide-slate-800/50">
-      {groups.map(({ unit, rows }) => (
-        <div key={unit || '__no_unit__'}>
-          {unit && (
-            <div className="flex items-center gap-3 border-b border-slate-800/40 bg-slate-950/40 px-5 py-2.5">
-              <div className={`h-5 w-1 shrink-0 rounded-full ${accentBorder.replace('border-l-','bg-')}`} />
-              <span className="text-[11px] font-bold text-slate-300">{unit}</span>
-              <span className="rounded-full border border-slate-700/60 bg-slate-800/60 px-2 py-0.5 text-[10px] font-semibold text-slate-400">
-                {rows.length} รายการ
-              </span>
-            </div>
-          )}
-          {rows.map(a => (
-            <AssignmentRow
-              key={a.id} assignment={a} accentBorder={accentBorder}
-              onDelete={onDelete} onToggleQuiz={onToggleQuiz}
-              deleting={deleting === a.id} toggling={toggling === a.id}
-              stat={subStats.get(a.id)}
-            />
-          ))}
+      {order.map((item, i) => (
+        <div
+          key={item.id}
+          onDragOver={(e) => { e.preventDefault(); setOverIndex(i); }}
+          onDragLeave={() => setOverIndex((v) => (v === i ? null : v))}
+          onDrop={() => drop(i)}
+          className={`flex items-stretch ${overIndex === i ? 'bg-blue-950/40 ring-1 ring-inset ring-blue-700/50' : ''}`}
+        >
+          <span
+            draggable
+            onDragStart={() => { dragFrom.current = i; }}
+            onDragEnd={() => { dragFrom.current = null; setOverIndex(null); }}
+            title="ลากเพื่อจัดลำดับ"
+            className="flex w-7 shrink-0 cursor-grab select-none items-center justify-center text-base text-slate-700 transition-colors hover:text-slate-400 active:cursor-grabbing"
+          >
+            ⠿
+          </span>
+          <div className="min-w-0 flex-1">{renderRow(item)}</div>
         </div>
       ))}
     </div>
@@ -507,6 +537,11 @@ function AssignmentRow({
       <div className="min-w-0 flex-1">
         <p className="font-medium text-slate-100 truncate">{a.title}</p>
         <div className="mt-1 flex flex-wrap items-center gap-x-2 gap-y-1">
+          {a.unit && (
+            <span className="rounded-md border border-slate-700/60 bg-slate-800/60 px-2 py-0.5 text-[9px] font-semibold text-slate-400">
+              {a.unit}
+            </span>
+          )}
           {isQuiz && a.quizPhase && a.quizPhase !== 'standalone' && (() => {
             const ph = QUIZ_PHASE_LABELS[a.quizPhase];
             return ph ? (

@@ -19,6 +19,8 @@ interface AssignmentWithSubmission {
   driveWebViewLink?: string;
   contentType?: ContentType;
   unit?: string;
+  order?: number;
+  createdAt?: { _seconds: number };
   isOpen?: boolean;
   quizPhase?: QuizPhase;
   pairedQuizId?: string;
@@ -65,21 +67,16 @@ function scoreColor(n: number) {
   return 'text-red-400 border-red-800/60 bg-red-950/40';
 }
 
-/** Group items by unit (หน่วย). Units sort by Thai name; items with no unit
- *  fall into one group that renders last and without a divider header. */
-function groupByUnit<T extends { unit?: string }>(items: T[]): Array<[string, T[]]> {
-  const m = new Map<string, T[]>();
-  items.forEach((it) => {
-    const key = it.unit ?? '';
-    if (!m.has(key)) m.set(key, []);
-    m.get(key)!.push(it);
-  });
-  return Array.from(m.entries()).sort(([a], [b]) => {
-    if (a === b) return 0;
-    if (a === '') return 1; // no-unit group last
-    if (b === '') return -1;
-    return a.localeCompare(b, 'th');
-  });
+/** Sort by the teacher's manual `order` (ascending); items without an order
+ *  fall to the end, newest first. Used to display each content-type section. */
+function byOrder(
+  a: { order?: number; createdAt?: { _seconds: number } },
+  b: { order?: number; createdAt?: { _seconds: number } },
+) {
+  const oa = typeof a.order === 'number' ? a.order : Infinity;
+  const ob = typeof b.order === 'number' ? b.order : Infinity;
+  if (oa !== ob) return oa - ob;
+  return (b.createdAt?._seconds ?? 0) - (a.createdAt?._seconds ?? 0);
 }
 
 const MONTH_NAMES_TH = ['มกราคม','กุมภาพันธ์','มีนาคม','เมษายน','พฤษภาคม','มิถุนายน','กรกฎาคม','สิงหาคม','กันยายน','ตุลาคม','พฤศจิกายน','ธันวาคม'];
@@ -169,16 +166,15 @@ export default function StudentPage() {
     .sort((a,b) => a.dueDate!._seconds - b.dueDate!._seconds)
     .slice(0, 6);
 
-  /* ── Unit groups — the SAME shape for all three sections so they read
-     consistently. Pending work is ordered soonest-due first (overdue rises to
-     the top of its unit); the content-type is shown as a badge on each row,
-     so no extra content-type nesting is needed. ── */
-  const pendingSorted = [...pending].sort(
-    (a, b) => (a.dueDate?._seconds ?? Infinity) - (b.dueDate?._seconds ?? Infinity),
-  );
-  const pendingGroups   = groupByUnit(pendingSorted);
-  const submittedGroups = groupByUnit(submitted);
-  const gradedGroups    = groupByUnit(graded);
+  /* ── Content-type sections — ใบความรู้ / ใบงาน / บททดสอบ are kept strictly
+     separate (never mixed). Within each, items follow the teacher's manual
+     order (`order`); status (รอส่ง/ส่งแล้ว/คะแนน) shows per row and is
+     summarised in the stat cards above. ── */
+  const byType = (ct: ContentType) =>
+    assignments.filter(a => (a.contentType ?? 'worksheet') === ct).sort(byOrder);
+  const knowledgeItems = byType('knowledge');
+  const worksheetItems = byType('worksheet');
+  const quizItems      = byType('quiz');
 
   /* ── Score bar color ── */
   const scoreBarColor = avgScore === null ? 'bg-slate-700'
@@ -302,16 +298,21 @@ export default function StudentPage() {
             {/* ══ MAIN CONTENT ══ */}
             <div className="grid gap-5 xl:grid-cols-[1fr_280px]">
 
-              {/* ── LEFT: Assignment Sections — the student's work comes first
-                     (on mobile too), in a clear progression รอส่ง → รอตรวจ → ตรวจแล้ว ── */}
+              {/* ── LEFT: Assignment Sections — ใบความรู้ / ใบงาน / บททดสอบ,
+                     kept clearly separate, in the teacher's chosen order.
+                     Work comes before the sidebar on mobile too. ── */}
               <div className="space-y-4 min-w-0 xl:order-1 order-1">
-                <Section tone="blue" title="งานที่ต้องทำ" count={pending.length}
-                  groups={pendingGroups} emptyIcon="🎉" emptyText="ไม่มีงานค้าง" />
-                {submitted.length > 0 && (
-                  <Section tone="amber" title="รอตรวจ" count={submitted.length} groups={submittedGroups} />
-                )}
-                {graded.length > 0 && (
-                  <Section tone="emerald" title="ตรวจแล้ว" count={graded.length} groups={gradedGroups} />
+                {assignments.length === 0 ? (
+                  <div className="flex flex-col items-center justify-center gap-1 rounded-2xl border border-slate-800/80 bg-slate-900 py-16">
+                    <span className="text-3xl">🎉</span>
+                    <p className="text-sm text-slate-600">ยังไม่มีงานในรายวิชานี้</p>
+                  </div>
+                ) : (
+                  <>
+                    <TypeSection ct="knowledge" items={knowledgeItems} />
+                    <TypeSection ct="worksheet" items={worksheetItems} />
+                    <TypeSection ct="quiz"      items={quizItems} />
+                  </>
                 )}
               </div>
 
@@ -577,66 +578,38 @@ function ProfileCard({
   );
 }
 
-/* One assignment section (รอส่ง / รอตรวจ / ตรวจแล้ว). All three share this
-   shape — a colored header + unit-grouped rows — so the page reads as one
-   consistent system instead of three bespoke blocks. */
-const SECTION_STYLE = {
-  blue:    { line: 'bg-blue-500',    headBg: 'bg-blue-500/5',    text: 'text-blue-400',    bar: 'bg-blue-500' },
-  amber:   { line: 'bg-amber-400',   headBg: 'bg-amber-500/5',   text: 'text-amber-400',   bar: 'bg-amber-400' },
-  emerald: { line: 'bg-emerald-500', headBg: 'bg-emerald-500/5', text: 'text-emerald-400', bar: 'bg-emerald-500' },
-} as const;
+/* One content-type section (ใบความรู้ / ใบงาน / บททดสอบ). The three never mix;
+   each is a colored header + a flat list in the teacher's manual order. */
+const TYPE_STYLE: Record<ContentType, { line: string; headBg: string; text: string }> = {
+  knowledge: { line: 'bg-emerald-500', headBg: 'bg-emerald-500/5', text: 'text-emerald-400' },
+  worksheet: { line: 'bg-blue-500',    headBg: 'bg-blue-500/5',    text: 'text-blue-400' },
+  quiz:      { line: 'bg-purple-500',  headBg: 'bg-purple-500/5',  text: 'text-purple-400' },
+};
 
-function Section({
-  tone, title, count, groups, emptyIcon, emptyText,
-}: {
-  tone: keyof typeof SECTION_STYLE;
-  title: string;
-  count: number;
-  groups: Array<[string, AssignmentWithSubmission[]]>;
-  emptyIcon?: string;
-  emptyText?: string;
-}) {
-  const s = SECTION_STYLE[tone];
+function TypeSection({ ct, items }: { ct: ContentType; items: AssignmentWithSubmission[] }) {
+  if (items.length === 0) return null;
+  const meta = CONTENT_TYPE_LABELS[ct];
+  const s = TYPE_STYLE[ct];
   return (
     <section className="overflow-hidden rounded-2xl border border-slate-800/80 bg-slate-900">
       <div className={`flex items-center gap-3 border-b border-slate-800/80 px-5 py-3.5 ${s.headBg}`}>
         <div className={`h-4 w-0.5 rounded-full ${s.line}`} />
-        <h2 className={`text-sm font-bold ${s.text}`}>{title}</h2>
-        <span className="rounded-full bg-slate-800 px-2.5 py-0.5 text-xs font-semibold text-slate-400">{count}</span>
+        <span className="text-base">{meta.icon}</span>
+        <h2 className={`text-sm font-bold ${s.text}`}>{meta.label}</h2>
+        <span className="rounded-full bg-slate-800 px-2.5 py-0.5 text-xs font-semibold text-slate-400">{items.length}</span>
       </div>
-
-      {count === 0 ? (
-        <div className="flex flex-col items-center justify-center gap-1 py-10">
-          <span className="text-2xl">{emptyIcon ?? '🎉'}</span>
-          <p className="text-xs text-slate-700">{emptyText ?? 'ไม่มีรายการ'}</p>
-        </div>
-      ) : (
-        <div className="divide-y divide-slate-800/50">
-          {groups.map(([unit, items]) => (
-            <div key={unit || '__none__'}>
-              {unit && (
-                <div className="flex items-center gap-3 border-b border-slate-800/40 bg-slate-950/40 px-5 py-2.5">
-                  <div className={`h-5 w-1 shrink-0 rounded-full ${s.bar}`} />
-                  <span className="text-sm font-bold text-slate-300">{unit}</span>
-                  <span className="rounded-full border border-slate-700/60 bg-slate-800/60 px-2 py-0.5 text-xs text-slate-400">
-                    {items.length} รายการ
-                  </span>
-                </div>
-              )}
-              {items.map(a => <AssignmentRow key={a.id} assignment={a} />)}
-            </div>
-          ))}
-        </div>
-      )}
+      <div className="divide-y divide-slate-800/50">
+        {items.map(a => <AssignmentRow key={a.id} assignment={a} />)}
+      </div>
     </section>
   );
 }
 
 function AssignmentRow({ assignment: a }: { assignment: AssignmentWithSubmission }) {
   const dueStatus = dueDateStatus(a.dueDate?._seconds);
-  const m = a.contentType ? CONTENT_TYPE_LABELS[a.contentType] : null;
   const hasScore = a.submission && typeof a.submission.score === 'number';
   const isQuiz = a.contentType === 'quiz';
+  const hasBadges = a.unit || (isQuiz && (a.quizPhase === 'pre' || a.quizPhase === 'post'));
 
   const accentBorder = a.contentType === 'knowledge' ? 'border-l-emerald-500'
     : a.contentType === 'quiz' ? 'border-l-purple-500'
@@ -646,19 +619,21 @@ function AssignmentRow({ assignment: a }: { assignment: AssignmentWithSubmission
     <Link href={`/student/assignments/${a.id}`}
       className={`flex items-center gap-4 border-l-2 ${accentBorder} px-5 py-4 transition-colors hover:bg-slate-800/20`}>
       <div className="min-w-0 flex-1">
-        <div className="mb-1.5 flex flex-wrap gap-1.5">
-          {m && (
-            <span className={`inline-flex items-center gap-1 rounded-md border px-2 py-0.5 text-[11px] font-bold ${m.color}`}>
-              {m.icon} {m.label}
-            </span>
-          )}
-          {isQuiz && a.quizPhase === 'pre' && (
-            <span className="inline-flex items-center rounded-full border border-sky-800/60 bg-sky-950/30 px-2 py-0.5 text-[11px] font-bold text-sky-400">ก่อนเรียน</span>
-          )}
-          {isQuiz && a.quizPhase === 'post' && (
-            <span className="inline-flex items-center rounded-full border border-violet-800/60 bg-violet-950/30 px-2 py-0.5 text-[11px] font-bold text-violet-400">หลังเรียน</span>
-          )}
-        </div>
+        {hasBadges && (
+          <div className="mb-1.5 flex flex-wrap gap-1.5">
+            {a.unit && (
+              <span className="inline-flex items-center rounded-md border border-slate-700/60 bg-slate-800/60 px-2 py-0.5 text-[11px] font-semibold text-slate-400">
+                {a.unit}
+              </span>
+            )}
+            {isQuiz && a.quizPhase === 'pre' && (
+              <span className="inline-flex items-center rounded-full border border-sky-800/60 bg-sky-950/30 px-2 py-0.5 text-[11px] font-bold text-sky-400">ก่อนเรียน</span>
+            )}
+            {isQuiz && a.quizPhase === 'post' && (
+              <span className="inline-flex items-center rounded-full border border-violet-800/60 bg-violet-950/30 px-2 py-0.5 text-[11px] font-bold text-violet-400">หลังเรียน</span>
+            )}
+          </div>
+        )}
         <p className="text-base sm:text-lg font-semibold text-slate-100 truncate">{a.title}</p>
         <div className="mt-1.5 flex flex-wrap items-center gap-x-3 gap-y-1">
           {!a.submission && a.isOpen === false && (
