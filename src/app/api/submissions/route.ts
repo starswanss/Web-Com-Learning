@@ -6,6 +6,7 @@ import { uploadSubmissionFile } from '@/lib/storage';
 import { calcXpGain } from '@/lib/xp';
 import { invalidateLeaderboards } from '@/lib/leaderboard-cache';
 import { rateLimit } from '@/lib/rate-limit';
+import { studentCanAccessAssignment } from '@/lib/assignment-access';
 
 async function getStudent() {
   try {
@@ -55,7 +56,10 @@ export async function POST(req: NextRequest) {
   if (!assignmentDoc.exists) return NextResponse.json({ error: 'Not found' }, { status: 404 });
 
   const assignment = assignmentDoc.data()!;
-  if (!(assignment.classIds as string[]).includes(student.classId)) {
+  // Subject-wide entitlement — same rule as loading the assignment, so a
+  // student who can open it can also submit it (not just their original rooms).
+  const { entitled } = await studentCanAccessAssignment(student.classId, assignment);
+  if (!entitled) {
     return NextResponse.json({ error: 'Forbidden' }, { status: 403 });
   }
 
