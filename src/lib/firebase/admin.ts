@@ -20,4 +20,14 @@ if (!getApps().length) {
 
 export const adminAuth = getAuth();
 export const adminDb = getFirestore();
+// Use REST instead of gRPC: on a serverless cold start this skips establishing
+// an HTTP/2 gRPC channel before the first query, cutting cold-start latency for
+// our bursty, one-shot read/write pattern (no server-side snapshot listeners).
+// Wrapped because settings() may only be called once before first use (dev HMR
+// can re-run this module).
+try {
+  adminDb.settings({ preferRest: true });
+} catch {
+  /* already configured on this instance */
+}
 export const adminStorage = getStorage();
