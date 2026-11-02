@@ -43,27 +43,28 @@ async function computeOverview(uid: string, subjectId: string | null) {
 
   if (assignmentsSnap.empty) return [];
 
-  const assignmentIds = assignmentsSnap.docs.map((d) => d.id);
+  // Count per assignment/status with Firestore count() aggregation: each query
+  // is billed as ~1 read regardless of how many submissions match, so this is a
+  // few dozen reads instead of scanning the whole submissions collection.
+  // Knowledge sheets are never submitted, so skip them.
+  const subs = adminDb.collection('submissions');
+  const STATUSES = ['submitted', 'graded', 'reviewed'] as const;
+  const countableIds = assignmentsSnap.docs
+    .filter((d) => d.data().contentType !== 'knowledge')
+    .map((d) => d.id);
 
-  // Firestore 'in' limit is 30 — chunk and merge
   const countMap = new Map<string, { submitted: number; graded: number; reviewed: number }>();
-  const CHUNK = 30;
-  for (let i = 0; i < assignmentIds.length; i += CHUNK) {
-    const chunk = assignmentIds.slice(i, i + CHUNK);
-    const snap = await adminDb
-      .collection('submissions')
-      .where('assignmentId', 'in', chunk)
-      .get();
-    snap.docs.forEach((d) => {
-      const data = d.data();
-      const aId = data.assignmentId as string;
-      if (!countMap.has(aId)) countMap.set(aId, { submitted: 0, graded: 0, reviewed: 0 });
-      const c = countMap.get(aId)!;
-      if (data.status === 'submitted') c.submitted++;
-      else if (data.status === 'graded') c.graded++;
-      else if (data.status === 'reviewed') c.reviewed++;
-    });
-  }
+  countableIds.forEach((id) => countMap.set(id, { submitted: 0, graded: 0, reviewed: 0 }));
+
+  const results = await Promise.all(
+    countableIds.flatMap((aid) =>
+      STATUSES.map((st) =>
+        subs.where('assignmentId', '==', aid).where('status', '==', st).count().get()
+          .then((r) => ({ aid, st, n: r.data().count })),
+      ),
+    ),
+  );
+  results.forEach(({ aid, st, n }) => { countMap.get(aid)![st] = n; });
 
   const result = assignmentsSnap.docs.map((d) => {
     const data = d.data();

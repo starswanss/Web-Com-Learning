@@ -37,7 +37,14 @@ async function getStudentInfo(): Promise<{ uid: string; classId: string } | null
   } catch { return null; }
 }
 
+// Temporarily disabled: the student-facing leaderboard is the single heaviest
+// read on the student side (whole class roster + class submissions). Return an
+// empty list without touching Firestore until it's re-enabled.
+const LEADERBOARD_ENABLED = false;
+
 export async function GET(req: NextRequest) {
+  if (!LEADERBOARD_ENABLED) return NextResponse.json([]);
+
   const student = await getStudentInfo();
   if (!student) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
 

@@ -3,6 +3,7 @@ import { adminAuth, adminDb } from '@/lib/firebase/admin';
 import { cookies } from 'next/headers';
 import { FieldValue } from 'firebase-admin/firestore';
 import { invalidateLeaderboards } from '@/lib/leaderboard-cache';
+import { addSubmitters } from '@/lib/assignment-stats';
 
 async function getTeacherUid(): Promise<string | null> {
   try {
@@ -87,6 +88,7 @@ export async function POST(
 
   const newXp = score * 10;
   let graded = 0, created = 0;
+  const createdIds: string[] = [];
 
   const CHUNK = 200; // each student = up to 2 ops (doc + user xp)
   let batch = adminDb.batch();
@@ -124,10 +126,14 @@ export async function POST(
       ops++;
       if (newXp !== 0) { batch.update(adminDb.collection('users').doc(s.uid), { xp: FieldValue.increment(newXp) }); ops++; }
       created++;
+      createdIds.push(s.uid);
     }
     if (ops >= CHUNK) await flush();
   }
   await flush();
+
+  // New submissions were created for these students — record them.
+  if (createdIds.length > 0) await addSubmitters(assignmentId, createdIds).catch(() => {});
 
   invalidateLeaderboards();
   return NextResponse.json({ graded, created, total: graded + created });

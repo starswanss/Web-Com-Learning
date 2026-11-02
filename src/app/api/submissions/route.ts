@@ -7,6 +7,7 @@ import { calcXpGain } from '@/lib/xp';
 import { invalidateLeaderboards } from '@/lib/leaderboard-cache';
 import { rateLimit } from '@/lib/rate-limit';
 import { studentCanAccessAssignment } from '@/lib/assignment-access';
+import { addSubmitter } from '@/lib/assignment-stats';
 
 async function getStudent() {
   try {
@@ -114,6 +115,10 @@ export async function POST(req: NextRequest) {
       xp: FieldValue.increment(xpGain),
     }),
   ]);
+
+  // Record the submitter in the precomputed stats so the teacher dashboard
+  // doesn't have to scan all submissions to know who has submitted.
+  await addSubmitter(assignmentId, student.uid).catch(() => {});
 
   invalidateLeaderboards(); // submittedCount + xp changed
 

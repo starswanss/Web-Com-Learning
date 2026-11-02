@@ -225,10 +225,6 @@ export default function StudentPage() {
               className="flex items-center gap-1.5 rounded-lg px-3.5 py-2 text-xs font-semibold text-slate-400 transition-all hover:bg-slate-800/70 hover:text-slate-200">
               🏁 Milestone
             </Link>
-            <Link href="/student/leaderboard"
-              className="flex items-center gap-1.5 rounded-lg px-3.5 py-2 text-xs font-semibold text-slate-400 transition-all hover:bg-slate-800/70 hover:text-slate-200">
-              🏆 อันดับ
-            </Link>
             <Link href="/student/profile"
               className="flex items-center gap-1.5 rounded-lg px-3.5 py-2 text-xs font-semibold text-slate-400 transition-all hover:bg-slate-800/70 hover:text-slate-200">
               Portfolio
@@ -244,7 +240,6 @@ export default function StudentPage() {
             <button onClick={toggleTheme} className="rounded-lg border border-slate-800 p-2 text-sm transition-all hover:border-slate-700">
               {isLight ? '🌙' : '☀️'}
             </button>
-            <Link href="/student/leaderboard" className="rounded-lg border border-slate-800 p-2 text-sm transition-all hover:border-slate-700">🏆</Link>
             <button onClick={signOut} className="rounded-lg border border-slate-800 p-2 text-xs text-slate-500 transition-all hover:border-slate-700 hover:text-slate-300">ออก</button>
           </div>
         </div>

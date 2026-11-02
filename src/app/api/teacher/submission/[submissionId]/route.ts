@@ -1,6 +1,8 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { adminAuth, adminDb } from '@/lib/firebase/admin';
 import { cookies } from 'next/headers';
+import { removeSubmitter } from '@/lib/assignment-stats';
+import { invalidateLeaderboards } from '@/lib/leaderboard-cache';
 
 async function getTeacherUid(): Promise<string | null> {
   try {
@@ -37,5 +39,10 @@ export async function DELETE(
   }
 
   await submissionSnap.ref.delete();
+
+  // Keep the precomputed submitter set and cached stats in sync.
+  await removeSubmitter(submissionData.assignmentId as string, submissionData.studentId as string).catch(() => {});
+  invalidateLeaderboards();
+
   return NextResponse.json({ deleted: true });
 }

@@ -5,6 +5,7 @@ import { trackReads, flushReadsIfDue } from '@/lib/read-tracker';
 import { cachedGlobal } from '@/lib/server-cache';
 import { parseTerm } from '@/lib/term';
 import { getStudentsInClasses } from '@/lib/students-cache';
+import { getSubmitterSets } from '@/lib/assignment-stats';
 
 const STATS_TTL = 120_000; // 2 min; invalidated on submit/grade
 
@@ -27,26 +28,6 @@ export interface AssignmentStat {
   submitted: number;
   notSubmitted: number;
   notSubmittedNames: Array<{ uid: string; name: string; classId: string }>;
-}
-
-async function queryInChunks<T>(
-  collection: FirebaseFirestore.CollectionReference,
-  field: string,
-  values: string[],
-  extraFilters?: (ref: FirebaseFirestore.Query) => FirebaseFirestore.Query
-): Promise<FirebaseFirestore.QueryDocumentSnapshot[]> {
-  if (values.length === 0) return [];
-  const chunks: string[][] = [];
-  for (let i = 0; i < values.length; i += 10) chunks.push(values.slice(i, i + 10));
-
-  const results = await Promise.all(
-    chunks.map(chunk => {
-      let q: FirebaseFirestore.Query = collection.where(field, 'in', chunk);
-      if (extraFilters) q = extraFilters(q);
-      return q.get();
-    })
-  );
-  return results.flatMap(snap => snap.docs);
 }
 
 export async function GET(req: NextRequest) {
@@ -112,26 +93,15 @@ async function computeStats(uid: string, subjectId: string | null, assignmentId:
     classId: s.classId,
   }));
 
-  // Fetch all submissions for target assignments — chunked
+  // Who submitted each assignment — from the precomputed stats docs (a few
+  // small reads + one count() per assignment) instead of scanning every
+  // submission. The set self-heals when it drifts from the real count.
   const assignmentIds = targetAssignments.map(a => a.id);
-  const submissionDocs = await queryInChunks(
-    adminDb.collection('submissions') as unknown as FirebaseFirestore.CollectionReference,
-    'assignmentId',
-    assignmentIds
-  );
+  const { sets: submittedMap, reads: statReads } = await getSubmitterSets(assignmentIds);
 
-  // Map: assignmentId → Set of studentIds who submitted
-  const submittedMap = new Map<string, Set<string>>();
-  submissionDocs.forEach(d => {
-    const aid = d.data().assignmentId as string;
-    const sid = d.data().studentId as string;
-    if (!submittedMap.has(aid)) submittedMap.set(aid, new Set());
-    submittedMap.get(aid)!.add(sid);
-  });
-
-  // 1 user doc + subjects + assignments + students + submissions
-  // students come from the shared cache → not counted here
-  trackReads(uid, 1 + subjectsSnap.size + assignmentsSnap.size + submissionDocs.length);
+  // 1 user doc + subjects + assignments + precomputed stats
+  // (students come from the shared cache → not counted here)
+  trackReads(uid, 1 + subjectsSnap.size + assignmentsSnap.size + statReads);
   await flushReadsIfDue();
 
   const stats: AssignmentStat[] = targetAssignments.map(a => {

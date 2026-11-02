@@ -6,6 +6,7 @@ import { FieldValue } from 'firebase-admin/firestore';
 import { sendLineNotify, getLineNotifyToken } from '@/lib/line-notify';
 import { trackReads, flushReadsIfDue } from '@/lib/read-tracker';
 import { invalidateLeaderboards } from '@/lib/leaderboard-cache';
+import { deleteAssignmentStats } from '@/lib/assignment-stats';
 
 async function getTeacherUid(): Promise<string | null> {
   try {
@@ -182,6 +183,7 @@ export async function DELETE(req: NextRequest) {
   count++;
   await flush();
 
+  await deleteAssignmentStats(id); // drop its precomputed submitter set
   invalidateLeaderboards(); // clears analytics / overview / gradebook / stats caches
   return NextResponse.json({ status: 'ok', submissionsDeleted: subsSnap.size });
 }
