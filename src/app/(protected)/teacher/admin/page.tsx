@@ -44,6 +44,8 @@ export default function TeacherAdminPage() {
   const [aiEnvLocked, setAiEnvLocked] = useState(false);
   const [aiMsg, setAiMsg] = useState<{ ok: boolean; text: string } | null>(null);
   const [aiBusy, setAiBusy] = useState<'test' | 'save' | null>(null);
+  const [aiStyle, setAiStyle] = useState<'strict' | 'balanced' | 'lenient'>('balanced');
+  const [styleSaving, setStyleSaving] = useState(false);
 
   // Backfill group-score state
   const [gsPreview, setGsPreview] = useState<GroupBackfillResult | null>(null);
@@ -93,8 +95,22 @@ export default function TeacherAdminPage() {
         setAiSuggestions(Array.isArray(d.suggestions) ? d.suggestions : []);
         setAiAvailable(Array.isArray(d.available) ? d.available : []);
         setAiEnvLocked(!!d.envLocked);
+        if (d.gradingStyle === 'strict' || d.gradingStyle === 'balanced' || d.gradingStyle === 'lenient') setAiStyle(d.gradingStyle);
       });
   }, []);
+
+  async function handleStyleSave(style: 'strict' | 'balanced' | 'lenient') {
+    const prev = aiStyle;
+    setAiStyle(style); setStyleSaving(true);
+    try {
+      const res = await fetch('/api/teacher/ai-model', {
+        method: 'PUT', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ gradingStyle: style }),
+      });
+      if (!res.ok) setAiStyle(prev);
+    } catch { setAiStyle(prev); }
+    finally { setStyleSaving(false); }
+  }
 
   async function handleAiTest() {
     setAiBusy('test'); setAiMsg(null);
@@ -413,6 +429,30 @@ export default function TeacherAdminPage() {
               ให้เลือก/พิมพ์ model ใหม่แล้วกดทดสอบ · ดูรายชื่อได้ที่{' '}
               <a href="https://console.groq.com/docs/models" target="_blank" rel="noopener noreferrer" className="text-violet-400 underline">console.groq.com/docs/models</a>
             </p>
+          </div>
+
+          {/* Grading style — how generous the AI is; applies to all grading,
+              independent of which model / env lock is in use. */}
+          <div className="rounded-xl border border-slate-700 bg-slate-800/40 p-4">
+            <p className="text-sm font-semibold text-slate-200">โหมดการให้คะแนนของ AI</p>
+            <p className="mt-0.5 text-xs text-slate-500">ใช้กับการตรวจทุกแบบทั้งระบบ — ปรับได้ทันที ไม่ต้อง redeploy</p>
+            <div className="mt-3 grid grid-cols-1 gap-2 sm:grid-cols-3">
+              {([
+                { id: 'strict',   title: 'เข้มงวด',  desc: 'เน้นถูกต้อง/ตรงคำถาม ตอบสั้น/ผิด = คะแนนต่ำ' },
+                { id: 'balanced', title: 'สมดุล',    desc: 'ถูกต้องสำคัญ แต่ให้คะแนนบางส่วนตามความเข้าใจ' },
+                { id: 'lenient',  title: 'ผ่อนปรน',  desc: 'ให้เครดิตเหตุผลที่ดี แม้ตอบไม่ตรงคำถามเป๊ะ' },
+              ] as const).map((o) => (
+                <button key={o.id} onClick={() => handleStyleSave(o.id)} disabled={styleSaving}
+                  className={`rounded-xl border p-3 text-left transition-all disabled:opacity-60 ${
+                    aiStyle === o.id ? 'border-violet-500 bg-violet-950/40 ring-1 ring-violet-500/40' : 'border-slate-700 bg-slate-900 hover:border-slate-600'
+                  }`}>
+                  <p className={`text-sm font-bold ${aiStyle === o.id ? 'text-violet-300' : 'text-slate-200'}`}>
+                    {aiStyle === o.id ? '✓ ' : ''}{o.title}
+                  </p>
+                  <p className="mt-1 text-[11px] leading-snug text-slate-500">{o.desc}</p>
+                </button>
+              ))}
+            </div>
           </div>
 
           {aiEnvLocked ? (

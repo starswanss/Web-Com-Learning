@@ -120,6 +120,9 @@ export async function POST(req: NextRequest) {
   // doesn't have to scan all submissions to know who has submitted.
   await addSubmitter(assignmentId, student.uid).catch(() => {});
 
+  // The work is in — drop any server-side draft backup.
+  adminDb.collection('drafts').doc(`${student.uid}__${assignmentId}`).delete().catch(() => {});
+
   invalidateLeaderboards(); // submittedCount + xp changed
 
   return NextResponse.json({ id: docRef.id, score: null, feedback: null, graded: false, xpGain }, { status: 201 });

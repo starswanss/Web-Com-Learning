@@ -38,6 +38,45 @@ export function isModelEnvLocked(): boolean {
   return !!process.env.GROQ_MODEL;
 }
 
+// ── Grading style ──────────────────────────────────────────────────────────
+// A global knob (set once on the Admin page) for how the AI grades: strict
+// (accuracy + on-topic, short/off-topic penalised), balanced, or lenient
+// (reward sound reasoning and effort, give partial credit even when the answer
+// doesn't match the exact question). Stored in system/aiConfig.gradingStyle.
+export const GRADING_STYLE_CACHE_KEY = 'ai-grading-style';
+export type GradingStyle = 'strict' | 'balanced' | 'lenient';
+const DEFAULT_STYLE: GradingStyle = 'balanced';
+
+export async function getGradingStyle(): Promise<GradingStyle> {
+  return cachedGlobal(GRADING_STYLE_CACHE_KEY, 60_000, async () => {
+    try {
+      const snap = await adminDb.doc('system/aiConfig').get();
+      const s = snap.exists ? (snap.data()?.gradingStyle as string | undefined) : undefined;
+      return (s === 'strict' || s === 'balanced' || s === 'lenient') ? s : DEFAULT_STYLE;
+    } catch {
+      return DEFAULT_STYLE;
+    }
+  });
+}
+
+export async function setGradingStyle(style: GradingStyle): Promise<void> {
+  await adminDb.doc('system/aiConfig').set({ gradingStyle: style }, { merge: true });
+  invalidateGlobal(GRADING_STYLE_CACHE_KEY);
+}
+
+/** Prompt guidance (Thai) that tells the model how generous to be. */
+function styleGuidance(style: GradingStyle): string {
+  switch (style) {
+    case 'strict':
+      return 'เข้มงวด: เน้นความถูกต้องและตรงคำถามเป็นหลัก คำตอบที่ผิดหรือไม่ตรงคำถามให้คะแนนต่ำ คำตอบสั้นมาก (<30 คำ) ให้ไม่เกิน 40 คะแนน เว้นแต่คำถามง่ายมาก';
+    case 'lenient':
+      return 'ผ่อนปรน: ให้เครดิตกับ "กระบวนการคิดและเหตุผล" มากกว่าความถูกต้องแบบเป๊ะ ถ้านักเรียนตอบไม่ตรงคำถามทั้งหมด แต่ให้เหตุผลสมเหตุสมผล แสดงความเข้าใจหรือความพยายาม ให้คะแนนบางส่วนอย่างใจกว้าง (อย่าให้ใกล้ 0) อย่าหักหนักเพราะคำตอบสั้นถ้าใจความถูก เน้นให้กำลังใจ';
+    case 'balanced':
+    default:
+      return 'สมดุล: ความถูกต้องสำคัญ แต่ให้คะแนนบางส่วนตามความเข้าใจและความพยายามที่เห็นได้ ถ้าเหตุผลสมเหตุสมผลแม้ไม่ตรงคำถามทั้งหมดก็ให้เครดิตตามสมควร ไม่ลงโทษหนักเกินไป';
+  }
+}
+
 /** List chat models this Groq account can actually access. */
 export async function listModels(): Promise<string[]> {
   try {
@@ -150,6 +189,8 @@ export async function gradeSubmission(
     ? `\n\nCustom grading rubric from teacher (follow these criteria carefully):\n${rubric}`
     : '';
 
+  const style = await getGradingStyle();
+
   const prompt = `You are a teacher assistant for a Thai secondary school Computing Science class (ม.3 / Grade 9).
 Grade the following student submission.
 
@@ -173,7 +214,7 @@ Rules:
 - details.copyPasteRisk: likelihood of copy-paste from external sources (0-100)
 
 Scoring guide: 90-100 excellent, 70-89 good, 50-69 adequate, 30-49 incomplete, 0-29 very poor or copied.
-Short answers (<30 words) should score at most 40 unless the question is trivial.`;
+แนวทางการให้คะแนน (สำคัญมาก — ยึดตามนี้): ${styleGuidance(style)}`;
 
   const model = await getModelId();
   const completion = await withRetry(() =>
@@ -212,6 +253,8 @@ export async function gradeSubmissionsBatch(
 
   const rubricBlock = rubric ? `\n\nCriteria from teacher:\n${rubric}` : '';
 
+  const style = await getGradingStyle();
+
   const studentBlocks = submissions
     .map((s, i) => `[Student ${i + 1}]\n${capText(s.content)}`)
     .join('\n\n---\n\n');
@@ -232,7 +275,7 @@ Rules:
 - feedback: 2-3 sentences in Thai, constructive and kind
 - plagiarismSuspicion: 0-100 (0=clearly original, 100=definitely copied; compare students against each other)
 - Scoring guide: 90-100 excellent · 70-89 good · 50-69 adequate · 30-49 incomplete · 0-29 very poor or copied
-- Short answers (<30 words) score at most 40 unless the question is trivial
+- แนวทางการให้คะแนน (สำคัญมาก — ยึดตามนี้): ${styleGuidance(style)}
 - Grade each student independently`;
 
   const model = await getModelId();
@@ -276,6 +319,7 @@ export async function gradeDetailed(
 ): Promise<DetailedResult[]> {
   if (questions.length === 0) return [];
   const rubricBlock = rubric ? `\n\nเกณฑ์การให้คะแนนจากครู:\n${rubric}` : '';
+  const style = await getGradingStyle();
   const qText = questions.map((q, i) => {
     const scoreInfo = q.scoreMax
       ? ` — ให้คะแนน 0 ถึง ${q.scoreMax}${q.scoreKind ? ` (ประเภท ${q.scoreKind})` : ''}`
@@ -291,7 +335,8 @@ ${qText}
 
 ตอบกลับเป็น JSON array เท่านั้น (ห้ามมีข้อความอื่น) จำนวน ${questions.length} รายการ เรียงตามลำดับข้อ:
 [{"comment":"ความเห็นสั้นๆ ภาษาไทย 1-2 ประโยค สุภาพ สร้างสรรค์","score": คะแนนเป็นตัวเลข 0 ถึงคะแนนเต็มของข้อนั้น ถ้าข้อนั้นไม่ต้องให้คะแนนให้ใส่ null}, ...]
-กติกา: ให้คะแนนตามความถูกต้อง/คุณภาพของคำตอบ · ถ้าไม่ได้ตอบหรือตอบผิดให้คะแนนต่ำ · comment ต้องอ้างถึงคำตอบจริง`;
+แนวทางการให้คะแนน (สำคัญมาก — ยึดตามนี้): ${styleGuidance(style)}
+กติกา: ถ้าไม่ได้ตอบเลยให้คะแนนต่ำ · comment ต้องอ้างถึงคำตอบจริง`;
 
   const model = await getModelId();
   const completion = await withRetry(() =>

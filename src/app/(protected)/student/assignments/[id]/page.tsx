@@ -99,6 +99,8 @@ export default function SubmissionPage({ params }: { params: Promise<{ id: strin
   const [draftRestored, setDraftRestored] = useState(false);
   const [xpGain, setXpGain] = useState<number | null>(null);
   const autoSaveTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const serverDraftTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const draftLatestRef = useRef<{ answers: Record<string, string | string[]>; content: string }>({ answers: {}, content: '' });
   const hasLeftRef = useRef(false);
   const tabSwitchRef = useRef(0);
   const autoSubmitRef = useRef(false);
@@ -168,19 +170,31 @@ export default function SubmissionPage({ params }: { params: Promise<{ id: strin
     if (!id) return;
     fetch(`/api/submissions/${id}`)
       .then((r) => r.json())
-      .then((data: Submission | null) => {
+      .then(async (data: Submission | null) => {
         setSubmission(data);
-        // Restore draft only when no submission exists
-        if (!data) {
-          const raw = localStorage.getItem(`lms_draft_${id}`);
-          if (raw) {
-            try {
-              const { answers: a, content: c } = JSON.parse(raw);
-              if (a && Object.keys(a).length > 0) { setAnswers(a); setDraftRestored(true); }
-              if (c) { setContent(c); setDraftRestored(true); }
-            } catch { /* ignore malformed */ }
-          }
+        // Restore draft only when no submission exists.
+        if (data) return;
+        let restored = false;
+        const raw = localStorage.getItem(`lms_draft_${id}`);
+        if (raw) {
+          try {
+            const { answers: a, content: c } = JSON.parse(raw);
+            if (a && Object.keys(a).length > 0) { setAnswers(a); restored = true; }
+            if (c) { setContent(c); restored = true; }
+          } catch { /* ignore malformed */ }
         }
+        // No local draft on this device? Fall back to the server backup so the
+        // student can continue where they left off on another computer.
+        if (!restored) {
+          try {
+            const sd = await fetch(`/api/student/draft?assignmentId=${id}`).then((r) => (r.ok ? r.json() : null));
+            const hasA = sd?.answers && Object.keys(sd.answers).length > 0;
+            const hasC = typeof sd?.content === 'string' && sd.content.trim().length > 0;
+            if (hasA) { setAnswers(sd.answers); restored = true; }
+            if (hasC) { setContent(sd.content); restored = true; }
+          } catch { /* ignore */ }
+        }
+        if (restored) setDraftRestored(true);
       });
     fetch(`/api/assignments/student/${id}`)
       .then((r) => r.json())
@@ -214,6 +228,46 @@ export default function SubmissionPage({ params }: { params: Promise<{ id: strin
     }, 1500);
     return () => { if (autoSaveTimerRef.current) clearTimeout(autoSaveTimerRef.current); };
   }, [answers, content, id, submission]);
+
+  // Server-side draft backup (cross-device). Throttled: ~8 s after the last
+  // change, plus a flush when the page is hidden/closed — so a student who shuts
+  // the computer before submitting can resume on another device. localStorage
+  // still handles the instant per-keystroke save; this stays cheap on writes.
+  draftLatestRef.current = { answers, content };
+  useEffect(() => {
+    if (submission) return;
+    if (Object.keys(answers).length === 0 && content.trim().length === 0) return;
+    if (serverDraftTimerRef.current) clearTimeout(serverDraftTimerRef.current);
+    serverDraftTimerRef.current = setTimeout(() => {
+      fetch('/api/student/draft', {
+        method: 'PUT', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ assignmentId: id, answers, content }),
+      }).catch(() => {});
+    }, 8000);
+    return () => { if (serverDraftTimerRef.current) clearTimeout(serverDraftTimerRef.current); };
+  }, [answers, content, id, submission]);
+
+  useEffect(() => {
+    if (submission) return;
+    const flush = () => {
+      const { answers: a, content: c } = draftLatestRef.current;
+      if (Object.keys(a).length === 0 && !c.trim()) return;
+      try {
+        fetch('/api/student/draft', {
+          method: 'PUT', headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ assignmentId: id, answers: a, content: c }),
+          keepalive: true, // allow the request to outlive the page unload
+        });
+      } catch { /* ignore */ }
+    };
+    const onVis = () => { if (document.visibilityState === 'hidden') flush(); };
+    window.addEventListener('pagehide', flush);
+    document.addEventListener('visibilitychange', onVis);
+    return () => {
+      window.removeEventListener('pagehide', flush);
+      document.removeEventListener('visibilitychange', onVis);
+    };
+  }, [id, submission]);
 
   // Warn before closing if there are unsaved draft answers
   useEffect(() => {
@@ -287,6 +341,7 @@ export default function SubmissionPage({ params }: { params: Promise<{ id: strin
         if (!res.ok) throw new Error();
         const data = await res.json();
         localStorage.removeItem(`lms_draft_${id}`);
+        fetch(`/api/student/draft?assignmentId=${id}`, { method: 'DELETE' }).catch(() => {});
         setGroupSubmission({ id: data.id, status: 'submitted' });
       } catch {
         setError('เกิดข้อผิดพลาด กรุณาลองใหม่');
@@ -340,6 +395,7 @@ export default function SubmissionPage({ params }: { params: Promise<{ id: strin
       // Clear saved draft after successful submission, and drop the cached
       // dashboard assignment list so it reflects this submission immediately.
       localStorage.removeItem(`lms_draft_${id}`);
+      fetch(`/api/student/draft?assignmentId=${id}`, { method: 'DELETE' }).catch(() => {});
       // Drop every cached student view that reflects this submission.
       invalidate('/api/student/dashboard');
       invalidate('/api/assignments/student');
@@ -529,7 +585,7 @@ export default function SubmissionPage({ params }: { params: Promise<{ id: strin
                 <span>โหลดคำตอบที่บันทึกไว้ก่อนหน้าแล้ว</span>
                 <button
                   type="button"
-                  onClick={() => { setDraftRestored(false); setAnswers({}); setContent(''); localStorage.removeItem(`lms_draft_${id}`); }}
+                  onClick={() => { setDraftRestored(false); setAnswers({}); setContent(''); localStorage.removeItem(`lms_draft_${id}`); fetch(`/api/student/draft?assignmentId=${id}`, { method: 'DELETE' }).catch(() => {}); }}
                   className="ml-auto text-xs text-emerald-600 hover:text-emerald-400"
                 >
                   ล้างทิ้ง

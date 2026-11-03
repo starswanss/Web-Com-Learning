@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { adminAuth, adminDb } from '@/lib/firebase/admin';
 import { cookies } from 'next/headers';
-import { getModelId, setModelId, isModelEnvLocked, testModel, listModels } from '@/lib/gemini';
+import { getModelId, setModelId, isModelEnvLocked, testModel, listModels, getGradingStyle, setGradingStyle, type GradingStyle } from '@/lib/gemini';
 
 async function getTeacherUid(): Promise<string | null> {
   try {
@@ -30,24 +30,39 @@ const SUGGESTED = [
 export async function GET() {
   const uid = await getTeacherUid();
   if (!uid) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
-  const [model, available] = await Promise.all([getModelId(), listModels()]);
+  const [model, available, gradingStyle] = await Promise.all([getModelId(), listModels(), getGradingStyle()]);
   return NextResponse.json({
     model,
     envLocked: isModelEnvLocked(),
     suggestions: SUGGESTED,
     available,
+    gradingStyle,
   });
 }
 
 // PUT { model } — save the model (also tests it first; refuses if it fails)
+//     { gradingStyle } — save the global grading style (no model test)
 export async function PUT(req: NextRequest) {
   const uid = await getTeacherUid();
   if (!uid) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+
+  const body = await req.json() as { model?: string; gradingStyle?: string };
+
+  // Grading-style update is independent of the model (and of the env lock).
+  if (body.gradingStyle !== undefined) {
+    const s = body.gradingStyle;
+    if (s !== 'strict' && s !== 'balanced' && s !== 'lenient') {
+      return NextResponse.json({ error: 'โหมดตรวจไม่ถูกต้อง' }, { status: 400 });
+    }
+    await setGradingStyle(s as GradingStyle);
+    return NextResponse.json({ ok: true, gradingStyle: s });
+  }
+
   if (isModelEnvLocked()) {
     return NextResponse.json({ error: 'ถูกกำหนดโดย env GROQ_MODEL — แก้ที่ Vercel แทน' }, { status: 400 });
   }
 
-  const { model } = await req.json() as { model?: string };
+  const { model } = body;
   if (!model || !model.trim()) return NextResponse.json({ error: 'กรุณาระบุชื่อ model' }, { status: 400 });
 
   const test = await testModel(model.trim());
