@@ -114,17 +114,20 @@ export async function testModel(model: string): Promise<{ ok: boolean; error?: s
 function getAnthropic() {
   return new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY });
 }
-export type AIProvider = 'groq' | 'claude';
+export type AIProvider = 'groq' | 'claude' | 'gemini';
 export const PROVIDER_CACHE_KEY = 'ai-provider';
 export const CLAUDE_MODEL_CACHE_KEY = 'ai-claude-model';
+export const GEMINI_MODEL_CACHE_KEY = 'ai-gemini-model';
 const DEFAULT_PROVIDER: AIProvider = 'groq';
 const DEFAULT_CLAUDE_MODEL = 'claude-haiku-5-5';
+const DEFAULT_GEMINI_MODEL = 'gemini-2.0-flash'; // Google AI Studio free tier
 
 export async function getProvider(): Promise<AIProvider> {
   return cachedGlobal(PROVIDER_CACHE_KEY, 60_000, async () => {
     try {
       const snap = await adminDb.doc('system/aiConfig').get();
-      return snap.exists && snap.data()?.provider === 'claude' ? 'claude' : DEFAULT_PROVIDER;
+      const p = snap.exists ? (snap.data()?.provider as string | undefined) : undefined;
+      return p === 'claude' || p === 'gemini' ? p : DEFAULT_PROVIDER;
     } catch {
       return DEFAULT_PROVIDER;
     }
@@ -154,9 +157,55 @@ export function isAnthropicConfigured(): boolean {
   return !!process.env.ANTHROPIC_API_KEY;
 }
 
+export async function getGeminiModelId(): Promise<string> {
+  return cachedGlobal(GEMINI_MODEL_CACHE_KEY, 60_000, async () => {
+    try {
+      const snap = await adminDb.doc('system/aiConfig').get();
+      const m = snap.exists ? (snap.data()?.geminiModel as string | undefined) : undefined;
+      return m && m.trim() ? m.trim() : DEFAULT_GEMINI_MODEL;
+    } catch {
+      return DEFAULT_GEMINI_MODEL;
+    }
+  });
+}
+export async function setGeminiModelId(model: string): Promise<void> {
+  await adminDb.doc('system/aiConfig').set({ geminiModel: model.trim() }, { merge: true });
+  invalidateGlobal(GEMINI_MODEL_CACHE_KEY);
+}
+/** True when a Google AI Studio key is present (free Gemini option). */
+export function isGeminiConfigured(): boolean {
+  return !!process.env.GEMINI_API_KEY;
+}
+
+/** Call the Google Gemini REST API (free tier) and return the text reply. */
+async function runGemini(prompt: string, maxTokens: number): Promise<string> {
+  const model = await getGeminiModelId();
+  const url = `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${process.env.GEMINI_API_KEY}`;
+  const data = await withRetry(async () => {
+    const r = await fetch(url, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        contents: [{ parts: [{ text: prompt }] }],
+        generationConfig: { temperature: 0.3, maxOutputTokens: maxTokens },
+      }),
+    });
+    if (!r.ok) throw new Error(`gemini ${r.status}`);
+    return r.json() as Promise<{ candidates?: Array<{ content?: { parts?: Array<{ text?: string }> } }> }>;
+  });
+  return (data.candidates?.[0]?.content?.parts ?? [])
+    .map((p) => p.text ?? '')
+    .join('')
+    .trim();
+}
+
 /** Send one grading prompt to the active provider; return the raw text reply. */
 async function runCompletion(prompt: string, maxTokens = 2048): Promise<string> {
-  if ((await getProvider()) === 'claude') {
+  const provider = await getProvider();
+  if (provider === 'gemini') {
+    return runGemini(prompt, maxTokens);
+  }
+  if (provider === 'claude') {
     const model = await getClaudeModelId();
     const msg = await withRetry(() =>
       getAnthropic().messages.create({
