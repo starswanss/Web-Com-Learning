@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { adminAuth, adminDb } from '@/lib/firebase/admin';
 import { cookies } from 'next/headers';
 import { gradeDetailed, type DetailedQuestion } from '@/lib/gemini';
+import { autoGradeFraction, type GradableBlock } from '@/lib/auto-grade';
 
 export const maxDuration = 60;
 
@@ -32,65 +33,6 @@ interface Block {
   items?: unknown[]; // true-false: {statement, correctAnswer}[] · ordering: string[]
 }
 
-const norm = (s: unknown) => String(s ?? '').trim().toLowerCase().replace(/\s+/g, ' ');
-
-/**
- * Objective questions have a stored answer key, so grade them in code (exact /
- * partial credit) instead of asking the AI to guess the right answer blind —
- * that blind-guessing was scoring correct answers as wrong. Returns null for
- * subjective types (short/long answer, link, image) → those still go to the AI.
- */
-function autoGrade(b: Block, answer: string | string[] | undefined): { score: number | null; comment: string } | null {
-  const max = typeof b.scoreMax === 'number' && b.scoreMax > 0 ? b.scoreMax : null;
-  const pts = (frac: number) => (max == null ? null : Math.round(max * Math.max(0, Math.min(1, frac)) * 100) / 100);
-
-  switch (b.type) {
-    case 'multiple-choice': {
-      if (b.correctIndex == null || !b.options) return null;
-      const correct = b.options[b.correctIndex];
-      const ok = answer != null && !Array.isArray(answer) && norm(answer) === norm(correct);
-      return { score: pts(ok ? 1 : 0), comment: ok ? 'ตอบถูก ✓' : `ตอบผิด (เฉลย: ${correct})` };
-    }
-    case 'checkbox': {
-      if (!b.correctIndexes || !b.options) return null;
-      const correctSet = new Set(b.correctIndexes.map((i) => norm(b.options![i])));
-      const chosen = (Array.isArray(answer) ? answer : []).map(norm);
-      const hit = chosen.filter((c) => correctSet.has(c)).length;
-      const wrong = chosen.filter((c) => !correctSet.has(c)).length;
-      return { score: pts((hit - wrong) / Math.max(1, correctSet.size)), comment: `เลือกถูก ${hit}/${correctSet.size}${wrong ? ` · เกิน ${wrong}` : ''}` };
-    }
-    case 'true-false': {
-      const items = (b.items as Array<{ correctAnswer?: boolean }> | undefined) ?? [];
-      if (items.length === 0) return null;
-      const ans = Array.isArray(answer) ? answer : [];
-      const ok = items.filter((it, i) => (it.correctAnswer ? ans[i] === 'true' : ans[i] === 'false')).length;
-      return { score: pts(ok / items.length), comment: `ถูก ${ok}/${items.length} ข้อย่อย` };
-    }
-    case 'matching': {
-      const left = b.leftItems ?? []; const right = b.rightItems ?? []; const pairs = b.correctPairs ?? [];
-      if (left.length === 0 || pairs.length === 0) return null;
-      const ans = Array.isArray(answer) ? answer : [];
-      const ok = left.filter((_, i) => { const cr = right[pairs[i]]; return cr != null && norm(ans[i]) === norm(cr); }).length;
-      return { score: pts(ok / left.length), comment: `จับคู่ถูก ${ok}/${left.length}` };
-    }
-    case 'fill-blank': {
-      const keys = b.correctAnswers ?? [];
-      if (keys.length === 0) return null;
-      const ans = Array.isArray(answer) ? answer : [];
-      const ok = keys.filter((k, i) => norm(ans[i]) === norm(k)).length;
-      return { score: pts(ok / keys.length), comment: `เติมถูก ${ok}/${keys.length} ช่อง` };
-    }
-    case 'ordering': {
-      const correct = (b.items as string[] | undefined) ?? [];
-      if (correct.length === 0) return null;
-      const ans = Array.isArray(answer) ? answer : [];
-      const ok = correct.filter((c, i) => norm(ans[i]) === norm(c)).length;
-      return { score: pts(ok / correct.length), comment: `เรียงถูก ${ok}/${correct.length} ตำแหน่ง` };
-    }
-    default:
-      return null; // short-answer, long-answer, link, image-upload → AI / teacher
-  }
-}
 
 /** Readable text of one student's answer for a block (for the AI). */
 function answerText(block: Block, answer: string | string[] | undefined): string {
@@ -143,10 +85,11 @@ export async function POST(_req: NextRequest, { params }: { params: Promise<{ id
   // ones → collected for the AI.
   const aiQuestions: DetailedQuestion[] = [];
   for (const b of qBlocks) {
-    const auto = autoGrade(b, answers[b.id]);
-    if (auto) {
-      questionComments[b.id] = auto.comment;
-      if (auto.score != null) questionScores[b.id] = auto.score;
+    const frac = autoGradeFraction(b as GradableBlock, answers[b.id]);
+    if (frac) {
+      questionComments[b.id] = frac.comment;
+      const max = typeof b.scoreMax === 'number' && b.scoreMax > 0 ? b.scoreMax : null;
+      if (max != null) questionScores[b.id] = Math.round(max * frac.fraction * 100) / 100;
     } else {
       aiQuestions.push({
         id: b.id,

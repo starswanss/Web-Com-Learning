@@ -2,7 +2,8 @@ import { NextRequest, NextResponse } from 'next/server';
 import { adminAuth, adminDb } from '@/lib/firebase/admin';
 import { cookies } from 'next/headers';
 import { FieldValue } from 'firebase-admin/firestore';
-import { gradeSubmissionsBatch, gradeSubmission, answersToText } from '@/lib/gemini';
+import { gradeHybrid } from '@/lib/gemini';
+import { type GradableBlock } from '@/lib/auto-grade';
 import { invalidateLeaderboards } from '@/lib/leaderboard-cache';
 
 async function getTeacherUid(): Promise<string | null> {
@@ -53,99 +54,61 @@ export async function POST(
   // Skip 'graded' (AI already done) and 'reviewed' (teacher finalized)
   const toGrade = allDocs.filter((d) => d.data().status === 'submitted');
 
-  // Build gradable items — convert block answers to text where needed
-  const gradableItems: Array<{ id: string; content: string }> = [];
+  const blocks = assignment.blocks as GradableBlock[] | undefined;
+
+  // Pending items with their raw answers/content (hybrid grader needs the
+  // structured answers so it can score objective questions against the key).
+  const items: Array<{ id: string; answers: Record<string, string | string[]> | null; content: string }> = [];
   for (const doc of toGrade) {
     const sub = doc.data();
     const content = (sub.content as string) ?? '';
-    const answers = sub.answers as Record<string, string | string[]> | null;
-    const gradableContent = content.trim()
-      ? content
-      : answers && assignment.blocks
-      ? answersToText(
-          assignment.blocks as Array<{ id: string; type: string; question?: string }>,
-          answers
-        )
-      : '';
-    if (gradableContent) gradableItems.push({ id: doc.id, content: gradableContent });
+    const answers = (sub.answers as Record<string, string | string[]> | null) ?? null;
+    const hasSomething = content.trim().length > 0 || (!!answers && Object.keys(answers).length > 0);
+    if (hasSomething) items.push({ id: doc.id, answers, content });
   }
 
   let graded = 0;
   let errors = 0;
-  let lastError: string | null = null; // first real AI error, surfaced to the UI
+  let lastError: string | null = null; // first real error, surfaced to the UI
 
   // Only take a bounded slice this call — the rest is reported as `remaining`
   // and picked up by the next call from the client.
-  const batchItems = gradableItems.slice(0, limit);
-  const remaining = gradableItems.length - batchItems.length;
+  const batchItems = items.slice(0, limit);
+  const remaining = items.length - batchItems.length;
 
-  const CHUNK_SIZE = 5;
-  const CONCURRENCY = 2;   // chunks processed in parallel per round
-  const ROUND_DELAY = 1_000; // ms between rounds
+  const CONCURRENCY = 3;    // submissions graded in parallel per round
+  const ROUND_DELAY = 800;  // ms between rounds (paces AI calls for subjective parts)
 
-  // Split into chunks of CHUNK_SIZE
-  const chunks: typeof gradableItems[] = [];
-  for (let i = 0; i < batchItems.length; i += CHUNK_SIZE) {
-    chunks.push(batchItems.slice(i, i + CHUNK_SIZE));
-  }
-
-  async function processChunk(chunk: typeof gradableItems) {
+  async function gradeOne(item: typeof items[number]) {
     try {
-      const results = await gradeSubmissionsBatch(
+      const r = await gradeHybrid(
         assignment.title as string,
-        assignment.description as string,
-        chunk,
-        assignment.rubric as string | undefined
+        (assignment.description as string) ?? '',
+        blocks,
+        item.answers,
+        item.content,
+        [],
+        assignment.rubric as string | undefined,
       );
-      await Promise.all(
-        results.map((r) =>
-          adminDb.collection('submissions').doc(r.id).update({
-            score: r.score,
-            feedback: r.feedback,
-            plagiarismSuspicion: r.plagiarismSuspicion,
-            status: 'graded',
-            gradedAt: FieldValue.serverTimestamp(),
-          })
-        )
-      );
-      graded += results.length;
+      await adminDb.collection('submissions').doc(item.id).update({
+        score: r.score,
+        feedback: r.feedback,
+        plagiarismSuspicion: r.plagiarismSuspicion,
+        status: 'graded',
+        gradedAt: FieldValue.serverTimestamp(),
+      });
+      graded += 1;
     } catch (err) {
-      console.error('[batch-grade] batch failed, falling back per-student:', err instanceof Error ? err.message : err);
-      // Fallback: grade one by one
-      for (const item of chunk) {
-        try {
-          const r = await gradeSubmission(
-            assignment.title as string,
-            assignment.description as string,
-            item.content,
-            [],
-            assignment.rubric as string | undefined
-          );
-          await adminDb.collection('submissions').doc(item.id).update({
-            score: r.score,
-            feedback: r.feedback,
-            plagiarismSuspicion: r.plagiarismSuspicion,
-            status: 'graded',
-            gradedAt: FieldValue.serverTimestamp(),
-          });
-          graded += 1;
-        } catch (indivErr) {
-          console.error('[batch-grade] individual fallback failed:', item.id, indivErr instanceof Error ? indivErr.message : indivErr);
-          if (!lastError) lastError = indivErr instanceof Error ? indivErr.message : String(indivErr);
-          errors += 1;
-        }
-        await new Promise((r) => setTimeout(r, 1_000));
-      }
+      console.error('[batch-grade] grade failed:', item.id, err instanceof Error ? err.message : err);
+      if (!lastError) lastError = err instanceof Error ? err.message : String(err);
+      errors += 1;
     }
   }
 
-  // Process in rounds of CONCURRENCY chunks in parallel
-  for (let r = 0; r < chunks.length; r += CONCURRENCY) {
-    const round = chunks.slice(r, r + CONCURRENCY);
-    await Promise.all(round.map(processChunk));
-    if (r + CONCURRENCY < chunks.length) {
-      await new Promise((res) => setTimeout(res, ROUND_DELAY));
-    }
+  for (let i = 0; i < batchItems.length; i += CONCURRENCY) {
+    const round = batchItems.slice(i, i + CONCURRENCY);
+    await Promise.all(round.map(gradeOne));
+    if (i + CONCURRENCY < batchItems.length) await new Promise((res) => setTimeout(res, ROUND_DELAY));
   }
 
   if (graded > 0) invalidateLeaderboards(); // scores changed
@@ -154,7 +117,7 @@ export async function POST(
     graded,
     errors,
     remaining,
-    pending: gradableItems.length,
+    pending: items.length,
     skipped: allDocs.length - toGrade.length,
     errorDetail: lastError,
   });

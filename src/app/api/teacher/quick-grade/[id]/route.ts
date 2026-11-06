@@ -2,7 +2,8 @@ import { NextRequest, NextResponse } from 'next/server';
 import { adminAuth, adminDb } from '@/lib/firebase/admin';
 import { cookies } from 'next/headers';
 import { FieldValue } from 'firebase-admin/firestore';
-import { gradeSubmission, answersToText } from '@/lib/gemini';
+import { gradeHybrid } from '@/lib/gemini';
+import { type GradableBlock } from '@/lib/auto-grade';
 import { invalidateLeaderboards } from '@/lib/leaderboard-cache';
 
 async function getTeacherUid(): Promise<string | null> {
@@ -38,23 +39,15 @@ export async function POST(
 
   const assignment = assignmentSnap.data()!;
 
-  // Build gradable text from content or block answers
   const content = (sub.content as string) ?? '';
   const answers = sub.answers as Record<string, string | string[]> | null;
-  const gradableContent = content.trim()
-    ? content
-    : answers && assignment.blocks
-    ? answersToText(
-        assignment.blocks as Array<{ id: string; type: string; question?: string }>,
-        answers
-      )
-    : '';
-
-  if (!gradableContent) {
+  const blocks = assignment.blocks as GradableBlock[] | undefined;
+  const hasSomething = content.trim().length > 0 || (!!answers && Object.keys(answers).length > 0);
+  if (!hasSomething) {
     return NextResponse.json({ error: 'No gradable content' }, { status: 400 });
   }
 
-  // Get other submissions for plagiarism comparison
+  // Other submissions for plagiarism comparison (subjective part only).
   const othersSnap = await adminDb
     .collection('submissions')
     .where('assignmentId', '==', sub.assignmentId)
@@ -67,12 +60,14 @@ export async function POST(
 
   let grading;
   try {
-    grading = await gradeSubmission(
+    grading = await gradeHybrid(
       assignment.title as string,
-      assignment.description as string,
-      gradableContent,
+      (assignment.description as string) ?? '',
+      blocks,
+      answers,
+      content,
       otherContents,
-      assignment.rubric as string | undefined
+      assignment.rubric as string | undefined,
     );
   } catch (err) {
     const msg = err instanceof Error ? err.message : String(err);

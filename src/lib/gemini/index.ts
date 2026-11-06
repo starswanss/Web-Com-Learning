@@ -2,6 +2,7 @@ import Groq from 'groq-sdk';
 import Anthropic from '@anthropic-ai/sdk';
 import { adminDb } from '@/lib/firebase/admin';
 import { cachedGlobal, invalidateGlobal } from '@/lib/server-cache';
+import { autoGradeFraction, SUBJECTIVE_TYPES, type GradableBlock } from '@/lib/auto-grade';
 
 // Fallback model if none is configured. The active model is chosen at runtime:
 //   1) GROQ_MODEL env var (hard override)  2) system/aiConfig.model in Firestore
@@ -357,6 +358,74 @@ Scoring guide: 90-100 excellent, 70-89 good, 50-69 adequate, 30-49 incomplete, 0
       details: { quality: 50, relevance: 50, copyPasteRisk: 0 },
     };
   }
+}
+
+/**
+ * Hybrid overall grade (0-100): objective questions are scored in code against
+ * their stored answer key (exact / partial credit), subjective ones (short/long
+ * answer, link) are scored by the AI, and the two are combined by question
+ * count. Falls back to the plain holistic AI grade when there are no structured
+ * questions (e.g. a legacy plain-text submission). This fixes objective-heavy
+ * worksheets scoring low because the AI couldn't see the answer key.
+ */
+export async function gradeHybrid(
+  assignmentTitle: string,
+  assignmentDescription: string,
+  blocks: GradableBlock[] | undefined,
+  answers: Record<string, string | string[]> | null,
+  plainContent: string,
+  otherSubmissions: string[] = [],
+  rubric?: string,
+): Promise<GradingResult> {
+  const list = blocks ?? [];
+
+  const objFractions: number[] = [];
+  let subjCount = 0;
+  for (const b of list) {
+    const res = autoGradeFraction(b, answers?.[b.id ?? '']);
+    if (res) objFractions.push(res.fraction);
+    else if (SUBJECTIVE_TYPES.includes(b.type)) subjCount++;
+  }
+
+  const O = objFractions.length;
+  const S = subjCount;
+
+  // No structured gradable questions → legacy holistic grade on the text.
+  if (O === 0 && S === 0) {
+    const text = plainContent.trim()
+      || (answers ? answersToText(list as unknown as Parameters<typeof answersToText>[0], answers) : '');
+    if (!text) {
+      return { score: 0, feedback: 'ไม่มีเนื้อหาให้ตรวจ', plagiarismSuspicion: 0, details: { quality: 0, relevance: 0, copyPasteRisk: 0 } };
+    }
+    return gradeSubmission(assignmentTitle, assignmentDescription, text, otherSubmissions, rubric);
+  }
+
+  const objPoints = objFractions.reduce((a, b) => a + b, 0);
+
+  // Subjective part — grade only those answers' text holistically with the AI.
+  let subj: GradingResult | null = null;
+  if (S > 0) {
+    const subjBlocks = list.filter((b) => SUBJECTIVE_TYPES.includes(b.type));
+    const subjText = answers ? answersToText(subjBlocks as unknown as Parameters<typeof answersToText>[0], answers) : '';
+    subj = subjText.trim()
+      ? await gradeSubmission(assignmentTitle, assignmentDescription, subjText, otherSubmissions, rubric)
+      : { score: 0, feedback: '', plagiarismSuspicion: 0, details: { quality: 0, relevance: 0, copyPasteRisk: 0 } };
+  }
+
+  const subjFrac = subj ? subj.score / 100 : 0;
+  const score = Math.round(((objPoints + subjFrac * S) / (O + S)) * 100);
+
+  const parts: string[] = [];
+  if (O > 0) parts.push(`ปรนัย ${O} ข้อ ถูก ~${Math.round((objPoints / O) * 100)}%`);
+  if (subj?.feedback?.trim()) parts.push(subj.feedback.trim());
+  const feedback = parts.join(' · ') || 'ตรวจอัตโนมัติจากเฉลย';
+
+  return {
+    score,
+    feedback,
+    plagiarismSuspicion: subj?.plagiarismSuspicion ?? 0,
+    details: { quality: score, relevance: score, copyPasteRisk: subj?.details.copyPasteRisk ?? 0 },
+  };
 }
 
 /**
