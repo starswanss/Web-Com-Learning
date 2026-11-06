@@ -1,4 +1,5 @@
 import Groq from 'groq-sdk';
+import Anthropic from '@anthropic-ai/sdk';
 import { adminDb } from '@/lib/firebase/admin';
 import { cachedGlobal, invalidateGlobal } from '@/lib/server-cache';
 
@@ -107,6 +108,81 @@ export async function testModel(model: string): Promise<{ ok: boolean; error?: s
   }
 }
 
+// ── Provider (Groq vs Claude) ────────────────────────────────────────────────
+// Grading can run on Groq (llama, default) or Claude (smarter at partial credit
+// / reasoning). Chosen on the Admin page; Claude needs ANTHROPIC_API_KEY set.
+function getAnthropic() {
+  return new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY });
+}
+export type AIProvider = 'groq' | 'claude';
+export const PROVIDER_CACHE_KEY = 'ai-provider';
+export const CLAUDE_MODEL_CACHE_KEY = 'ai-claude-model';
+const DEFAULT_PROVIDER: AIProvider = 'groq';
+const DEFAULT_CLAUDE_MODEL = 'claude-haiku-5-5';
+
+export async function getProvider(): Promise<AIProvider> {
+  return cachedGlobal(PROVIDER_CACHE_KEY, 60_000, async () => {
+    try {
+      const snap = await adminDb.doc('system/aiConfig').get();
+      return snap.exists && snap.data()?.provider === 'claude' ? 'claude' : DEFAULT_PROVIDER;
+    } catch {
+      return DEFAULT_PROVIDER;
+    }
+  });
+}
+export async function setProvider(p: AIProvider): Promise<void> {
+  await adminDb.doc('system/aiConfig').set({ provider: p }, { merge: true });
+  invalidateGlobal(PROVIDER_CACHE_KEY);
+}
+export async function getClaudeModelId(): Promise<string> {
+  return cachedGlobal(CLAUDE_MODEL_CACHE_KEY, 60_000, async () => {
+    try {
+      const snap = await adminDb.doc('system/aiConfig').get();
+      const m = snap.exists ? (snap.data()?.claudeModel as string | undefined) : undefined;
+      return m && m.trim() ? m.trim() : DEFAULT_CLAUDE_MODEL;
+    } catch {
+      return DEFAULT_CLAUDE_MODEL;
+    }
+  });
+}
+export async function setClaudeModelId(model: string): Promise<void> {
+  await adminDb.doc('system/aiConfig').set({ claudeModel: model.trim() }, { merge: true });
+  invalidateGlobal(CLAUDE_MODEL_CACHE_KEY);
+}
+/** True when an Anthropic key is present (so the Claude option can actually run). */
+export function isAnthropicConfigured(): boolean {
+  return !!process.env.ANTHROPIC_API_KEY;
+}
+
+/** Send one grading prompt to the active provider; return the raw text reply. */
+async function runCompletion(prompt: string, maxTokens = 2048): Promise<string> {
+  if ((await getProvider()) === 'claude') {
+    const model = await getClaudeModelId();
+    const msg = await withRetry(() =>
+      getAnthropic().messages.create({
+        model,
+        max_tokens: maxTokens,
+        messages: [{ role: 'user', content: prompt }],
+      }),
+    );
+    return msg.content
+      .filter((b) => b.type === 'text')
+      .map((b) => (b as { text: string }).text)
+      .join('')
+      .trim();
+  }
+  const model = await getModelId();
+  const completion = await withRetry(() =>
+    getGroq().chat.completions.create({
+      model,
+      messages: [{ role: 'user', content: prompt }],
+      temperature: 0.3,
+      max_tokens: maxTokens,
+    }),
+  );
+  return completion.choices[0].message.content?.trim() ?? '';
+}
+
 export interface GradingResult {
   score: number;
   feedback: string;
@@ -131,6 +207,7 @@ export interface BatchGradingResult {
 }
 
 function isRateLimit(err: unknown): boolean {
+  if ((err as { status?: number })?.status === 429) return true; // Anthropic/Groq 429
   const msg = err instanceof Error ? err.message : String(err);
   return msg.includes('429') || msg.includes('rate_limit') || msg.includes('quota');
 }
@@ -216,16 +293,7 @@ Rules:
 Scoring guide: 90-100 excellent, 70-89 good, 50-69 adequate, 30-49 incomplete, 0-29 very poor or copied.
 แนวทางการให้คะแนน (สำคัญมาก — ยึดตามนี้): ${styleGuidance(style)}`;
 
-  const model = await getModelId();
-  const completion = await withRetry(() =>
-    getGroq().chat.completions.create({
-      model,
-      messages: [{ role: 'user', content: prompt }],
-      temperature: 0.3,
-    })
-  );
-
-  const text = completion.choices[0].message.content?.trim() ?? '';
+  const text = await runCompletion(prompt, 1500);
 
   try {
     return parseJson<GradingResult>(text, false);
@@ -278,16 +346,7 @@ Rules:
 - แนวทางการให้คะแนน (สำคัญมาก — ยึดตามนี้): ${styleGuidance(style)}
 - Grade each student independently`;
 
-  const model = await getModelId();
-  const completion = await withRetry(() =>
-    getGroq().chat.completions.create({
-      model,
-      messages: [{ role: 'user', content: prompt }],
-      temperature: 0.3,
-    })
-  );
-
-  const text = completion.choices[0].message.content?.trim() ?? '';
+  const text = await runCompletion(prompt, 4096);
 
   let parsed: Array<{ score: number; feedback: string; plagiarismSuspicion: number }>;
   try {
@@ -338,11 +397,7 @@ ${qText}
 แนวทางการให้คะแนน (สำคัญมาก — ยึดตามนี้): ${styleGuidance(style)}
 กติกา: ถ้าไม่ได้ตอบเลยให้คะแนนต่ำ · comment ต้องอ้างถึงคำตอบจริง`;
 
-  const model = await getModelId();
-  const completion = await withRetry(() =>
-    getGroq().chat.completions.create({ model, messages: [{ role: 'user', content: prompt }], temperature: 0.3 })
-  );
-  const text = completion.choices[0].message.content?.trim() ?? '';
+  const text = await runCompletion(prompt, 4096);
 
   let parsed: Array<{ comment?: string; score?: number | null }>;
   try { parsed = parseJson(text, true); } catch { throw new Error('detailed parse failed'); }

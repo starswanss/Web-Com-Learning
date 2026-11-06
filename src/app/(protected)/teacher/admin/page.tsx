@@ -46,6 +46,11 @@ export default function TeacherAdminPage() {
   const [aiBusy, setAiBusy] = useState<'test' | 'save' | null>(null);
   const [aiStyle, setAiStyle] = useState<'strict' | 'balanced' | 'lenient'>('balanced');
   const [styleSaving, setStyleSaving] = useState(false);
+  const [aiProvider, setAiProvider] = useState<'groq' | 'claude'>('groq');
+  const [claudeModel, setClaudeModel] = useState('claude-haiku-5-5');
+  const [anthropicReady, setAnthropicReady] = useState(false);
+  const [providerSaving, setProviderSaving] = useState(false);
+  const [providerMsg, setProviderMsg] = useState<string | null>(null);
 
   // Backfill group-score state
   const [gsPreview, setGsPreview] = useState<GroupBackfillResult | null>(null);
@@ -96,8 +101,27 @@ export default function TeacherAdminPage() {
         setAiAvailable(Array.isArray(d.available) ? d.available : []);
         setAiEnvLocked(!!d.envLocked);
         if (d.gradingStyle === 'strict' || d.gradingStyle === 'balanced' || d.gradingStyle === 'lenient') setAiStyle(d.gradingStyle);
+        if (d.provider === 'groq' || d.provider === 'claude') setAiProvider(d.provider);
+        if (typeof d.claudeModel === 'string' && d.claudeModel) setClaudeModel(d.claudeModel);
+        setAnthropicReady(!!d.anthropicConfigured);
       });
   }, []);
+
+  async function handleProviderSave(provider: 'groq' | 'claude') {
+    const prev = aiProvider;
+    setProviderSaving(true); setProviderMsg(null);
+    setAiProvider(provider);
+    try {
+      const res = await fetch('/api/teacher/ai-model', {
+        method: 'PUT', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ provider }),
+      });
+      const d = await res.json();
+      if (!res.ok) { setAiProvider(prev); setProviderMsg(d.error ?? 'สลับไม่สำเร็จ'); }
+      else setProviderMsg(provider === 'claude' ? 'ใช้ Claude ตรวจงานแล้ว' : 'ใช้ Groq ตรวจงานแล้ว');
+    } catch { setAiProvider(prev); setProviderMsg('สลับไม่สำเร็จ'); }
+    finally { setProviderSaving(false); }
+  }
 
   async function handleStyleSave(style: 'strict' | 'balanced' | 'lenient') {
     const prev = aiStyle;
@@ -429,6 +453,35 @@ export default function TeacherAdminPage() {
               ให้เลือก/พิมพ์ model ใหม่แล้วกดทดสอบ · ดูรายชื่อได้ที่{' '}
               <a href="https://console.groq.com/docs/models" target="_blank" rel="noopener noreferrer" className="text-violet-400 underline">console.groq.com/docs/models</a>
             </p>
+          </div>
+
+          {/* Provider — which AI service grades. Groq (llama, default) or
+              Claude (smarter; needs ANTHROPIC_API_KEY). */}
+          <div className="rounded-xl border border-slate-700 bg-slate-800/40 p-4">
+            <p className="text-sm font-semibold text-slate-200">ผู้ให้บริการตรวจงาน</p>
+            <p className="mt-0.5 text-xs text-slate-500">
+              Claude ฉลาดกว่าในการให้คะแนนบางส่วน/จับเหตุผล — ตั้ง <code className="text-slate-300">ANTHROPIC_API_KEY</code> ใน Vercel ก่อนใช้
+            </p>
+            <div className="mt-3 grid grid-cols-1 gap-2 sm:grid-cols-2">
+              {([
+                { id: 'groq',   title: 'Groq (llama)', desc: 'เร็ว ฟรี — ค่าเริ่มต้นเดิม' },
+                { id: 'claude', title: 'Claude',        desc: `ฉลาดกว่า · ${claudeModel}${anthropicReady ? '' : ' · ยังไม่ได้ตั้ง key'}` },
+              ] as const).map((o) => {
+                const disabled = providerSaving || (o.id === 'claude' && !anthropicReady);
+                return (
+                  <button key={o.id} onClick={() => handleProviderSave(o.id)} disabled={disabled}
+                    className={`rounded-xl border p-3 text-left transition-all disabled:opacity-50 ${
+                      aiProvider === o.id ? 'border-violet-500 bg-violet-950/40 ring-1 ring-violet-500/40' : 'border-slate-700 bg-slate-900 hover:border-slate-600'
+                    }`}>
+                    <p className={`text-sm font-bold ${aiProvider === o.id ? 'text-violet-300' : 'text-slate-200'}`}>
+                      {aiProvider === o.id ? '✓ ' : ''}{o.title}
+                    </p>
+                    <p className="mt-1 text-[11px] leading-snug text-slate-500">{o.desc}</p>
+                  </button>
+                );
+              })}
+            </div>
+            {providerMsg && <p className="mt-2 text-xs text-slate-400">{providerMsg}</p>}
           </div>
 
           {/* Grading style — how generous the AI is; applies to all grading,
