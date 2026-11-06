@@ -3,6 +3,7 @@ import { adminAuth, adminDb } from '@/lib/firebase/admin';
 import { cookies } from 'next/headers';
 import { FieldValue, WriteBatch } from 'firebase-admin/firestore';
 import { invalidateLeaderboards } from '@/lib/leaderboard-cache';
+import { getEnrolledStudentIds } from '@/lib/enrolled';
 
 async function getTeacherUid(): Promise<string | null> {
   try {
@@ -141,6 +142,17 @@ export async function POST(
     return NextResponse.json({ error: 'ไม่มีข้อที่กำหนดเฉลยไว้ (ต้องตั้งเฉลยในแบบทดสอบก่อน)' }, { status: 400 });
   }
 
+  // Only grade CURRENTLY-ENROLLED students — matching the grading page. Skip
+  // ghost submissions left over from past terms so the auto-key grade doesn't
+  // touch (and award XP to) wiped students' old work.
+  const enrolled = await getEnrolledStudentIds(
+    submissionsSnap.docs.map((d) => d.data().studentId as string),
+  );
+  const liveDocs = submissionsSnap.docs.filter((d) => {
+    const sid = d.data().studentId as string | undefined;
+    return !!sid && enrolled.has(sid);
+  });
+
   let graded = 0;
   let errors = 0;
 
@@ -156,7 +168,7 @@ export async function POST(
     }
   }
 
-  for (const doc of submissionsSnap.docs) {
+  for (const doc of liveDocs) {
     try {
       const sub = doc.data();
       const answers = (sub.answers ?? {}) as Record<string, string | string[]>;
@@ -193,5 +205,5 @@ export async function POST(
   if (opCount > 0) await batch.commit();
   if (graded > 0) invalidateLeaderboards(); // scores + xp changed
 
-  return NextResponse.json({ graded, errors, skipped: 0 });
+  return NextResponse.json({ graded, errors, skipped: submissionsSnap.size - liveDocs.length });
 }

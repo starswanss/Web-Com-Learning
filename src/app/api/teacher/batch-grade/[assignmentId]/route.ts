@@ -5,6 +5,7 @@ import { FieldValue } from 'firebase-admin/firestore';
 import { gradeHybrid } from '@/lib/gemini';
 import { type GradableBlock } from '@/lib/auto-grade';
 import { invalidateLeaderboards } from '@/lib/leaderboard-cache';
+import { getEnrolledStudentIds } from '@/lib/enrolled';
 
 async function getTeacherUid(): Promise<string | null> {
   try {
@@ -52,7 +53,19 @@ export async function POST(
 
   // Only grade submissions that are still pending (submitted = waiting for review)
   // Skip 'graded' (AI already done) and 'reviewed' (teacher finalized)
-  const toGrade = allDocs.filter((d) => d.data().status === 'submitted');
+  const pendingDocs = allDocs.filter((d) => d.data().status === 'submitted');
+
+  // ...and only from CURRENTLY-ENROLLED students, matching what the grading
+  // page shows. Without this, "ตรวจ AI" of 20 live submissions also burns AI
+  // calls on ghost submissions left over from past terms (the 100++ the
+  // teacher saw). Students wiped on a reset keep their work as history only.
+  const enrolled = await getEnrolledStudentIds(
+    pendingDocs.map((d) => d.data().studentId as string),
+  );
+  const toGrade = pendingDocs.filter((d) => {
+    const sid = d.data().studentId as string | undefined;
+    return !!sid && enrolled.has(sid);
+  });
 
   const blocks = assignment.blocks as GradableBlock[] | undefined;
 
