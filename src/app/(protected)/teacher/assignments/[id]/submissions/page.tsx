@@ -414,6 +414,10 @@ export default function SubmissionsPage({ params }: { params: Promise<{ id: stri
   const [bulkScore, setBulkScore] = useState('');
   const [bulkTarget, setBulkTarget] = useState<'submitted' | 'not-submitted' | 'all'>('submitted');
   const [bulkApplying, setBulkApplying] = useState(false);
+  const [resetOpen, setResetOpen] = useState(false);
+  const [resetClass, setResetClass] = useState(''); // '' = ทุกห้อง
+  const [resetting, setResetting] = useState(false);
+  const [resetMsg, setResetMsg] = useState<string | null>(null);
 
   // Give one score to a whole group at once (server-side, so students who
   // haven't submitted get a submission created for them). Respects the class
@@ -530,6 +534,29 @@ export default function SubmissionsPage({ params }: { params: Promise<{ id: stri
     setSaveAllMsg(`บันทึกสำเร็จ ${updates.length} คน${failed > 0 ? ` · ไม่สำเร็จ ${failed}` : ''}`);
     setSavingIds(new Set());
     setSavingAll(false);
+  }
+
+  async function handleResetGrades() {
+    setResetting(true); setResetMsg(null);
+    try {
+      const res = await fetch(`/api/teacher/reset-grades/${id}`, {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ classId: resetClass || null }),
+      });
+      const d = await res.json();
+      if (!res.ok) { setResetMsg(d.error ?? 'รีเซ็ตไม่สำเร็จ'); return; }
+      // Reload the list so the reset rows show as "รอตรวจ" again.
+      const reload = await fetch(`/api/teacher/submissions/${id}${showInactive ? '?all=1' : ''}`).then((r) => r.json());
+      setSubmissions(Array.isArray(reload.submissions) ? reload.submissions : []);
+      setClassStats(Array.isArray(reload.classStats) ? reload.classStats : []);
+      setSelected(null);
+      setResetOpen(false);
+      setResetMsg(`รีเซ็ตแล้ว ${d.reset} งาน${resetClass ? ` (ห้อง ${resetClass})` : ' (ทุกห้อง)'}`);
+    } catch {
+      setResetMsg('รีเซ็ตไม่สำเร็จ');
+    } finally {
+      setResetting(false);
+    }
   }
 
   useEffect(() => {
@@ -905,6 +932,15 @@ export default function SubmissionsPage({ params }: { params: Promise<{ id: stri
               {viewAll ? '📋 ตรวจทีละคน' : '📑 ดูงานทั้งหมด'}
             </button>
             <button
+              onClick={() => { setResetOpen((v) => !v); setResetMsg(null); }}
+              title="รีเซ็ตการตรวจของงานนี้ (เลือกห้องได้) — คะแนนจะถูกล้าง"
+              className={`rounded-lg border px-3 py-1.5 text-xs font-semibold transition-all ${
+                resetOpen ? 'border-red-600 bg-red-950/50 text-red-300' : 'border-red-800 bg-red-950/30 text-red-300 hover:border-red-600'
+              }`}
+            >
+              ♻️ รีเซ็ตการตรวจ
+            </button>
+            <button
               onClick={() => setPdfModal(true)}
               disabled={visible.length === 0}
               className="rounded-lg border border-rose-700 bg-rose-950/40 px-3 py-1.5 text-xs text-rose-300 transition-all hover:border-rose-500 disabled:opacity-40"
@@ -924,6 +960,50 @@ export default function SubmissionsPage({ params }: { params: Promise<{ id: stri
       </header>
 
       <main className="mx-auto max-w-6xl px-4 py-6">
+        {/* Reset-grading panel */}
+        {resetOpen && (
+          <div className="mb-4 rounded-2xl border border-red-900/60 bg-red-950/20 p-4">
+            <p className="text-sm font-semibold text-red-300">♻️ รีเซ็ตการตรวจงานนี้</p>
+            <p className="mt-1 text-xs text-slate-400">
+              งานที่ <strong className="text-slate-300">ตรวจแล้ว / รอบันทึกคะแนน</strong> จะกลับเป็น <strong className="text-slate-300">“รอตรวจ”</strong> ·
+              คะแนน ความเห็น และคะแนนรายข้อถูกล้าง · XP ที่ให้จากคะแนนถูกคืนกลับ (นักเรียนยังถือว่าส่งงานแล้ว)
+            </p>
+            <div className="mt-3 flex flex-wrap items-center gap-2">
+              <span className="text-xs text-slate-500">เลือกห้อง:</span>
+              <select
+                value={resetClass}
+                onChange={(e) => setResetClass(e.target.value)}
+                className="rounded-lg border border-slate-700 bg-slate-800 px-3 py-1.5 text-sm text-slate-100 focus:border-red-500 focus:outline-none"
+              >
+                <option value="">ทุกห้อง</option>
+                {classStats.map((cs) => (
+                  <option key={cs.classId} value={cs.classId}>{cs.classId}</option>
+                ))}
+              </select>
+              <button
+                onClick={() => {
+                  if (confirm(`ยืนยันรีเซ็ตการตรวจ${resetClass ? ` ห้อง ${resetClass}` : ' ทุกห้อง'}?\nคะแนนและความเห็นทั้งหมดจะถูกล้าง`)) handleResetGrades();
+                }}
+                disabled={resetting}
+                className="rounded-lg border border-red-700 bg-red-950/50 px-4 py-1.5 text-sm font-semibold text-red-300 transition-all hover:border-red-500 disabled:opacity-50"
+              >
+                {resetting ? 'กำลังรีเซ็ต…' : 'ยืนยันรีเซ็ต'}
+              </button>
+              <button
+                onClick={() => setResetOpen(false)}
+                className="rounded-lg border border-slate-700 px-3 py-1.5 text-sm text-slate-400 transition-all hover:border-slate-500"
+              >
+                ยกเลิก
+              </button>
+            </div>
+          </div>
+        )}
+        {resetMsg && !resetOpen && (
+          <div className="mb-4 rounded-xl border border-emerald-800/60 bg-emerald-950/30 px-4 py-2.5 text-sm text-emerald-400">
+            {resetMsg}
+          </div>
+        )}
+
         {/* Per-class submission cards — click to filter the list by class */}
         {!fetching && classStats.length > 0 && (
           <div className="mb-4 flex flex-wrap items-stretch gap-2">
