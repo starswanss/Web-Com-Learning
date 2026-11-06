@@ -46,9 +46,11 @@ export default function TeacherAdminPage() {
   const [aiBusy, setAiBusy] = useState<'test' | 'save' | null>(null);
   const [aiStyle, setAiStyle] = useState<'strict' | 'balanced' | 'lenient'>('balanced');
   const [styleSaving, setStyleSaving] = useState(false);
-  const [aiProvider, setAiProvider] = useState<'groq' | 'claude'>('groq');
+  const [aiProvider, setAiProvider] = useState<'groq' | 'claude' | 'openrouter'>('groq');
   const [claudeModel, setClaudeModel] = useState('claude-haiku-5-5');
+  const [openrouterModel, setOpenrouterModel] = useState('meta-llama/llama-3.3-70b-instruct:free');
   const [anthropicReady, setAnthropicReady] = useState(false);
+  const [openrouterReady, setOpenrouterReady] = useState(false);
   const [providerSaving, setProviderSaving] = useState(false);
   const [providerMsg, setProviderMsg] = useState<string | null>(null);
 
@@ -101,13 +103,15 @@ export default function TeacherAdminPage() {
         setAiAvailable(Array.isArray(d.available) ? d.available : []);
         setAiEnvLocked(!!d.envLocked);
         if (d.gradingStyle === 'strict' || d.gradingStyle === 'balanced' || d.gradingStyle === 'lenient') setAiStyle(d.gradingStyle);
-        if (d.provider === 'groq' || d.provider === 'claude') setAiProvider(d.provider);
+        if (d.provider === 'groq' || d.provider === 'claude' || d.provider === 'openrouter') setAiProvider(d.provider);
         if (typeof d.claudeModel === 'string' && d.claudeModel) setClaudeModel(d.claudeModel);
+        if (typeof d.openrouterModel === 'string' && d.openrouterModel) setOpenrouterModel(d.openrouterModel);
         setAnthropicReady(!!d.anthropicConfigured);
+        setOpenrouterReady(!!d.openrouterConfigured);
       });
   }, []);
 
-  async function handleProviderSave(provider: 'groq' | 'claude') {
+  async function handleProviderSave(provider: 'groq' | 'claude' | 'openrouter') {
     const prev = aiProvider;
     setProviderSaving(true); setProviderMsg(null);
     setAiProvider(provider);
@@ -120,6 +124,20 @@ export default function TeacherAdminPage() {
       if (!res.ok) { setAiProvider(prev); setProviderMsg(d.error ?? 'สลับไม่สำเร็จ'); }
       else setProviderMsg(provider === 'claude' ? 'ใช้ Claude ตรวจงานแล้ว' : 'ใช้ Groq ตรวจงานแล้ว');
     } catch { setAiProvider(prev); setProviderMsg('สลับไม่สำเร็จ'); }
+    finally { setProviderSaving(false); }
+  }
+
+  async function handleNonGroqModelSave() {
+    const payload = aiProvider === 'claude' ? { claudeModel } : { openrouterModel };
+    setProviderSaving(true); setProviderMsg(null);
+    try {
+      const res = await fetch('/api/teacher/ai-model', {
+        method: 'PUT', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload),
+      });
+      const d = await res.json();
+      setProviderMsg(res.ok ? 'บันทึกรุ่นแล้ว' : (d.error ?? 'บันทึกไม่สำเร็จ'));
+    } catch { setProviderMsg('บันทึกไม่สำเร็จ'); }
     finally { setProviderSaving(false); }
   }
 
@@ -460,14 +478,18 @@ export default function TeacherAdminPage() {
           <div className="rounded-xl border border-slate-700 bg-slate-800/40 p-4">
             <p className="text-sm font-semibold text-slate-200">ผู้ให้บริการตรวจงาน</p>
             <p className="mt-0.5 text-xs text-slate-500">
-              Claude ฉลาดกว่าในการให้คะแนนบางส่วน/จับเหตุผล — ตั้ง <code className="text-slate-300">ANTHROPIC_API_KEY</code> ใน Vercel ก่อนใช้
+              ตัวเลือก <span className="text-emerald-400">ฟรี (ไม่ต้องผูกบัตร)</span>: Groq และ OpenRouter · Claude เสียเงินตามใช้จริง (ฉลาดสุด)
+              <br />ใช้ OpenRouter/Claude ต้องตั้ง key ใน Vercel ก่อน (<code className="text-slate-300">OPENROUTER_API_KEY</code> / <code className="text-slate-300">ANTHROPIC_API_KEY</code>)
             </p>
-            <div className="mt-3 grid grid-cols-1 gap-2 sm:grid-cols-2">
+            <div className="mt-3 grid grid-cols-1 gap-2 sm:grid-cols-3">
               {([
-                { id: 'groq',   title: 'Groq (llama)', desc: 'เร็ว ฟรี — ค่าเริ่มต้นเดิม' },
-                { id: 'claude', title: 'Claude',        desc: `ฉลาดกว่า · ${claudeModel}${anthropicReady ? '' : ' · ยังไม่ได้ตั้ง key'}` },
+                { id: 'groq',       title: 'Groq (llama) · ฟรี', desc: 'เร็ว ฟรี — เลือกรุ่น llama-3.3-70b ด้านล่างจะฉลาดขึ้น' },
+                { id: 'openrouter', title: 'OpenRouter · ฟรี',   desc: `รุ่น :free (70B) ฉลาดกว่า llama-8b${openrouterReady ? '' : ' · ยังไม่ได้ตั้ง key'}` },
+                { id: 'claude',     title: 'Claude · เสียเงิน',  desc: `ฉลาดสุด · ${claudeModel}${anthropicReady ? '' : ' · ยังไม่ได้ตั้ง key'}` },
               ] as const).map((o) => {
-                const disabled = providerSaving || (o.id === 'claude' && !anthropicReady);
+                const disabled = providerSaving
+                  || (o.id === 'claude' && !anthropicReady)
+                  || (o.id === 'openrouter' && !openrouterReady);
                 return (
                   <button key={o.id} onClick={() => handleProviderSave(o.id)} disabled={disabled}
                     className={`rounded-xl border p-3 text-left transition-all disabled:opacity-50 ${
@@ -481,6 +503,21 @@ export default function TeacherAdminPage() {
                 );
               })}
             </div>
+
+            {(aiProvider === 'claude' || aiProvider === 'openrouter') && (
+              <div className="mt-3 flex flex-wrap items-center gap-2">
+                <span className="text-xs text-slate-500">รุ่น {aiProvider === 'claude' ? 'Claude' : 'OpenRouter'}:</span>
+                <input
+                  value={aiProvider === 'claude' ? claudeModel : openrouterModel}
+                  onChange={(e) => (aiProvider === 'claude' ? setClaudeModel(e.target.value) : setOpenrouterModel(e.target.value))}
+                  className="min-w-[200px] flex-1 rounded-lg border border-slate-700 bg-slate-800 px-3 py-1.5 text-xs text-slate-100 focus:border-violet-500 focus:outline-none"
+                />
+                <button onClick={handleNonGroqModelSave} disabled={providerSaving}
+                  className="rounded-lg border border-slate-600 bg-slate-800 px-3 py-1.5 text-xs text-slate-300 hover:border-slate-500 disabled:opacity-50 transition-all">
+                  บันทึกรุ่น
+                </button>
+              </div>
+            )}
             {providerMsg && <p className="mt-2 text-xs text-slate-400">{providerMsg}</p>}
           </div>
 

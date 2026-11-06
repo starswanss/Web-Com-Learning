@@ -114,17 +114,22 @@ export async function testModel(model: string): Promise<{ ok: boolean; error?: s
 function getAnthropic() {
   return new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY });
 }
-export type AIProvider = 'groq' | 'claude';
+export type AIProvider = 'groq' | 'claude' | 'openrouter';
 export const PROVIDER_CACHE_KEY = 'ai-provider';
 export const CLAUDE_MODEL_CACHE_KEY = 'ai-claude-model';
+export const OPENROUTER_MODEL_CACHE_KEY = 'ai-openrouter-model';
 const DEFAULT_PROVIDER: AIProvider = 'groq';
 const DEFAULT_CLAUDE_MODEL = 'claude-haiku-5-5';
+// OpenRouter free tier (no billing): a ":free" model. 70B grades much better
+// than llama-8b. Teacher can override the id on the Admin page.
+const DEFAULT_OPENROUTER_MODEL = 'meta-llama/llama-3.3-70b-instruct:free';
 
 export async function getProvider(): Promise<AIProvider> {
   return cachedGlobal(PROVIDER_CACHE_KEY, 60_000, async () => {
     try {
       const snap = await adminDb.doc('system/aiConfig').get();
-      return snap.exists && snap.data()?.provider === 'claude' ? 'claude' : DEFAULT_PROVIDER;
+      const p = snap.exists ? (snap.data()?.provider as string | undefined) : undefined;
+      return p === 'claude' || p === 'openrouter' ? p : DEFAULT_PROVIDER;
     } catch {
       return DEFAULT_PROVIDER;
     }
@@ -154,9 +159,56 @@ export function isAnthropicConfigured(): boolean {
   return !!process.env.ANTHROPIC_API_KEY;
 }
 
+export async function getOpenRouterModelId(): Promise<string> {
+  return cachedGlobal(OPENROUTER_MODEL_CACHE_KEY, 60_000, async () => {
+    try {
+      const snap = await adminDb.doc('system/aiConfig').get();
+      const m = snap.exists ? (snap.data()?.openrouterModel as string | undefined) : undefined;
+      return m && m.trim() ? m.trim() : DEFAULT_OPENROUTER_MODEL;
+    } catch {
+      return DEFAULT_OPENROUTER_MODEL;
+    }
+  });
+}
+export async function setOpenRouterModelId(model: string): Promise<void> {
+  await adminDb.doc('system/aiConfig').set({ openrouterModel: model.trim() }, { merge: true });
+  invalidateGlobal(OPENROUTER_MODEL_CACHE_KEY);
+}
+/** True when an OpenRouter key is present (free ":free" models, no billing). */
+export function isOpenRouterConfigured(): boolean {
+  return !!process.env.OPENROUTER_API_KEY;
+}
+
+/** Call OpenRouter's OpenAI-compatible chat API and return the text reply. */
+async function runOpenRouter(prompt: string, maxTokens: number): Promise<string> {
+  const model = await getOpenRouterModelId();
+  const data = await withRetry(async () => {
+    const r = await fetch('https://openrouter.ai/api/v1/chat/completions', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        Authorization: `Bearer ${process.env.OPENROUTER_API_KEY}`,
+      },
+      body: JSON.stringify({
+        model,
+        messages: [{ role: 'user', content: prompt }],
+        temperature: 0.3,
+        max_tokens: maxTokens,
+      }),
+    });
+    if (!r.ok) throw new Error(`openrouter ${r.status}`);
+    return r.json() as Promise<{ choices?: Array<{ message?: { content?: string } }> }>;
+  });
+  return (data.choices?.[0]?.message?.content ?? '').trim();
+}
+
 /** Send one grading prompt to the active provider; return the raw text reply. */
 async function runCompletion(prompt: string, maxTokens = 2048): Promise<string> {
-  if ((await getProvider()) === 'claude') {
+  const provider = await getProvider();
+  if (provider === 'openrouter') {
+    return runOpenRouter(prompt, maxTokens);
+  }
+  if (provider === 'claude') {
     const model = await getClaudeModelId();
     const msg = await withRetry(() =>
       getAnthropic().messages.create({

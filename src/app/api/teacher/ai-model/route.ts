@@ -5,6 +5,7 @@ import {
   getModelId, setModelId, isModelEnvLocked, testModel, listModels,
   getGradingStyle, setGradingStyle, type GradingStyle,
   getProvider, setProvider, getClaudeModelId, setClaudeModelId, isAnthropicConfigured,
+  getOpenRouterModelId, setOpenRouterModelId, isOpenRouterConfigured,
 } from '@/lib/gemini';
 
 async function getTeacherUid(): Promise<string | null> {
@@ -34,8 +35,8 @@ const SUGGESTED = [
 export async function GET() {
   const uid = await getTeacherUid();
   if (!uid) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
-  const [model, available, gradingStyle, provider, claudeModel] = await Promise.all([
-    getModelId(), listModels(), getGradingStyle(), getProvider(), getClaudeModelId(),
+  const [model, available, gradingStyle, provider, claudeModel, openrouterModel] = await Promise.all([
+    getModelId(), listModels(), getGradingStyle(), getProvider(), getClaudeModelId(), getOpenRouterModelId(),
   ]);
   return NextResponse.json({
     model,
@@ -45,7 +46,9 @@ export async function GET() {
     gradingStyle,
     provider,
     claudeModel,
+    openrouterModel,
     anthropicConfigured: isAnthropicConfigured(),
+    openrouterConfigured: isOpenRouterConfigured(),
   });
 }
 
@@ -55,7 +58,7 @@ export async function PUT(req: NextRequest) {
   const uid = await getTeacherUid();
   if (!uid) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
 
-  const body = await req.json() as { model?: string; gradingStyle?: string; provider?: string; claudeModel?: string };
+  const body = await req.json() as { model?: string; gradingStyle?: string; provider?: string; claudeModel?: string; openrouterModel?: string };
 
   // Grading-style update is independent of the model (and of the env lock).
   if (body.gradingStyle !== undefined) {
@@ -67,13 +70,16 @@ export async function PUT(req: NextRequest) {
     return NextResponse.json({ ok: true, gradingStyle: s });
   }
 
-  // Provider switch (Groq vs Claude) — also independent of the Groq model.
+  // Provider switch (Groq / Claude / OpenRouter) — independent of the Groq model.
   if (body.provider !== undefined) {
-    if (body.provider !== 'groq' && body.provider !== 'claude') {
+    if (body.provider !== 'groq' && body.provider !== 'claude' && body.provider !== 'openrouter') {
       return NextResponse.json({ error: 'provider ไม่ถูกต้อง' }, { status: 400 });
     }
     if (body.provider === 'claude' && !isAnthropicConfigured()) {
       return NextResponse.json({ error: 'ยังไม่ได้ตั้งค่า ANTHROPIC_API_KEY ใน Vercel' }, { status: 400 });
+    }
+    if (body.provider === 'openrouter' && !isOpenRouterConfigured()) {
+      return NextResponse.json({ error: 'ยังไม่ได้ตั้งค่า OPENROUTER_API_KEY ใน Vercel' }, { status: 400 });
     }
     await setProvider(body.provider);
     return NextResponse.json({ ok: true, provider: body.provider });
@@ -84,6 +90,13 @@ export async function PUT(req: NextRequest) {
     if (!body.claudeModel.trim()) return NextResponse.json({ error: 'กรุณาระบุชื่อ Claude model' }, { status: 400 });
     await setClaudeModelId(body.claudeModel);
     return NextResponse.json({ ok: true, claudeModel: body.claudeModel.trim() });
+  }
+
+  // OpenRouter model id (optional override; defaults to a free 70B model).
+  if (body.openrouterModel !== undefined) {
+    if (!body.openrouterModel.trim()) return NextResponse.json({ error: 'กรุณาระบุชื่อ OpenRouter model' }, { status: 400 });
+    await setOpenRouterModelId(body.openrouterModel);
+    return NextResponse.json({ ok: true, openrouterModel: body.openrouterModel.trim() });
   }
 
   if (isModelEnvLocked()) {
