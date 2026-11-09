@@ -5,6 +5,7 @@ import { FieldValue } from 'firebase-admin/firestore';
 import { gradeHybrid } from '@/lib/gemini';
 import { type GradableBlock } from '@/lib/auto-grade';
 import { invalidateLeaderboards } from '@/lib/leaderboard-cache';
+import { noteAiError } from '@/lib/ai-status';
 
 async function getTeacherUid(): Promise<string | null> {
   try {
@@ -72,6 +73,7 @@ export async function POST(
   } catch (err) {
     const msg = err instanceof Error ? err.message : String(err);
     console.error('[quick-grade] Gemini error:', msg);
+    await noteAiError(err); // flag the dashboard if this is a daily-quota error
     const isQuota = msg.includes('429') || msg.includes('quota') || msg.includes('RESOURCE_EXHAUSTED');
     return NextResponse.json(
       { error: 'AI grading failed', detail: isQuota ? 'โควต้า API หมดชั่วคราว กรุณาลองใหม่ในอีก 1 นาที' : msg },

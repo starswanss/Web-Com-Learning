@@ -251,6 +251,7 @@ export default function TeacherPage() {
       </header>
 
       <main className="mx-auto max-w-[1400px] px-4 py-4 space-y-4 sm:px-6 sm:py-6">
+        <AiStatusBanner />
         {fetching ? (
           <div className="flex items-center justify-center py-24"><div className="h-6 w-6 animate-spin rounded-full border-2 border-slate-700 border-t-slate-400" /></div>
         ) : (
@@ -646,6 +647,65 @@ interface ReadStatsData {
 }
 
 const READ_LIMIT = 50000; // Spark free-tier daily reads
+
+interface AiStatusData { state: 'ok' | 'exhausted' | 'reset'; provider?: string; resetAt?: string }
+
+/**
+ * Dashboard banner for AI grading availability. Shows a warning when the daily
+ * AI quota is used up (with the reset time), and a "กลับมาใช้ได้แล้ว" notice
+ * once the quota rolls over. Silent when everything is normal.
+ */
+function AiStatusBanner() {
+  const [data, setData] = useState<AiStatusData | null>(null);
+
+  const load = useCallback(() => {
+    fetch('/api/teacher/ai-status')
+      .then((r) => (r.ok ? r.json() : null))
+      .then((j) => setData(j && j.state ? j : null))
+      .catch(() => setData(null));
+  }, []);
+
+  useEffect(() => {
+    load();
+    const t = setInterval(load, 60_000); // refresh each minute so a reset shows up on its own
+    return () => clearInterval(t);
+  }, [load]);
+
+  if (!data || data.state === 'ok') return null;
+
+  const providerName =
+    data.provider === 'claude' ? 'Claude' : data.provider === 'openrouter' ? 'OpenRouter' : 'Groq';
+
+  if (data.state === 'reset') {
+    return (
+      <div className="flex items-center gap-3 rounded-2xl border border-emerald-600/40 bg-emerald-950/40 px-5 py-3.5">
+        <span className="text-lg">✅</span>
+        <div>
+          <p className="text-sm font-semibold text-emerald-300">AI ตรวจงานกลับมาใช้งานได้แล้ว</p>
+          <p className="text-xs text-emerald-400/70">โควตารายวันรีเซ็ตแล้ว — กดตรวจงานที่เหลือต่อได้เลย</p>
+        </div>
+      </div>
+    );
+  }
+
+  // state === 'exhausted'
+  const reset = data.resetAt ? new Date(data.resetAt) : null;
+  const resetText = reset
+    ? reset.toLocaleString('th-TH', { timeZone: 'Asia/Bangkok', day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' })
+    : null;
+
+  return (
+    <div className="flex items-center gap-3 rounded-2xl border border-amber-600/40 bg-amber-950/40 px-5 py-3.5">
+      <span className="text-lg">⏳</span>
+      <div>
+        <p className="text-sm font-semibold text-amber-300">AI ตรวจงานใช้ครบโควตารายวันแล้ว ({providerName})</p>
+        <p className="text-xs text-amber-400/70">
+          {resetText ? `กลับมาใช้ได้อีกครั้งประมาณ ${resetText} น.` : 'กลับมาใช้ได้อีกครั้งในวันถัดไป'} · ที่ตรวจไปแล้วยังอยู่ครบ
+        </p>
+      </div>
+    </div>
+  );
+}
 
 function FirestoreUsageCard() {
   const [stats, setStats] = useState<ReadStatsData | null>(null);

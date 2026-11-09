@@ -6,6 +6,7 @@ import { gradeHybrid } from '@/lib/gemini';
 import { type GradableBlock } from '@/lib/auto-grade';
 import { invalidateLeaderboards } from '@/lib/leaderboard-cache';
 import { getEnrolledStudentIds } from '@/lib/enrolled';
+import { noteAiError } from '@/lib/ai-status';
 
 async function getTeacherUid(): Promise<string | null> {
   try {
@@ -123,6 +124,7 @@ export async function POST(
     } catch (err) {
       console.error('[batch-grade] grade failed:', item.id, err instanceof Error ? err.message : err);
       if (!lastError) lastError = err instanceof Error ? err.message : String(err);
+      await noteAiError(err); // flag the dashboard on a daily-quota error
       errors += 1;
     }
   }
