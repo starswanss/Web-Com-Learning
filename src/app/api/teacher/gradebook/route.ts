@@ -4,6 +4,7 @@ import { cookies } from 'next/headers';
 import { cachedGlobal } from '@/lib/server-cache';
 import { submissionInTerm, parseTerm } from '@/lib/term';
 import { getStudentsInClasses } from '@/lib/students-cache';
+import { getRosterClassIds } from '@/lib/subject-classes';
 
 const STATS_TTL = 120_000; // 2 min; invalidated on submit/grade
 
@@ -115,12 +116,11 @@ async function computeGradebook(uid: string, subjectId: string | null, term: str
     return { assignments: [], students: [] };
   }
 
-  // Collect classIds across the visible assignments, then their students.
-  const allClassIds = Array.from(
-    new Set(visibleAssignments.flatMap((a) => a.classIds ?? []))
-  );
+  // Roster from the SUBJECT's rooms — assignments are subject-wide, so their
+  // frozen classIds (often an old odd/even split) miss current students.
+  const rosterClassIds = await getRosterClassIds(uid, subjectId);
   const studentMap = new Map<string, { uid: string; displayName: string; email: string; classId: string }>();
-  for (const s of await getStudentsInClasses(allClassIds)) studentMap.set(s.uid, s);
+  for (const s of await getStudentsInClasses(rosterClassIds)) studentMap.set(s.uid, s);
 
   // Build student rows
   const students = Array.from(studentMap.values()).map((s) => ({

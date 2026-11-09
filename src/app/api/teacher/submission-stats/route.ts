@@ -50,6 +50,11 @@ async function computeStats(uid: string, subjectId: string | null, assignmentId:
   // Fetch active subjects for this teacher to filter out orphaned assignments
   const subjectsSnap = await adminDb.collection('subjects').where('teacherId', '==', uid).get();
   const activeSubjectIds = new Set(subjectsSnap.docs.map(d => d.id));
+  // subjectId → its rooms. Assignments are subject-wide, so "who should submit"
+  // is every student in the assignment's SUBJECT — not the rooms frozen on the
+  // assignment doc (often an old odd/even split that misses current students).
+  const subjectClassIds = new Map<string, string[]>();
+  subjectsSnap.docs.forEach(d => subjectClassIds.set(d.id, (d.data().classIds as string[]) ?? []));
 
   // Fetch assignments by teacher
   let assignmentsQuery = adminDb.collection('assignments').where('teacherId', '==', uid);
@@ -75,7 +80,7 @@ async function computeStats(uid: string, subjectId: string | null, assignmentId:
     .map(d => ({
       id: d.id,
       title: (d.data().title as string) ?? '',
-      classIds: (d.data().classIds as string[]) ?? [],
+      subjectId: (d.data().subjectId as string | null) ?? null,
     }));
 
   const targetAssignments = assignmentId
@@ -84,11 +89,9 @@ async function computeStats(uid: string, subjectId: string | null, assignmentId:
 
   if (targetAssignments.length === 0) return [];
 
-  // Collect all unique classIds
-  const allClassIds = [...new Set(targetAssignments.flatMap(a => a.classIds))];
-
-  // Students across all classes — from the shared cached roster (no per-call read)
-  const students = (await getStudentsInClasses(allClassIds)).map(s => ({
+  // Roster = every student across the teacher's subjects' rooms (loaded once).
+  const rosterClassIds = Array.from(new Set(Array.from(subjectClassIds.values()).flat()));
+  const students = (await getStudentsInClasses(rosterClassIds)).map(s => ({
     uid: s.uid,
     name: s.displayName,
     classId: s.classId,
@@ -106,11 +109,13 @@ async function computeStats(uid: string, subjectId: string | null, assignmentId:
   await flushReadsIfDue();
 
   const stats: AssignmentStat[] = targetAssignments.map(a => {
-    const classStudents = students.filter(s => a.classIds.includes(s.classId));
+    // Students expected to submit = everyone in the assignment's SUBJECT.
+    const rooms = new Set(subjectClassIds.get(a.subjectId ?? '') ?? []);
+    const classStudents = students.filter(s => rooms.has(s.classId));
     const submittedSet = submittedMap.get(a.id) ?? new Set<string>();
-    // Count only students who are actually IN this assignment's classes — a
-    // submitter who has since changed class shouldn't inflate the count. This
-    // guarantees submitted + notSubmitted === totalStudents.
+    // Count only students currently in the subject — a submitter who has since
+    // left shouldn't inflate the count. Guarantees submitted + notSubmitted ===
+    // totalStudents.
     const submittedInClass = classStudents.filter(s => submittedSet.has(s.uid));
     const notSubmitted = classStudents.filter(s => !submittedSet.has(s.uid));
     return {

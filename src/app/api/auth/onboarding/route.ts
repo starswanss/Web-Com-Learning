@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { adminAuth, adminDb } from '@/lib/firebase/admin';
 import { cookies } from 'next/headers';
 import { FieldValue } from 'firebase-admin/firestore';
+import { invalidateLeaderboards } from '@/lib/leaderboard-cache';
 
 export async function POST(req: NextRequest) {
   try {
@@ -20,6 +21,10 @@ export async function POST(req: NextRequest) {
       onboardingComplete: true,
       updatedAt: FieldValue.serverTimestamp(),
     });
+
+    // A new student just joined a class — drop the cached teacher rosters so they
+    // show up immediately in gradebook / students / submission-stats / members.
+    invalidateLeaderboards();
 
     const snap = await userRef.get();
     const data = snap.data()!;

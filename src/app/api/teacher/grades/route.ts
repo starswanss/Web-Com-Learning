@@ -3,6 +3,7 @@ import { adminAuth, adminDb } from '@/lib/firebase/admin';
 import { cookies } from 'next/headers';
 import { parseTerm, submissionInTerm } from '@/lib/term';
 import { getStudentsInClasses } from '@/lib/students-cache';
+import { getRosterClassIds } from '@/lib/subject-classes';
 import { cachedGlobal, invalidatePrefix } from '@/lib/server-cache';
 
 async function getTeacherUid(): Promise<string | null> {
@@ -134,10 +135,10 @@ export async function GET(req: NextRequest) {
   const assignmentUnit = new Map<string, string>();
   assignments.forEach((a) => assignmentUnit.set(a.id, String((a.unit as string) ?? '').trim()));
 
-  const allClassIds = Array.from(new Set(assignments.flatMap((a) => (a.classIds as string[]) ?? [])));
-
-  // Students in those classes — from the shared cached roster (no per-call read).
-  const students = await getStudentsInClasses(allClassIds);
+  // Roster from the SUBJECT's rooms — assignments are subject-wide, so their
+  // frozen classIds (often an old odd/even split) miss current students.
+  const rosterClassIds = await getRosterClassIds(uid, subjectId);
+  const students = await getStudentsInClasses(rosterClassIds);
 
   // Resolve each unit's bound assignment IDs. Prefer the explicit selection;
   // fall back to name-matching (older configs) so nothing breaks.
@@ -153,17 +154,16 @@ export async function GET(req: NextRequest) {
   const unitMatched: Record<string, number> = {};
   for (const u of units) unitMatched[u.id] = unitAssignmentIds(u).length;
 
-  // Which assignments apply to each student's class (missing ones count as 0).
-  const assignmentClasses = new Map(assignments.map((a) => [a.id, (a.classIds as string[]) ?? []]));
+  // Assignments are subject-wide, so every one applies to every student in the
+  // subject roster — the denominator base. (The old classId-membership check
+  // dropped students sitting in rooms the worksheet didn't originally target,
+  // making their whole grade compute as 0.)
+  const applicable = assignments.map((a) => a.id);
+  const appSet = new Set(applicable);
 
   // Build rows with per-unit / exam percentages (0..1) used by "เกลี่ยอัตโนมัติ".
   const rows = students.map((s) => {
     const scored = subIndex.get(s.uid) ?? new Map<string, number>();
-    // Assignments assigned to this student's class — the denominator base.
-    const applicable = assignments
-      .filter((a) => (assignmentClasses.get(a.id) ?? []).includes(s.classId))
-      .map((a) => a.id);
-    const appSet = new Set(applicable);
     const overallPct = pctFromAssignments(applicable, scored);
 
     const unitPct: Record<string, number> = {};
