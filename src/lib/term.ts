@@ -20,3 +20,22 @@ export function filterByTerm<T extends TermItem>(items: T[], term: string | null
   if (!t) return items;
   return items.filter((a) => a.academicYear === t.year && a.term === t.no);
 }
+
+/**
+ * Does a term-stamped SUBMISSION belong to the selected term?
+ *
+ * Worksheets/ใบความรู้ are a permanent library reused every year, so the term
+ * now lives on each student's submission (stamped at submit time), not on the
+ * assignment. Teacher views filter which *submissions* count by term instead of
+ * hiding assignments.
+ *
+ * Untagged submissions are legacy (pre-migration). When a SPECIFIC term is
+ * chosen they never match — a one-time migration stamps current-cohort work, so
+ * anything still untagged is old data and should stay out of the current term.
+ * Under ทุกเทอม ('' / invalid) everything matches.
+ */
+export function submissionInTerm(sub: TermItem, term: string | null | undefined): boolean {
+  const t = parseTerm(term);
+  if (!t) return true; // ทุกเทอม
+  return sub.academicYear === t.year && sub.term === t.no;
+}

@@ -3,7 +3,6 @@ import { adminAuth, adminDb } from '@/lib/firebase/admin';
 import { cookies } from 'next/headers';
 import { trackReads, flushReadsIfDue } from '@/lib/read-tracker';
 import { cachedGlobal } from '@/lib/server-cache';
-import { parseTerm } from '@/lib/term';
 import { getStudentsInClasses } from '@/lib/students-cache';
 import { getSubmitterSets } from '@/lib/assignment-stats';
 
@@ -47,7 +46,7 @@ export async function GET(req: NextRequest) {
   return NextResponse.json(stats);
 }
 
-async function computeStats(uid: string, subjectId: string | null, assignmentId: string | null, term: string | null): Promise<AssignmentStat[]> {
+async function computeStats(uid: string, subjectId: string | null, assignmentId: string | null, _term: string | null): Promise<AssignmentStat[]> {
   // Fetch active subjects for this teacher to filter out orphaned assignments
   const subjectsSnap = await adminDb.collection('subjects').where('teacherId', '==', uid).get();
   const activeSubjectIds = new Set(subjectsSnap.docs.map(d => d.id));
@@ -59,7 +58,10 @@ async function computeStats(uid: string, subjectId: string | null, assignmentId:
   }
 
   const assignmentsSnap = await assignmentsQuery.get();
-  const t = parseTerm(term);
+  // Worksheets are a permanent library (reused each term) and the "who hasn't
+  // submitted" check is always against the CURRENT roster (getStudentsInClasses
+  // below), so we don't hide assignments by term here — wiped past-term students
+  // are already off the roster.
   const allAssignments = assignmentsSnap.docs
     .filter(d => {
       const data = d.data();
@@ -68,7 +70,6 @@ async function computeStats(uid: string, subjectId: string | null, assignmentId:
       // and skip ใบความรู้ (knowledge) — students never submit those.
       const ct = (data.contentType as string) ?? 'worksheet';
       if (!(sid && activeSubjectIds.has(sid) && ct !== 'knowledge')) return false;
-      if (t && (data.academicYear !== t.year || data.term !== t.no)) return false;
       return true;
     })
     .map(d => ({

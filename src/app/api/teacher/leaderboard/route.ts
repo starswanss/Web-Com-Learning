@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { adminAuth, adminDb } from '@/lib/firebase/admin';
 import { cookies } from 'next/headers';
 import { cachedGlobal } from '@/lib/server-cache';
-import { filterByTerm } from '@/lib/term';
+import { submissionInTerm } from '@/lib/term';
 
 const LB_TTL = 300_000; // 5 min; invalidated on grade/bonus/submit
 
@@ -43,34 +43,36 @@ async function computeLeaderboard(uid: string, subjectId: string | null, classFi
 
   if (assignmentsSnap.empty) return [];
 
-  const assignmentIds = filterByTerm(
-    assignmentsSnap.docs.map((d) => ({ id: d.id, academicYear: d.data().academicYear as number | undefined, term: d.data().term as number | undefined })),
-    term,
-  ).map((a) => a.id);
+  // Worksheets are reused across terms, so we rank by each student's SUBMISSIONS
+  // in the chosen term (not by hiding assignments). Chunk the 'in' query by 30.
+  const assignmentIds = assignmentsSnap.docs.map((d) => d.id);
   if (assignmentIds.length === 0) return [];
-
-  const submissionsSnap = await adminDb
-    .collection('submissions')
-    .where('assignmentId', 'in', assignmentIds.slice(0, 30))
-    .get();
 
   const studentMap = new Map<string, {
     studentId: string; studentName: string; classId: string;
     scores: number[]; submittedCount: number;
   }>();
 
-  submissionsSnap.docs.forEach((d) => {
-    const data = d.data();
-    const sid = data.studentId as string;
-    const cid = data.classId as string;
-    if (classFilter && cid !== classFilter) return;
-    if (!studentMap.has(sid)) {
-      studentMap.set(sid, { studentId: sid, studentName: data.studentName as string, classId: cid, scores: [], submittedCount: 0 });
-    }
-    const entry = studentMap.get(sid)!;
-    entry.submittedCount += 1;
-    if (typeof data.score === 'number') entry.scores.push(data.score);
-  });
+  for (let i = 0; i < assignmentIds.length; i += 30) {
+    const chunk = assignmentIds.slice(i, i + 30);
+    const submissionsSnap = await adminDb
+      .collection('submissions')
+      .where('assignmentId', 'in', chunk)
+      .get();
+    submissionsSnap.docs.forEach((d) => {
+      const data = d.data();
+      if (!submissionInTerm(data as { academicYear?: number | null; term?: number | null }, term)) return;
+      const sid = data.studentId as string;
+      const cid = data.classId as string;
+      if (classFilter && cid !== classFilter) return;
+      if (!studentMap.has(sid)) {
+        studentMap.set(sid, { studentId: sid, studentName: data.studentName as string, classId: cid, scores: [], submittedCount: 0 });
+      }
+      const entry = studentMap.get(sid)!;
+      entry.submittedCount += 1;
+      if (typeof data.score === 'number') entry.scores.push(data.score);
+    });
+  }
 
   /* ── Bonus points ── */
   const studentIds = Array.from(studentMap.keys());

@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { adminAuth, adminDb } from '@/lib/firebase/admin';
 import { cookies } from 'next/headers';
 import { cachedGlobal } from '@/lib/server-cache';
-import { filterByTerm } from '@/lib/term';
+import { submissionInTerm } from '@/lib/term';
 
 const STATS_TTL = 120_000; // 2 min; invalidated on submit/grade
 
@@ -42,23 +42,16 @@ async function computeStudents(uid: string, subjectId: string | null, term: stri
     ? await base.where('subjectId', '==', subjectId).get()
     : await base.get();
 
-  // Keep only the chosen term's assignments so the roster reflects who was
-  // active that term — students who only submitted in other terms drop off.
-  const assignmentDocs = filterByTerm(
-    snap.docs.map((d) => ({ _doc: d, academicYear: d.data().academicYear as number | undefined, term: d.data().term as number | undefined })),
-    term,
-  ).map((x) => x._doc);
-
+  // Worksheets are a permanent library (reused every term). We no longer filter
+  // assignments by term — instead we keep each student's SUBMISSIONS only if they
+  // belong to the chosen term, so the roster reflects who was active that term.
+  const assignmentDocs = snap.docs;
   if (assignmentDocs.length === 0) return [];
 
   const assignmentIds = assignmentDocs.map((d) => d.id);
-
-  const assignmentsPerClass = new Map<string, number>();
-  assignmentDocs.forEach((d) => {
-    const cids = d.data().classIds as string[] | undefined;
-    if (!cids) return;
-    cids.forEach((c) => assignmentsPerClass.set(c, (assignmentsPerClass.get(c) ?? 0) + 1));
-  });
+  const classIdsOf = new Map<string, string[]>(
+    assignmentDocs.map((d) => [d.id, (d.data().classIds as string[]) ?? []]),
+  );
 
   // Chunk submissions query (Firestore 'in' limit: 30)
   const studentMap = new Map<string, {
@@ -69,17 +62,22 @@ async function computeStudents(uid: string, subjectId: string | null, term: stri
     submittedCount: number;
     tabSwitchTotal: number;
   }>();
+  // Assignments that actually have work in the chosen term — the per-class
+  // denominator should count only these (not the whole reusable library).
+  const termActiveAssignments = new Set<string>();
 
   const CHUNK = 30;
   for (let i = 0; i < assignmentIds.length; i += CHUNK) {
     const chunk = assignmentIds.slice(i, i + CHUNK);
-    const snap = await adminDb
+    const subsSnap = await adminDb
       .collection('submissions')
       .where('assignmentId', 'in', chunk)
       .get();
 
-    snap.docs.forEach((d) => {
+    subsSnap.docs.forEach((d) => {
       const data = d.data();
+      if (!submissionInTerm(data as { academicYear?: number | null; term?: number | null }, term)) return;
+      termActiveAssignments.add(data.assignmentId as string);
       const sid = data.studentId as string;
       if (!studentMap.has(sid)) {
         studentMap.set(sid, {
@@ -96,6 +94,14 @@ async function computeStudents(uid: string, subjectId: string | null, term: stri
       if (typeof data.score === 'number') entry.scores.push(data.score);
       if (typeof data.tabSwitchCount === 'number') entry.tabSwitchTotal += data.tabSwitchCount;
     });
+  }
+
+  // How many of THIS TERM's assignments apply to each class.
+  const assignmentsPerClass = new Map<string, number>();
+  for (const aid of termActiveAssignments) {
+    for (const c of classIdsOf.get(aid) ?? []) {
+      assignmentsPerClass.set(c, (assignmentsPerClass.get(c) ?? 0) + 1);
+    }
   }
 
   // Look up the live user doc for each submitter. A student is only CURRENTLY
@@ -124,7 +130,7 @@ async function computeStudents(uid: string, subjectId: string | null, term: stri
     .map((s) => {
       const info = userInfo.get(s.studentId)!;
       const classId = info.classId; // current class, not the one stored on old submissions
-      const totalForClass = assignmentsPerClass.get(classId) ?? assignmentIds.length;
+      const totalForClass = assignmentsPerClass.get(classId) ?? termActiveAssignments.size;
       const avgScore = s.scores.length > 0
         ? Math.round(s.scores.reduce((a, b) => a + b, 0) / s.scores.length)
         : null;

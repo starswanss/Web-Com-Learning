@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { adminAuth, adminDb } from '@/lib/firebase/admin';
 import { cookies } from 'next/headers';
 import { cachedGlobal } from '@/lib/server-cache';
-import { filterByTerm } from '@/lib/term';
+import { submissionInTerm, parseTerm } from '@/lib/term';
 import { getStudentsInClasses } from '@/lib/students-cache';
 
 const STATS_TTL = 120_000; // 2 min; invalidated on submit/grade
@@ -61,7 +61,6 @@ async function computeGradebook(uid: string, subjectId: string | null, term: str
   if (subjectId) {
     assignments = assignments.filter((a) => a.subjectId === subjectId);
   }
-  assignments = filterByTerm(assignments, term);
 
   if (assignments.length === 0) {
     return { assignments: [], students: [] };
@@ -74,22 +73,16 @@ async function computeGradebook(uid: string, subjectId: string | null, term: str
     return aT - bT;
   });
 
-  // 2. Collect all classIds across assignments
-  const allClassIds = Array.from(
-    new Set(assignments.flatMap((a) => a.classIds ?? []))
-  );
-
-  // 3. Students in those classes — from the shared cached roster (no per-call read)
-  const studentMap = new Map<string, { uid: string; displayName: string; email: string; classId: string }>();
-  for (const s of await getStudentsInClasses(allClassIds)) studentMap.set(s.uid, s);
-
-  // 4. Fetch submissions for all assignments (chunked by 30)
+  // Fetch submissions for ALL assignments (worksheets are reused across terms),
+  // keeping only those that belong to the selected term — the term lives on the
+  // submission now, not the assignment.
   const assignmentIds = assignments.map((a) => a.id);
   // submissionsIndex: studentId -> assignmentId -> { submissionId, score, status }
   const submissionsIndex = new Map<
     string,
     Map<string, { submissionId: string; score: number | null; status: string }>
   >();
+  const matched = new Set<string>(); // assignments with ≥1 submission this term
 
   for (let i = 0; i < assignmentIds.length; i += 30) {
     const chunk = assignmentIds.slice(i, i + 30);
@@ -99,8 +92,10 @@ async function computeGradebook(uid: string, subjectId: string | null, term: str
       .get();
     subsSnap.docs.forEach((d) => {
       const data = d.data();
+      if (!submissionInTerm(data as { academicYear?: number | null; term?: number | null }, term)) return;
       const sid = data.studentId as string;
       const aid = data.assignmentId as string;
+      matched.add(aid);
       if (!submissionsIndex.has(sid)) submissionsIndex.set(sid, new Map());
       submissionsIndex.get(sid)!.set(aid, {
         submissionId: d.id,
@@ -110,7 +105,24 @@ async function computeGradebook(uid: string, subjectId: string | null, term: str
     });
   }
 
-  // 5. Build student rows
+  // Under a specific term, show only assignment columns that have work in that
+  // term; under ทุกเทอม keep them all (unchanged behaviour).
+  const visibleAssignments = parseTerm(term)
+    ? assignments.filter((a) => matched.has(a.id))
+    : assignments;
+
+  if (visibleAssignments.length === 0) {
+    return { assignments: [], students: [] };
+  }
+
+  // Collect classIds across the visible assignments, then their students.
+  const allClassIds = Array.from(
+    new Set(visibleAssignments.flatMap((a) => a.classIds ?? []))
+  );
+  const studentMap = new Map<string, { uid: string; displayName: string; email: string; classId: string }>();
+  for (const s of await getStudentsInClasses(allClassIds)) studentMap.set(s.uid, s);
+
+  // Build student rows
   const students = Array.from(studentMap.values()).map((s) => ({
     ...s,
     submissions: Object.fromEntries(submissionsIndex.get(s.uid)?.entries() ?? []),
@@ -123,7 +135,7 @@ async function computeGradebook(uid: string, subjectId: string | null, term: str
   });
 
   return {
-    assignments: assignments.map((a) => ({
+    assignments: visibleAssignments.map((a) => ({
       id: a.id,
       title: a.title,
       classIds: a.classIds,

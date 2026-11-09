@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { adminAuth, adminDb } from '@/lib/firebase/admin';
 import { cookies } from 'next/headers';
-import { parseTerm } from '@/lib/term';
+import { parseTerm, submissionInTerm } from '@/lib/term';
 import { getStudentsInClasses } from '@/lib/students-cache';
 import { cachedGlobal, invalidatePrefix } from '@/lib/server-cache';
 
@@ -96,14 +96,39 @@ export async function GET(req: NextRequest) {
   const savedExams: Record<string, Exam> =
     scoresSnap.exists ? (scoresSnap.data()?.exams ?? {}) : {};
 
-  // Assignments (worksheet/quiz only), optionally by subject.
+  // Assignments (worksheet/quiz only), optionally by subject. Worksheets are a
+  // permanent library reused every term, so we DON'T filter them by term —
+  // instead we scope by the SUBMISSION's term below.
   let aQuery = adminDb.collection('assignments').where('teacherId', '==', uid);
   if (subjectId) aQuery = aQuery.where('subjectId', '==', subjectId);
   const assignmentsSnap = await aQuery.get();
-  const assignments = assignmentsSnap.docs
+  const allAssignments = assignmentsSnap.docs
     .map((d): { id: string } & Record<string, unknown> => ({ id: d.id, ...d.data() }))
-    .filter((a) => ['worksheet', 'quiz'].includes((a.contentType as string) ?? 'worksheet'))
-    .filter((a) => !termSel || (a.academicYear === termSel.year && a.term === termSel.no));
+    .filter((a) => ['worksheet', 'quiz'].includes((a.contentType as string) ?? 'worksheet'));
+
+  // Reviewed scores (studentId → assignmentId → score) + which assignments have
+  // any work in the chosen term (scopes the denominator to this term's work).
+  const allAssignmentIds = allAssignments.map((a) => a.id);
+  const subIndex = new Map<string, Map<string, number>>();
+  const termActive = new Set<string>();
+  for (let i = 0; i < allAssignmentIds.length; i += 30) {
+    const chunk = allAssignmentIds.slice(i, i + 30);
+    if (chunk.length === 0) break;
+    const snap = await adminDb.collection('submissions').where('assignmentId', 'in', chunk).get();
+    snap.docs.forEach((d) => {
+      const data = d.data();
+      if (!submissionInTerm(data as { academicYear?: number | null; term?: number | null }, termStr)) return;
+      termActive.add(data.assignmentId as string);
+      if (data.status !== 'reviewed' || typeof data.score !== 'number') return;
+      const sid = data.studentId as string;
+      if (!subIndex.has(sid)) subIndex.set(sid, new Map());
+      subIndex.get(sid)!.set(data.assignmentId as string, data.score as number);
+    });
+  }
+
+  // Under a specific term, only that term's assignments count toward units /
+  // denominators / pickers; under ทุกเทอม keep the whole library.
+  const assignments = termSel ? allAssignments.filter((a) => termActive.has(a.id)) : allAssignments;
 
   // Map assignmentId → normalised unit name (for grouping by unit).
   const assignmentUnit = new Map<string, string>();
@@ -113,22 +138,6 @@ export async function GET(req: NextRequest) {
 
   // Students in those classes — from the shared cached roster (no per-call read).
   const students = await getStudentsInClasses(allClassIds);
-
-  // Reviewed submissions: studentId → assignmentId → score.
-  const assignmentIds = assignments.map((a) => a.id);
-  const subIndex = new Map<string, Map<string, number>>();
-  for (let i = 0; i < assignmentIds.length; i += 30) {
-    const chunk = assignmentIds.slice(i, i + 30);
-    if (chunk.length === 0) break;
-    const snap = await adminDb.collection('submissions').where('assignmentId', 'in', chunk).get();
-    snap.docs.forEach((d) => {
-      const data = d.data();
-      if (data.status !== 'reviewed' || typeof data.score !== 'number') return;
-      const sid = data.studentId as string;
-      if (!subIndex.has(sid)) subIndex.set(sid, new Map());
-      subIndex.get(sid)!.set(data.assignmentId as string, data.score as number);
-    });
-  }
 
   // Resolve each unit's bound assignment IDs. Prefer the explicit selection;
   // fall back to name-matching (older configs) so nothing breaks.

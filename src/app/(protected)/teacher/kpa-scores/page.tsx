@@ -56,9 +56,10 @@ export default function KpaScoresPage() {
     if (profile?.role !== 'teacher' || subjectId === undefined || term === undefined) return;
     const url = subjectId ? `/api/assignments?subject=${subjectId}` : '/api/assignments';
     fetch(url).then((r) => r.json()).then((d) => {
-      const t = term ? term.split('/').map(Number) : null; // [year, no]
-      const list: AssignmentItem[] = (Array.isArray(d) ? d.filter(hasKpa) : [])
-        .filter((a: AssignmentItem) => !t || (a.academicYear === t[0] && a.term === t[1]));
+      // Worksheets are a permanent library reused every term, so list every
+      // KPA-configured one. Per-term separation comes from the submissions,
+      // which /api/teacher/submissions/[id] already scopes to the current roster.
+      const list: AssignmentItem[] = (Array.isArray(d) ? d.filter(hasKpa) : []);
       setAssignments(list);
       setSelectedId((cur) => (list.some((a) => a.id === cur) ? cur : (list[0]?.id ?? '')));
     }).catch(() => {});

@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { adminAuth, adminDb } from '@/lib/firebase/admin';
 import { cookies } from 'next/headers';
 import { cachedGlobal } from '@/lib/server-cache';
-import { parseTerm } from '@/lib/term';
+import { submissionInTerm } from '@/lib/term';
 
 const STATS_TTL = 120_000; // 2 min; invalidated on submit/grade
 
@@ -37,15 +37,14 @@ async function computeAnalytics(teacherUid: string, term: string | null) {
 
   if (assignmentsSnap.empty) return { perClass: {}, assignments: [] };
 
-  const t = parseTerm(term);
-  const termDocs = assignmentsSnap.docs.filter((d) => !t || (d.data().academicYear === t.year && d.data().term === t.no));
-  if (termDocs.length === 0) return { classStats: [], assignmentStats: [], totalSubmissions: 0, scoreDistribution: [], weeklyTrend: [] };
-
-  const assignmentIds = termDocs.map((d) => d.id);
+  const allDocs = assignmentsSnap.docs;
+  const assignmentIds = allDocs.map((d) => d.id);
   const assignmentTitles = Object.fromEntries(
-    termDocs.map((d) => [d.id, d.data().title as string])
+    allDocs.map((d) => [d.id, d.data().title as string])
   );
 
+  // Worksheets are reused across terms; aggregate only the submissions that
+  // belong to the chosen term (the term lives on the submission now).
   const allSubmissions: Record<string, unknown>[] = [];
   for (let i = 0; i < assignmentIds.length; i += 30) {
     const chunk = assignmentIds.slice(i, i + 30);
@@ -53,7 +52,14 @@ async function computeAnalytics(teacherUid: string, term: string | null) {
       .collection('submissions')
       .where('assignmentId', 'in', chunk)
       .get();
-    snap.docs.forEach((d) => allSubmissions.push({ id: d.id, ...d.data() }));
+    snap.docs.forEach((d) => {
+      const data = d.data();
+      if (!submissionInTerm(data as { academicYear?: number | null; term?: number | null }, term)) return;
+      allSubmissions.push({ id: d.id, ...data });
+    });
+  }
+  if (allSubmissions.length === 0) {
+    return { classStats: [], assignmentStats: [], totalSubmissions: 0, scoreDistribution: [], weeklyTrend: [] };
   }
 
   const perClass: Record<string, { submitted: number; totalScore: number; count: number }> = {};

@@ -8,6 +8,7 @@ import { invalidateLeaderboards } from '@/lib/leaderboard-cache';
 import { rateLimit } from '@/lib/rate-limit';
 import { studentCanAccessAssignment } from '@/lib/assignment-access';
 import { addSubmitter } from '@/lib/assignment-stats';
+import { getActiveTerm } from '@/lib/current-term';
 
 async function getStudent() {
   try {
@@ -91,12 +92,19 @@ export async function POST(req: NextRequest) {
   }
   const xpGain = calcXpGain(null); // base XP for submitting; score-based XP added when teacher grades
 
+  // Stamp the submission with the admin's active term. Worksheets are a reused
+  // library (no term of their own); the term lives here so teacher views can
+  // separate each term's work. See submissionInTerm() in lib/term.ts.
+  const { academicYear, term } = await getActiveTerm();
+
   const [docRef] = await Promise.all([
     adminDb.collection('submissions').add({
       assignmentId,
       studentId: student.uid,
       studentName: student.displayName,
       classId: student.classId,
+      academicYear,
+      term,
       content: content || null,
       answers: answers ?? null,
       driveWebViewLink: driveWebViewLink ?? null,
@@ -162,9 +170,13 @@ export async function PATCH(req: NextRequest) {
   }
 
   // Replace the answers/content and reset grading (teacher re-grades). XP stays.
+  // Re-stamp the active term — a resubmission belongs to the current term.
+  const { academicYear, term } = await getActiveTerm();
   const update: Record<string, unknown> = {
     content: content || null,
     answers: answers ?? null,
+    academicYear,
+    term,
     status: 'submitted',
     score: null,
     feedback: null,

@@ -16,14 +16,17 @@ export default function DashboardPage() {
       router.push('/onboarding');
       return;
     }
-    // Route through subject selection — skip if subject already chosen in this session
-    const savedSubject = localStorage.getItem('lms_subject');
-    const dest = profile.role === 'teacher' ? '/teacher' : '/student';
-    if (savedSubject) {
-      router.push(dest);
-    } else {
-      router.push('/select-subject');
+    // Students pick their class + subject once at onboarding. After that, every
+    // login goes straight to their dashboard — never re-prompt for a subject
+    // (previously a cleared localStorage sent them back to /select-subject).
+    if (profile.role === 'student') {
+      router.push('/student');
+      return;
     }
+    // Teachers teach several subjects — route through subject selection unless
+    // one was already chosen this session.
+    const savedSubject = localStorage.getItem('lms_subject');
+    router.push(savedSubject ? '/teacher' : '/select-subject');
   }, [loading, profile, router]);
 
   if (loading || !profile) return <Spinner />;
