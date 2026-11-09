@@ -90,8 +90,13 @@ export async function POST(
   const batchItems = items.slice(0, limit);
   const remaining = items.length - batchItems.length;
 
-  const CONCURRENCY = 3;    // submissions graded in parallel per round
-  const ROUND_DELAY = 800;  // ms between rounds (paces AI calls for subjective parts)
+  // Grade one at a time. Free AI tiers cap TOKENS-per-minute (Groq ~8k) and
+  // requests-per-minute (OpenRouter 20), so firing several in parallel just
+  // bursts past the limit and triggers 429s all at once. Serial + the per-call
+  // 429 backoff (withRetry) lets each submission finish without the teacher
+  // re-clicking. The client keeps calling until nothing remains.
+  const CONCURRENCY = 1;
+  const ROUND_DELAY = 400;  // small gap between submissions
 
   async function gradeOne(item: typeof items[number]) {
     try {

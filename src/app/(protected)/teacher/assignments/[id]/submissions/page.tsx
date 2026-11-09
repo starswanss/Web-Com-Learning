@@ -740,8 +740,10 @@ export default function SubmissionsPage({ params }: { params: Promise<{ id: stri
       for (let round = 0; round < 100; round++) {
         let data: { graded?: number; errors?: number; remaining?: number; skipped?: number; skippedImage?: number; errorDetail?: string | null } | null = null;
 
-        // Try the round; on failure retry once with a smaller slice.
-        for (const limit of [5, 2]) {
+        // Try the round; on failure retry once with a smaller slice. Chunks are
+        // kept small because each submission may wait out a 429 backoff, and the
+        // grading route runs under a 60s function timeout.
+        for (const limit of [3, 1]) {
           try {
             const res = await fetch(`/api/teacher/batch-grade/${id}`, {
               method: 'POST',

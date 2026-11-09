@@ -214,7 +214,13 @@ async function runOpenRouter(prompt: string, maxTokens: number): Promise<string>
         max_tokens: maxTokens,
       }),
     });
-    if (!r.ok) throw new Error(`openrouter ${r.status}`);
+    if (!r.ok) {
+      // Carry the status + Retry-After so withRetry can back off correctly.
+      const e = new Error(`openrouter ${r.status}`) as Error & { status?: number; headers?: Headers };
+      e.status = r.status;
+      e.headers = r.headers;
+      throw e;
+    }
     return r.json() as Promise<{ choices?: Array<{ message?: { content?: string } }> }>;
   });
   return (data.choices?.[0]?.message?.content ?? '').trim();
@@ -282,16 +288,40 @@ function isRateLimit(err: unknown): boolean {
   return msg.includes('429') || msg.includes('rate_limit') || msg.includes('quota');
 }
 
-// Keep total wait small — the grading route runs under a 60s function timeout,
-// and the client already retries whole rounds, so long internal waits only
-// risk a 504.
-async function withRetry<T>(fn: () => Promise<T>, retries = 1, delayMs = 5_000): Promise<T> {
+/**
+ * How long to wait before retrying a 429, in ms. Free tiers (Groq's 8k
+ * tokens/min, OpenRouter's 20 req/min) refill within the minute, so prefer the
+ * wait the API itself suggests ("try again in 2.5s" / "in 427.5ms", or a
+ * Retry-After header). Fall back to an escalating wait. Capped so one call
+ * can't blow the 60s function timeout.
+ */
+function retryWaitMs(err: unknown, attempt: number): number {
+  const anyErr = err as { headers?: { get?: (k: string) => string | null }; message?: string };
+  // Retry-After header (seconds) when the SDK exposes it.
+  const ra = anyErr?.headers?.get?.('retry-after');
+  if (ra) { const s = parseFloat(ra); if (isFinite(s) && s > 0) return Math.min(s * 1000, 15_000); }
+  // "...try again in 2.5s" / "in 427.5ms" from the error message.
+  const msg = err instanceof Error ? err.message : String(err);
+  const m = msg.match(/try again in ([\d.]+)\s*(ms|s)/i);
+  if (m) {
+    const n = parseFloat(m[1]);
+    const ms = m[2].toLowerCase() === 's' ? n * 1000 : n;
+    return Math.min(Math.max(ms + 500, 1_000), 15_000); // pad a little; clamp 1-15s
+  }
+  return Math.min(4_000 * (attempt + 1), 12_000); // 4s, 8s, 12s
+}
+
+// A 429 on a free tier clears within the minute, so retry a few times, backing
+// off by the time the API suggests. Total wait stays bounded (≤~15s/attempt)
+// because the grading route runs under a 60s function timeout; the client also
+// continues across chunks, so anything still throttled is picked up next call.
+async function withRetry<T>(fn: () => Promise<T>, retries = 2): Promise<T> {
   for (let attempt = 0; attempt <= retries; attempt++) {
     try {
       return await fn();
     } catch (err) {
       if (isRateLimit(err) && attempt < retries) {
-        await new Promise((r) => setTimeout(r, delayMs));
+        await new Promise((r) => setTimeout(r, retryWaitMs(err, attempt)));
         continue;
       }
       throw err;
