@@ -79,6 +79,15 @@ export async function POST(
     );
   }
 
+  // Nothing the AI can grade (image-upload-only worksheet). Leave it for the
+  // teacher — don't write a 0.
+  if (grading === null) {
+    return NextResponse.json(
+      { skipped: true, reason: 'image', detail: 'งานนี้เป็นรูปภาพ/ไม่มีข้อความให้ AI ตรวจ — กรุณาให้คะแนนเอง' },
+      { status: 422 },
+    );
+  }
+
   await adminDb.collection('submissions').doc(id).update({
     score: grading.score,
     feedback: grading.feedback,

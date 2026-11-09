@@ -641,6 +641,7 @@ export default function SubmissionsPage({ params }: { params: Promise<{ id: stri
       const data = await res.json();
       if (!res.ok) {
         if (res.status === 400) { setSaveError('ไม่มีเนื้อหาที่จะตรวจ (งานนี้ไม่มีคำตอบ)'); return; }
+        if (res.status === 422) { setSaveError(data.detail ?? 'งานนี้เป็นรูปภาพ — กรุณาให้คะแนนเอง'); return; }
         if (res.status === 429) { setSaveError(`โควต้า AI เต็มชั่วคราว: ${data.detail ?? 'กรุณาลองใหม่ใน 1 นาที'}`); return; }
         setSaveError(`ตรวจ AI ไม่สำเร็จ: ${data.detail ?? data.error ?? 'กรุณาลองใหม่'}`);
         return;
@@ -732,11 +733,12 @@ export default function SubmissionsPage({ params }: { params: Promise<{ id: stri
       let totalGraded = 0;
       let totalErrors = 0;
       let skipped = 0;
+      let skippedImage = 0;
       let stoppedEarly = false;
       let aiError: string | null = null;
 
       for (let round = 0; round < 100; round++) {
-        let data: { graded?: number; errors?: number; remaining?: number; skipped?: number; errorDetail?: string | null } | null = null;
+        let data: { graded?: number; errors?: number; remaining?: number; skipped?: number; skippedImage?: number; errorDetail?: string | null } | null = null;
 
         // Try the round; on failure retry once with a smaller slice.
         for (const limit of [5, 2]) {
@@ -759,6 +761,7 @@ export default function SubmissionsPage({ params }: { params: Promise<{ id: stri
         totalGraded += data.graded ?? 0;
         totalErrors += data.errors ?? 0;
         skipped = data.skipped ?? skipped;
+        skippedImage += data.skippedImage ?? 0;
         if (data.errorDetail) aiError = data.errorDetail;
         setBatchResult(`กำลังตรวจ… ${totalGraded} คน${data.remaining ? ` · เหลือ ${data.remaining}` : ''}`);
 
@@ -769,12 +772,15 @@ export default function SubmissionsPage({ params }: { params: Promise<{ id: stri
         await new Promise((r) => setTimeout(r, 800));
       }
 
+      const imgNote = skippedImage ? ` · งานรูปภาพ ${skippedImage} คน (ให้ครูตรวจเอง)` : '';
       setBatchResult(
-        totalGraded === 0 && aiError
+        totalGraded === 0 && skippedImage > 0 && !aiError
+          ? `งานนี้เป็นงานอัปโหลดรูปภาพ — AI ตรวจรูปไม่ได้ กรุณาให้คะแนนเอง`
+          : totalGraded === 0 && aiError
           ? `ตรวจ AI ไม่สำเร็จ: ${aiError}`
           : stoppedEarly
           ? `ตรวจไปแล้ว ${totalGraded} คน — หยุดกลางคัน กรุณากด "ตรวจ AI" อีกครั้งเพื่อตรวจต่อ`
-          : `ตรวจสำเร็จ ${totalGraded} คน, ข้าม ${skipped} คน${totalErrors ? `, ผิดพลาด ${totalErrors} คน` : ''}${aiError ? ` · (${aiError})` : ''}`
+          : `ตรวจสำเร็จ ${totalGraded} คน, ข้าม ${skipped} คน${imgNote}${totalErrors ? `, ผิดพลาด ${totalErrors} คน` : ''}${aiError ? ` · (${aiError})` : ''}`
       );
       // Reload submissions to reflect new scores
       const reload = await fetch(`/api/teacher/submissions/${id}`).then((r) => r.json());

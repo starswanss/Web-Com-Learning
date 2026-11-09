@@ -66,6 +66,23 @@ export async function setGradingStyle(style: GradingStyle): Promise<void> {
   invalidateGlobal(GRADING_STYLE_CACHE_KEY);
 }
 
+/**
+ * Calibration anchors shared by every subjective-grading prompt. The raw model
+ * (esp. gpt-oss-120b) scored Thai essay answers 20-30 points below the human
+ * teacher — a correct-but-brief answer was landing at ~55 instead of ~85. These
+ * worked examples pin the model to the teacher's standard: grade by how many of
+ * the key points are right, not by length or polish.
+ */
+const CALIBRATION = `เทียบมาตรฐานครูผู้สอน (สำคัญที่สุด — คะแนนต้องใกล้เคียงเกณฑ์นี้):
+- ให้คะแนนตาม "สัดส่วนประเด็นหลักที่ถูกต้อง" เป็นหลัก ไม่ใช่ความยาว สำนวน การสะกด หรือความสวยงามของคำตอบ
+- ตอบสั้นแต่ใจความถูกและครบประเด็นหลัก = 80-95 (ห้ามหักเหลือ 50-60 เพียงเพราะตอบสั้น)
+- ตอบถูกเป็นส่วนใหญ่ มีความเข้าใจชัดเจน แต่ขาดบางประเด็น = 70-85
+- ตอบถูกบางประเด็น เห็นความเข้าใจพื้นฐาน = 55-70
+- ตอบไม่ค่อยตรงคำถามแต่มีความพยายาม/มีเหตุผลสมเหตุสมผล = 40-55
+- ไม่ได้ตอบ หรือผิดทั้งหมด หรือลอกมาแบบไม่เข้าใจ = 0-25
+- คำที่สะกดผิดหรือภาษาพูด ถ้าสื่อความหมายถูก ให้ถือว่าถูก
+- ถ้ามีหลายข้อ ให้เฉลี่ยคะแนนจากทุกข้อที่ตอบ อย่าให้คะแนนรวมต่ำเพราะข้อเดียวที่อ่อน`;
+
 /** Prompt guidance (Thai) that tells the model how generous to be. */
 function styleGuidance(style: GradingStyle): string {
   switch (style) {
@@ -329,7 +346,7 @@ Instructions: ${assignmentDescription}${rubricBlock}
 
 Student's answer:
 """
-${capText(studentContent)}
+${capText(studentContent, 6000)}
 """${comparisonBlock}
 
 Respond ONLY with a JSON object in this exact shape — no markdown, no extra text:
@@ -343,7 +360,7 @@ Rules:
 - details.relevance: how well the answer addresses the question (0-100)
 - details.copyPasteRisk: likelihood of copy-paste from external sources (0-100)
 
-Scoring guide: 90-100 excellent, 70-89 good, 50-69 adequate, 30-49 incomplete, 0-29 very poor or copied.
+${CALIBRATION}
 แนวทางการให้คะแนน (สำคัญมาก — ยึดตามนี้): ${styleGuidance(style)}`;
 
   const text = await runCompletion(prompt, 1500);
@@ -367,6 +384,11 @@ Scoring guide: 90-100 excellent, 70-89 good, 50-69 adequate, 30-49 incomplete, 0
  * count. Falls back to the plain holistic AI grade when there are no structured
  * questions (e.g. a legacy plain-text submission). This fixes objective-heavy
  * worksheets scoring low because the AI couldn't see the answer key.
+ *
+ * Returns null when there is NOTHING the AI can grade — an image-upload-only
+ * worksheet (the AI can't see images) or an empty submission. Callers must
+ * treat null as "skip, leave for the teacher" instead of writing a 0, so an
+ * image worksheet isn't unfairly scored 0 by the AI.
  */
 export async function gradeHybrid(
   assignmentTitle: string,
@@ -376,7 +398,7 @@ export async function gradeHybrid(
   plainContent: string,
   otherSubmissions: string[] = [],
   rubric?: string,
-): Promise<GradingResult> {
+): Promise<GradingResult | null> {
   const list = blocks ?? [];
 
   const objFractions: number[] = [];
@@ -390,13 +412,12 @@ export async function gradeHybrid(
   const O = objFractions.length;
   const S = subjCount;
 
-  // No structured gradable questions → legacy holistic grade on the text.
+  // No structured gradable questions → either a legacy plain-text submission
+  // (grade the text) or an image-only worksheet (nothing for the AI → skip).
   if (O === 0 && S === 0) {
     const text = plainContent.trim()
       || (answers ? answersToText(list as unknown as Parameters<typeof answersToText>[0], answers) : '');
-    if (!text) {
-      return { score: 0, feedback: 'ไม่มีเนื้อหาให้ตรวจ', plagiarismSuspicion: 0, details: { quality: 0, relevance: 0, copyPasteRisk: 0 } };
-    }
+    if (!text) return null; // image-upload-only / empty → teacher grades manually
     return gradeSubmission(assignmentTitle, assignmentDescription, text, otherSubmissions, rubric);
   }
 
@@ -445,7 +466,7 @@ export async function gradeSubmissionsBatch(
   const style = await getGradingStyle();
 
   const studentBlocks = submissions
-    .map((s, i) => `[Student ${i + 1}]\n${capText(s.content)}`)
+    .map((s, i) => `[Student ${i + 1}]\n${capText(s.content, 3000)}`)
     .join('\n\n---\n\n');
 
   const prompt = `You are a teacher assistant for a Thai secondary school Computing Science class (ม.3 / Grade 9).
@@ -463,7 +484,7 @@ Rules:
 - score: 0-100
 - feedback: 2-3 sentences in Thai, constructive and kind
 - plagiarismSuspicion: 0-100 (0=clearly original, 100=definitely copied; compare students against each other)
-- Scoring guide: 90-100 excellent · 70-89 good · 50-69 adequate · 30-49 incomplete · 0-29 very poor or copied
+- ${CALIBRATION}
 - แนวทางการให้คะแนน (สำคัญมาก — ยึดตามนี้): ${styleGuidance(style)}
 - Grade each student independently`;
 
@@ -504,7 +525,7 @@ export async function gradeDetailed(
     const scoreInfo = q.scoreMax
       ? ` — ให้คะแนน 0 ถึง ${q.scoreMax}${q.scoreKind ? ` (ประเภท ${q.scoreKind})` : ''}`
       : ' — ไม่ต้องให้คะแนน (score = null)';
-    return `[ข้อ ${i + 1}]${scoreInfo}\nคำถาม: ${q.question}\nคำตอบนักเรียน: ${capText(q.answer, 800)}`;
+    return `[ข้อ ${i + 1}]${scoreInfo}\nคำถาม: ${q.question}\nคำตอบนักเรียน: ${capText(q.answer, 2500)}`;
   }).join('\n\n');
 
   const prompt = `คุณเป็นผู้ช่วยครูวิชาวิทยาการคำนวณ ม.3 ตรวจคำตอบของนักเรียน "รายข้อ"
@@ -515,6 +536,7 @@ ${qText}
 
 ตอบกลับเป็น JSON array เท่านั้น (ห้ามมีข้อความอื่น) จำนวน ${questions.length} รายการ เรียงตามลำดับข้อ:
 [{"comment":"ความเห็นสั้นๆ ภาษาไทย 1-2 ประโยค สุภาพ สร้างสรรค์","score": คะแนนเป็นตัวเลข 0 ถึงคะแนนเต็มของข้อนั้น ถ้าข้อนั้นไม่ต้องให้คะแนนให้ใส่ null}, ...]
+${CALIBRATION}
 แนวทางการให้คะแนน (สำคัญมาก — ยึดตามนี้): ${styleGuidance(style)}
 กติกา: ถ้าไม่ได้ตอบเลยให้คะแนนต่ำ · comment ต้องอ้างถึงคำตอบจริง`;
 

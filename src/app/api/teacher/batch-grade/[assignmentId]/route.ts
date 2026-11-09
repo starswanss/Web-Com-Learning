@@ -82,6 +82,7 @@ export async function POST(
 
   let graded = 0;
   let errors = 0;
+  let skippedImage = 0; // image-only submissions the AI can't grade (teacher grades)
   let lastError: string | null = null; // first real error, surfaced to the UI
 
   // Only take a bounded slice this call — the rest is reported as `remaining`
@@ -103,6 +104,9 @@ export async function POST(
         [],
         assignment.rubric as string | undefined,
       );
+      // Image-only worksheet → nothing for the AI. Leave it 'submitted' for the
+      // teacher to grade; don't write a 0.
+      if (r === null) { skippedImage += 1; return; }
       await adminDb.collection('submissions').doc(item.id).update({
         score: r.score,
         feedback: r.feedback,
@@ -132,6 +136,7 @@ export async function POST(
     remaining,
     pending: items.length,
     skipped: allDocs.length - toGrade.length,
+    skippedImage, // image-only submissions the AI left for the teacher
     errorDetail: lastError,
   });
 }
