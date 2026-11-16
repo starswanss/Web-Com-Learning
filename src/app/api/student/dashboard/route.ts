@@ -66,6 +66,9 @@ export async function GET(req: NextRequest) {
 
   const assignments = assignmentsSnap.docs
     .map((d) => ({ id: d.id, ...d.data(), submission: submissionMap.get(d.id) ?? null }))
+    // Work the teacher has locked (isOpen === false) stays hidden until it is
+    // unlocked. Work the student already submitted stays, so scores don't vanish.
+    .filter((a) => (a as { isOpen?: boolean | null }).isOpen !== false || a.submission)
     .sort((a, b) => {
       const ta = (a as Record<string, unknown> & { dueDate?: { _seconds?: number } }).dueDate?._seconds ?? 0;
       const tb = (b as Record<string, unknown> & { dueDate?: { _seconds?: number } }).dueDate?._seconds ?? 0;
