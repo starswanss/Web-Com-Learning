@@ -38,12 +38,13 @@ export async function uploadAssignmentAttachment(
 
 export async function uploadSubmissionFile(
   classId: string,
+  studentId: string,
   studentName: string,
   buffer: Buffer,
   mimeType: string,
   filename: string
 ): Promise<{ url: string; storagePath: string }> {
-  const folderId = await ensureStudentFolder(classId, studentName);
+  const folderId = await ensureStudentFolder(classId, studentId, studentName);
   const { fileId } = await uploadFileToDrive(folderId, buffer, mimeType, filename);
   return { url: driveViewUrl(fileId, mimeType), storagePath: fileId };
 }

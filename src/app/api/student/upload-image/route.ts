@@ -44,6 +44,7 @@ export async function POST(req: NextRequest) {
     const buffer = Buffer.from(await file.arrayBuffer());
     const result = await uploadSubmissionFile(
       student.classId,
+      student.uid,
       student.displayName,
       buffer,
       file.type,

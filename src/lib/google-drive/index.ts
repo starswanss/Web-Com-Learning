@@ -1,5 +1,6 @@
 import { google } from 'googleapis';
 import { Readable } from 'stream';
+import { getActiveTerm } from '@/lib/current-term';
 
 function getOAuth2Client() {
   const auth = new google.auth.OAuth2(
@@ -14,41 +15,67 @@ function getDriveClient() {
   return google.drive({ version: 'v3', auth: getOAuth2Client() });
 }
 
-async function getOrCreateFolder(name: string, parentId?: string): Promise<string> {
+const FOLDER_MIME = 'application/vnd.google-apps.folder';
+const q = (s: string) => s.replace(/\\/g, '\\\\').replace(/'/g, "\\'");
+
+// Folder ids resolved recently, plus lookups still in flight. Concurrent
+// uploads (a whole class submitting at once) share one lookup instead of each
+// creating its own copy of the folder. Single server process, so an in-memory
+// map is enough. Entries expire so a folder deleted in Drive is re-created.
+const FOLDER_TTL_MS = 10 * 60_000;
+const folderCache = new Map<string, { id: Promise<string>; at: number }>();
+
+function cachedFolder(key: string, resolve: () => Promise<string>): Promise<string> {
+  const hit = folderCache.get(key);
+  if (hit && Date.now() - hit.at < FOLDER_TTL_MS) return hit.id;
+  const id = resolve();
+  folderCache.set(key, { id, at: Date.now() });
+  id.catch(() => folderCache.delete(key)); // don't cache failures
+  return id;
+}
+
+async function findFolders(where: string[], parentId: string | undefined) {
   const drive = getDriveClient();
-  const safeName = name.replace(/\\/g, '\\\\').replace(/'/g, "\\'");
-  const q = [
-    `name = '${safeName}'`,
-    `mimeType = 'application/vnd.google-apps.folder'`,
-    `trashed = false`,
-    parentId ? `'${parentId}' in parents` : '',
-  ]
-    .filter(Boolean)
-    .join(' and ');
+  const res = await drive.files.list({
+    q: [...where, `mimeType = '${FOLDER_MIME}'`, 'trashed = false', parentId ? `'${parentId}' in parents` : '']
+      .filter(Boolean)
+      .join(' and '),
+    // Oldest first, so when duplicates already exist every upload picks the same one.
+    orderBy: 'createdTime',
+    fields: 'files(id,name,appProperties)',
+    pageSize: 50,
+  });
+  return res.data.files ?? [];
+}
 
-  const res = await drive.files.list({ q, fields: 'files(id)', pageSize: 1 });
-  if (res.data.files?.length) return res.data.files[0].id!;
-
-  const created = await drive.files.create({
-    requestBody: {
-      name,
-      mimeType: 'application/vnd.google-apps.folder',
-      parents: parentId ? [parentId] : [],
-    },
+async function createFolder(name: string, parentId: string | undefined, appProperties?: Record<string, string>) {
+  const created = await getDriveClient().files.create({
+    requestBody: { name, mimeType: FOLDER_MIME, parents: parentId ? [parentId] : [], appProperties },
     fields: 'id',
   });
   return created.data.id!;
 }
 
-/** Returns current Thai academic year (พ.ศ.) e.g. 2568 */
-function currentThaiYear(): number {
-  return new Date().getFullYear() + 543;
+function getOrCreateFolder(name: string, parentId?: string): Promise<string> {
+  return cachedFolder(`${parentId ?? ''}|name|${name}`, async () => {
+    const [found] = await findFolders([`name = '${q(name)}'`], parentId);
+    return found?.id ?? createFolder(name, parentId);
+  });
 }
 
-/** Get or create the year folder under root: "ปีการศึกษา 2568" */
+/**
+ * Academic year (พ.ศ.) the teacher set as active on the Admin page. Not the
+ * calendar year: เทอม 2 runs into January–March, which is already the next
+ * calendar year.
+ */
+async function activeAcademicYear(): Promise<number> {
+  return (await getActiveTerm()).academicYear;
+}
+
+/** Get or create the year folder under root: "ปีการศึกษา 2568" (default: the active year). */
 export async function ensureYearFolder(year?: number): Promise<string> {
   const root = process.env.GOOGLE_DRIVE_ROOT_FOLDER_ID;
-  const y = year ?? currentThaiYear();
+  const y = year ?? await activeAcademicYear();
   return getOrCreateFolder(`ปีการศึกษา ${y}`, root);
 }
 
@@ -58,14 +85,54 @@ export async function ensureClassFolders(classId: string, yearFolderId?: string)
 }> {
   const parent = yearFolderId ?? await ensureYearFolder();
   const classFolder = await getOrCreateFolder(classId, parent);
-  const assignmentsId = await getOrCreateFolder('Assignments', classFolder);
-  const submissionsId = await getOrCreateFolder('Submissions', classFolder);
+  const [assignmentsId, submissionsId] = await Promise.all([
+    getOrCreateFolder('Assignments', classFolder),
+    getOrCreateFolder('Submissions', classFolder),
+  ]);
   return { assignmentsId, submissionsId };
 }
 
-export async function ensureStudentFolder(classId: string, studentName: string): Promise<string> {
+/**
+ * One folder per student, identified by their uid (stored on the folder as the
+ * Drive appProperty `studentId`), not by name, so a renamed student keeps the
+ * same folder and two students with the same name never share one. The folder
+ * is still named after the student so teachers can browse it.
+ */
+export async function ensureStudentFolder(classId: string, studentId: string, studentName: string): Promise<string> {
   const { submissionsId } = await ensureClassFolders(classId);
-  return getOrCreateFolder(studentName, submissionsId);
+  const name = (studentName || '').trim() || studentId;
+  return cachedFolder(`${submissionsId}|student|${studentId}`, async () => {
+    const drive = getDriveClient();
+
+    // 1. Already tagged with this student → use it (renamed to the current name).
+    const [mine] = await findFolders(
+      [`appProperties has { key='studentId' and value='${q(studentId)}' }`],
+      submissionsId,
+    );
+    if (mine) {
+      if (mine.name !== name) {
+        await drive.files.update({ fileId: mine.id!, requestBody: { name } }).catch(() => {});
+      }
+      return mine.id!;
+    }
+
+    // 2. A folder from before tagging, named after this student and not claimed
+    //    by anyone else → adopt it so earlier files stay together.
+    const sameName = await findFolders([`name = '${q(name)}'`], submissionsId);
+    const legacy = sameName.find((f) => !f.appProperties?.studentId);
+    if (legacy) {
+      await drive.files.update({
+        fileId: legacy.id!,
+        requestBody: { appProperties: { studentId } },
+      });
+      return legacy.id!;
+    }
+
+    // 3. New folder. If another student already has this name, add a short id
+    //    so the two folders can be told apart.
+    const folderName = sameName.length ? `${name} (${studentId.slice(0, 6)})` : name;
+    return createFolder(folderName, submissionsId, { studentId });
+  });
 }
 
 export async function uploadFileToDrive(

@@ -86,7 +86,7 @@ export async function POST(req: NextRequest) {
   let driveWebViewLink: string | null = preUploadedFileUrl;
   if (!driveWebViewLink && file) {
     const fileBuffer = Buffer.from(await file.arrayBuffer());
-    const uploadResult = await uploadSubmissionFile(student.classId, student.displayName, fileBuffer, file.type, file.name)
+    const uploadResult = await uploadSubmissionFile(student.classId, student.uid, student.displayName, fileBuffer, file.type, file.name)
       .catch((err) => { console.error('[submissions] upload failed:', err); return null; });
     driveWebViewLink = uploadResult?.url ?? null;
   }
