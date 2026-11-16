@@ -66,29 +66,52 @@ function convert(v: unknown): unknown {
 const local = openFirestore(dbPath);
 local._conn().exec('DELETE FROM docs');
 
-let total = 0;
-const report: [string, number, number][] = [];
-for (const col of await fsdb.listCollections()) {
-  const snap = await col.get();
-  const subCounts = await Promise.all(snap.docs.slice(0, 50).map(async (d) => (await d.ref.listCollections()).length));
-  if (subCounts.some((n) => n > 0)) console.warn(`WARNING: ${col.id} has subcollections (not migrated)`);
+/** Run `fn` over `items` with at most `n` in flight. */
+async function pool<T>(items: T[], n: number, fn: (x: T) => Promise<void>): Promise<void> {
+  let i = 0;
+  await Promise.all(Array.from({ length: Math.min(n, items.length) }, async () => {
+    while (i < items.length) await fn(items[i++]);
+  }));
+}
 
-  // Chunk to keep each transaction modest.
+type FsCollection = ReturnType<typeof fsdb.collection>;
+const report = new Map<string, [number, number]>(); // group key -> [firestore, sqlite]
+
+/**
+ * Copy one collection, then recurse into subcollections of every document —
+ * including "phantom" parents that have subcollections but no data of their
+ * own (e.g. readStats/{date}), which listDocuments() still returns.
+ */
+async function copyCollection(col: FsCollection): Promise<void> {
+  const snap = await col.get();
   for (let i = 0; i < snap.docs.length; i += 500) {
     const batch = local.batch();
     for (const d of snap.docs.slice(i, i + 500)) {
-      batch.set(local.collection(col.id).doc(d.id), convert(d.data()) as Record<string, unknown>);
+      batch.set(local.collection(col.path).doc(d.id), convert(d.data()) as Record<string, unknown>);
     }
     await batch.commit();
   }
-  const localCount = (await local.collection(col.id).get()).size;
-  report.push([col.id, snap.size, localCount]);
-  total += snap.size;
+  const localCount = (await local.collection(col.path).get()).size;
+  // Group subcollections by shape: readStats/*/students
+  const key = col.path.split('/').map((s, i) => (i % 2 ? '*' : s)).join('/');
+  const r = report.get(key) ?? [0, 0];
+  report.set(key, [r[0] + snap.size, r[1] + localCount]);
+
+  const refs = await col.listDocuments();
+  await pool(refs, 20, async (ref) => {
+    for (const sub of await ref.listCollections()) await copyCollection(sub);
+  });
 }
 
-console.log('collection'.padEnd(22), 'firestore'.padStart(9), 'sqlite'.padStart(8));
-for (const [name, a, b] of report) console.log(name.padEnd(22), String(a).padStart(9), String(b).padStart(8), a === b ? '' : '  MISMATCH');
-console.log('TOTAL'.padEnd(22), String(total).padStart(9));
+for (const col of await fsdb.listCollections()) await copyCollection(col);
+
+let total = 0;
+console.log('collection'.padEnd(26), 'firestore'.padStart(9), 'sqlite'.padStart(8));
+for (const [name, [a, b]] of [...report].sort()) {
+  total += a;
+  console.log(name.padEnd(26), String(a).padStart(9), String(b).padStart(8), a === b ? '' : '  MISMATCH');
+}
+console.log('TOTAL'.padEnd(26), String(total).padStart(9));
 if (unknownTypes.size) console.warn('Non-plain values converted:', Object.fromEntries(unknownTypes));
 local._conn().pragma('wal_checkpoint(TRUNCATE)');
 local.close();

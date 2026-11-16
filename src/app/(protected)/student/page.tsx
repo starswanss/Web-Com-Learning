@@ -474,7 +474,7 @@ const DEFAULT_MEDAL_ICONS: Record<string, string> = {
 function ProfileCard({
   user, profile, subject, medals, levelSettings,
 }: {
-  user: import('firebase/auth').User | null;
+  user: import('@/context/AuthContext').AuthUser | null;
   profile: { classId?: string; xp?: number; displayName?: string };
   subject: { id: string; name: string } | null;
   medals: Array<{ id: string; medal: string; icon?: string; points: number; reason: string }>;

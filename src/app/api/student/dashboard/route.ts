@@ -1,3 +1,4 @@
+import type { Query } from '@/lib/db';
 import { NextRequest, NextResponse } from 'next/server';
 import { adminAuth, adminDb } from '@/lib/firebase/admin';
 import { cookies } from 'next/headers';
@@ -37,7 +38,7 @@ export async function GET(req: NextRequest) {
   // subject does not actually include the student's class (stale / not entitled).
   let assignmentsQuery = adminDb
     .collection('assignments')
-    .where('classIds', 'array-contains', student.classId) as FirebaseFirestore.Query;
+    .where('classIds', 'array-contains', student.classId) as Query;
   if (subjectId) {
     const subjDoc = await adminDb.collection('subjects').doc(subjectId).get();
     const subjClasses = (subjDoc.exists ? (subjDoc.data()?.classIds as string[]) : []) ?? [];

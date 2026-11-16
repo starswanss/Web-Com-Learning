@@ -1,35 +1,61 @@
 'use client';
 
 import { createContext, useContext, useEffect, useState } from 'react';
-import {
-  User,
-  GoogleAuthProvider,
-  signInWithPopup,
-  signOut as firebaseSignOut,
-} from 'firebase/auth';
-import { auth } from '@/lib/firebase/client';
 import { useRouter } from 'next/navigation';
 import type { UserProfile } from '@/types';
 
-const ALLOWED_DOMAIN = process.env.NEXT_PUBLIC_ALLOWED_DOMAIN ?? '';
-const TEACHER_EMAILS = (process.env.NEXT_PUBLIC_TEACHER_EMAILS ?? '').split(',').map((e) => e.trim());
 const PROFILE_CACHE_KEY = 'lms_profile';
+
+/** Fields pages read from `user` (previously the Firebase `User`). */
+export interface AuthUser {
+  uid: string;
+  email: string;
+  displayName: string | null;
+  photoURL: string | null;
+}
+
+const LOGIN_ERRORS: Record<string, string> = {
+  domain: `เฉพาะบัญชี @${process.env.NEXT_PUBLIC_ALLOWED_DOMAIN ?? ''} เท่านั้น`,
+  cancelled: 'ยกเลิกการเข้าสู่ระบบ',
+  state: 'เข้าสู่ระบบไม่สำเร็จ: หมดเวลา กรุณาลองใหม่',
+  token: 'เข้าสู่ระบบไม่สำเร็จ: ยืนยันตัวตนกับ Google ไม่ได้',
+  profile: 'เข้าสู่ระบบไม่สำเร็จ: โหลดข้อมูลผู้ใช้ไม่ได้',
+  config: 'ระบบเข้าสู่ระบบยังไม่ได้ตั้งค่า (GOOGLE_OAUTH_CLIENT_ID)',
+};
 
 function loadCachedProfile(): UserProfile | null {
   if (typeof window === 'undefined') return null;
   try {
     const raw = localStorage.getItem(PROFILE_CACHE_KEY);
     return raw ? JSON.parse(raw) : null;
-  } catch { return null; }
+  } catch {
+    return null;
+  }
 }
 
 function saveProfileCache(p: UserProfile | null) {
-  if (p) localStorage.setItem(PROFILE_CACHE_KEY, JSON.stringify(p));
-  else localStorage.removeItem(PROFILE_CACHE_KEY);
+  try {
+    if (p) localStorage.setItem(PROFILE_CACHE_KEY, JSON.stringify(p));
+    else localStorage.removeItem(PROFILE_CACHE_KEY);
+  } catch {
+    // storage unavailable (private mode) — cache is only an optimisation
+  }
+}
+
+function toUser(p: UserProfile | null): AuthUser | null {
+  if (!p) return null;
+  return { uid: p.uid, email: p.email, displayName: p.displayName ?? null, photoURL: p.photoURL ?? null };
+}
+
+async function fetchProfile(): Promise<UserProfile | null> {
+  const res = await fetch('/api/auth/session', { cache: 'no-store' });
+  if (!res.ok) return null;
+  const p = await res.json();
+  return p && typeof p === 'object' && p.uid ? (p as UserProfile) : null;
 }
 
 interface AuthContextValue {
-  user: User | null;
+  user: AuthUser | null;
   profile: UserProfile | null;
   loading: boolean;
   error: string | null;
@@ -41,96 +67,46 @@ interface AuthContextValue {
 const AuthContext = createContext<AuthContextValue | null>(null);
 
 export function AuthProvider({ children }: { children: React.ReactNode }) {
-  const [user, setUser] = useState<User | null>(null);
   const [profile, setProfile] = useState<UserProfile | null>(loadCachedProfile);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const router = useRouter();
 
+  // Reads browser-only state (URL, localStorage) once after mount; doing it during
+  // render would mismatch the server-rendered HTML.
+  /* eslint-disable react-hooks/set-state-in-effect */
   useEffect(() => {
-    const unsubscribe = auth.onAuthStateChanged(async (firebaseUser) => {
-      setUser(firebaseUser);
+    // Errors from the Google callback come back as /login?error=<code>.
+    const code = new URLSearchParams(window.location.search).get('error');
+    if (code) setError(LOGIN_ERRORS[code] ?? 'เข้าสู่ระบบไม่สำเร็จ กรุณาลองใหม่');
 
-      if (!firebaseUser) {
-        setProfile(null);
-        saveProfileCache(null);
-        setLoading(false);
-        return;
-      }
+    // A cached profile renders instantly; the server session is the source of truth.
+    // Not on /login: a stale cache there would bounce to /dashboard and back.
+    if (loadCachedProfile() && window.location.pathname !== '/login') setLoading(false);
+    /* eslint-enable react-hooks/set-state-in-effect */
 
-      // If the cached profile belongs to this user, show content instantly
-      const cached = loadCachedProfile();
-      if (cached?.uid === firebaseUser.uid) {
-        setProfile(cached);
-        setLoading(false);
-        // Silently refresh in background; if the server session has expired,
-        // re-establish it from the current ID token so API calls (assignments,
-        // etc.) keep working instead of 401-ing.
-        fetch('/api/auth/session')
-          .then((r) => (r.ok ? r.json() : null))
-          .then(async (p) => {
-            if (p) { setProfile(p); saveProfileCache(p); return; }
-            const idToken = await firebaseUser.getIdToken(true);
-            const post = await fetch('/api/auth/session', {
-              method: 'POST',
-              headers: { 'Content-Type': 'application/json' },
-              body: JSON.stringify({ idToken }),
-            });
-            if (post.ok) {
-              const body = await post.json();
-              if (body.profile) { setProfile(body.profile); saveProfileCache(body.profile); }
-            }
-          })
-          .catch(() => {});
-        return;
-      }
-
-      // No matching cache — fetch and wait
-      try {
-        const res = await fetch('/api/auth/session');
-        let p = res.ok ? await res.json() : null;
-
-        // Firebase client is authenticated but the server session cookie is
-        // missing/expired (returns null). Without recovery the user is trapped
-        // on an infinite spinner: the proxy lets the stale cookie through, but
-        // the profile never loads. Silently re-establish the cookie using the
-        // current ID token (Firebase auto-refreshes it) so no manual re-login
-        // is needed.
-        if (!p) {
-          try {
-            const idToken = await firebaseUser.getIdToken(true);
-            const post = await fetch('/api/auth/session', {
-              method: 'POST',
-              headers: { 'Content-Type': 'application/json' },
-              body: JSON.stringify({ idToken }),
-            });
-            if (post.ok) {
-              const body = await post.json();
-              p = body.profile ?? null;
-            }
-          } catch {
-            // Re-establish failed — fall through with null profile
-          }
-        }
-
-        setProfile((prev) => (prev?.uid === firebaseUser.uid && p === null ? prev : p));
+    let cancelled = false;
+    fetchProfile()
+      .then((p) => {
+        if (cancelled) return;
+        setProfile(p);
         saveProfileCache(p);
-      } catch {
-        setProfile((prev) => (prev?.uid === firebaseUser.uid ? prev : null));
-      } finally {
-        setLoading(false);
-      }
-    });
-
-    return unsubscribe;
+      })
+      .catch(() => {
+        // Network error: keep whatever we had rather than logging the user out.
+      })
+      .finally(() => {
+        if (!cancelled) setLoading(false);
+      });
+    return () => {
+      cancelled = true;
+    };
   }, []);
 
   async function refreshProfile() {
     try {
-      const res = await fetch('/api/auth/session');
-      if (!res.ok) return;
-      const p = await res.json();
-      if (p && typeof p === 'object' && p.uid) {
+      const p = await fetchProfile();
+      if (p) {
         setProfile(p);
         saveProfileCache(p);
       }
@@ -141,60 +117,20 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
   async function signInWithGoogle() {
     setError(null);
-    try {
-      const provider = new GoogleAuthProvider();
-      if (ALLOWED_DOMAIN) {
-        provider.setCustomParameters({ hd: ALLOWED_DOMAIN });
-      }
-
-      const result = await signInWithPopup(auth, provider);
-
-      const email = result.user.email ?? '';
-      const isTeacher = TEACHER_EMAILS.includes(email);
-      if (ALLOWED_DOMAIN && !email.endsWith(`@${ALLOWED_DOMAIN}`) && !isTeacher) {
-        await firebaseSignOut(auth);
-        setError(`เฉพาะบัญชี @${ALLOWED_DOMAIN} เท่านั้น`);
-        return;
-      }
-
-      const idToken = await result.user.getIdToken();
-      const res = await fetch('/api/auth/session', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ idToken }),
-      });
-
-      if (!res.ok) {
-        const body = await res.text();
-        setError(`Session API ${res.status}: ${body}`);
-        return;
-      }
-
-      const body = await res.json();
-      if (body.profile) {
-        setProfile(body.profile);
-        saveProfileCache(body.profile);
-      }
-
-      window.location.href = '/dashboard';
-    } catch (err: unknown) {
-      const code = (err as { code?: string }).code ?? '';
-      if (code === 'auth/popup-closed-by-user' || code === 'auth/cancelled-popup-request') return;
-      setError('เข้าสู่ระบบไม่สำเร็จ: ' + (code || 'กรุณาลองใหม่'));
-    }
+    window.location.href = '/api/auth/google';
   }
 
   async function signOut() {
-    await firebaseSignOut(auth);
     await fetch('/api/auth/session', { method: 'DELETE' });
     saveProfileCache(null);
-    setUser(null);
     setProfile(null);
     router.push('/login');
   }
 
   return (
-    <AuthContext.Provider value={{ user, profile, loading, error, signInWithGoogle, signOut, refreshProfile }}>
+    <AuthContext.Provider
+      value={{ user: toUser(profile), profile, loading, error, signInWithGoogle, signOut, refreshProfile }}
+    >
       {children}
     </AuthContext.Provider>
   );

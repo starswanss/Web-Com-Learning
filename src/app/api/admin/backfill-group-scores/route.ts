@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { adminAuth, adminDb } from '@/lib/firebase/admin';
 import { cookies } from 'next/headers';
-import { FieldValue } from 'firebase-admin/firestore';
+import { FieldValue, type DocumentData } from '@/lib/db';
 import { invalidateLeaderboards } from '@/lib/leaderboard-cache';
 
 async function getTeacherUid(): Promise<string | null> {
@@ -80,7 +80,7 @@ async function buildResult(apply: boolean) {
   // Build the list of (groupSubmission, member) pairs and check which members
   // already have a submission record for that assignment.
   const planned: PlannedRecord[] = [];
-  const checks: Array<{ gsId: string; data: FirebaseFirestore.DocumentData; memberId: string }> = [];
+  const checks: Array<{ gsId: string; data: DocumentData; memberId: string }> = [];
   for (const gsDoc of groupSubsSnap.docs) {
     const gs = gsDoc.data();
     const group = groupMap.get(gs.groupId as string);

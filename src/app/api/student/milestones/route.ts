@@ -1,3 +1,4 @@
+import type { Query } from '@/lib/db';
 import { NextRequest, NextResponse } from 'next/server';
 import { adminAuth, adminDb } from '@/lib/firebase/admin';
 import { cookies } from 'next/headers';
@@ -24,7 +25,7 @@ export async function GET(req: NextRequest) {
   const subjectId = req.nextUrl.searchParams.get('subject');
 
   // Fetch milestones for this subject
-  let q = adminDb.collection('milestones') as FirebaseFirestore.Query;
+  let q = adminDb.collection('milestones') as Query;
   if (subjectId) q = q.where('subjectId', '==', subjectId);
   const milestonesSnap = await q.get();
   const milestones = milestonesSnap.docs

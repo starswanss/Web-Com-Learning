@@ -1,33 +1,30 @@
-import { initializeApp, getApps, cert } from 'firebase-admin/app';
-import { getAuth } from 'firebase-admin/auth';
-import { getFirestore } from 'firebase-admin/firestore';
-import { getStorage } from 'firebase-admin/storage';
+/**
+ * Server-side data + auth handles.
+ *
+ * The app used to run on Firebase (Firestore + Firebase Auth). It is now
+ * self-hosted: `adminDb` is the SQLite-backed Firestore-compatible layer in
+ * `@/lib/db`, and `adminAuth` verifies our own signed session cookie. Both keep
+ * the old shapes so the API routes did not need rewriting.
+ *
+ * The path is kept (`lib/firebase/admin`) because ~80 routes import it.
+ */
+import { getDb } from '@/lib/db';
+import { verifySessionToken } from '@/lib/auth/session';
 
-const projectId = process.env.FIREBASE_ADMIN_PROJECT_ID;
-const storageBucket =
-  process.env.FIREBASE_STORAGE_BUCKET ?? (projectId ? `${projectId}.firebasestorage.app` : undefined);
+export const adminDb = getDb();
 
-if (!getApps().length) {
-  initializeApp({
-    credential: cert({
-      projectId,
-      clientEmail: process.env.FIREBASE_ADMIN_CLIENT_EMAIL,
-      privateKey: process.env.FIREBASE_ADMIN_PRIVATE_KEY?.replace(/\\n/g, '\n'),
-    }),
-    storageBucket,
-  });
-}
-
-export const adminAuth = getAuth();
-export const adminDb = getFirestore();
-// Use REST instead of gRPC: on a serverless cold start this skips establishing
-// an HTTP/2 gRPC channel before the first query, cutting cold-start latency for
-// our bursty, one-shot read/write pattern (no server-side snapshot listeners).
-// Wrapped because settings() may only be called once before first use (dev HMR
-// can re-run this module).
-try {
-  adminDb.settings({ preferRest: true });
-} catch {
-  /* already configured on this instance */
-}
-export const adminStorage = getStorage();
+export const adminAuth = {
+  /** Same contract as Firebase's: resolves `{ uid, email }` or throws. */
+  async verifySessionCookie(sessionCookie: string, _checkRevoked = false) {
+    void _checkRevoked;
+    return verifySessionToken(sessionCookie);
+  },
+  /**
+   * Firebase used to hold a separate login account per user. Sign-in now goes
+   * straight through Google, so there is no account to delete: removing the
+   * `users` document (which callers already do) is enough.
+   */
+  async deleteUser(_uid: string) {
+    void _uid;
+  },
+};

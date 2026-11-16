@@ -7,6 +7,7 @@
  * with Firestore's semantics so route code runs unchanged:
  *
  *   collection / doc / add / set(merge) / update(dotted paths) / delete / create
+ *   subcollection paths ('readStats/<date>/students', doc.collection(name))
  *   where: == != < <= > >= in array-contains array-contains-any  (+ '__name__')
  *   orderBy (docs missing the field are excluded, like Firestore) / limit
  *   getAll / batch (atomic: one SQLite transaction)
@@ -497,6 +498,9 @@ export class DocumentReference {
   async delete(): Promise<WriteResult> {
     return this.firestore._write([{ kind: 'delete', ref: this }])[0];
   }
+  collection(name: string): CollectionReference {
+    return this.firestore.collection(`${this.path}/${name}`);
+  }
   isEqual(other: DocumentReference): boolean {
     return other instanceof DocumentReference && other.path === this.path;
   }
@@ -639,14 +643,19 @@ export class Firestore {
     return this.db;
   }
 
-  collection(name: string): CollectionReference {
-    if (name.includes('/')) throw new Error('Subcollections are not supported');
-    return new CollectionReference(this, name);
+  /**
+   * Subcollections are stored under their full path as the collection key, e.g.
+   * `readStats/2026-01-02/students` (Firestore's own path model).
+   */
+  collection(pathStr: string): CollectionReference {
+    const seg = pathStr.split('/');
+    if (seg.length % 2 === 0 || seg.some((s) => !s)) throw new Error(`Invalid collection path: ${pathStr}`);
+    return new CollectionReference(this, pathStr);
   }
   doc(pathStr: string): DocumentReference {
-    const [c, id, ...rest] = pathStr.split('/');
-    if (!c || !id || rest.length) throw new Error(`Invalid document path: ${pathStr}`);
-    return new DocumentReference(this, c, id);
+    const seg = pathStr.split('/');
+    if (seg.length % 2 !== 0 || seg.some((s) => !s)) throw new Error(`Invalid document path: ${pathStr}`);
+    return new DocumentReference(this, seg.slice(0, -1).join('/'), seg[seg.length - 1]);
   }
   batch(): WriteBatch {
     return new WriteBatch(this);
@@ -659,7 +668,9 @@ export class Firestore {
       .map((r) => new DocumentSnapshot(r, (stmt.get(r.collectionId, r.id) as { data: string } | undefined)?.data));
   }
   async listCollections(): Promise<CollectionReference[]> {
-    const rows = this._conn().prepare('SELECT DISTINCT collection FROM docs ORDER BY collection').all() as { collection: string }[];
+    const rows = this._conn()
+      .prepare("SELECT DISTINCT collection FROM docs WHERE instr(collection, '/') = 0 ORDER BY collection")
+      .all() as { collection: string }[];
     return rows.map((r) => this.collection(r.collection));
   }
 

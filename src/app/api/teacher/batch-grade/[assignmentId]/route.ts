@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { adminAuth, adminDb } from '@/lib/firebase/admin';
 import { cookies } from 'next/headers';
-import { FieldValue } from 'firebase-admin/firestore';
+import { FieldValue } from '@/lib/db';
 import { gradeHybrid } from '@/lib/gemini';
 import { type GradableBlock } from '@/lib/auto-grade';
 import { invalidateLeaderboards } from '@/lib/leaderboard-cache';

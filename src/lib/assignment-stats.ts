@@ -1,5 +1,5 @@
 import { adminDb } from '@/lib/firebase/admin';
-import { FieldValue } from 'firebase-admin/firestore';
+import { FieldValue } from '@/lib/db';
 
 /**
  * Precomputed submission stats per assignment, kept in `assignmentStats/{id}`:

@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { adminAuth, adminDb } from '@/lib/firebase/admin';
 import { uploadAssignmentAttachment } from '@/lib/storage';
 import { cookies } from 'next/headers';
-import { FieldValue } from 'firebase-admin/firestore';
+import { FieldValue } from '@/lib/db';
 import { sendLineNotify, getLineNotifyToken } from '@/lib/line-notify';
 import { trackReads, flushReadsIfDue } from '@/lib/read-tracker';
 import { invalidateLeaderboards } from '@/lib/leaderboard-cache';

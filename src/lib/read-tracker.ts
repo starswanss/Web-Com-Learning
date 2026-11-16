@@ -1,5 +1,5 @@
 import { adminDb } from '@/lib/firebase/admin';
-import { FieldValue } from 'firebase-admin/firestore';
+import { FieldValue } from '@/lib/db';
 
 /**
  * Approximate per-student Firestore read accounting.

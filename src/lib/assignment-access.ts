@@ -1,3 +1,4 @@
+import type { DocumentData } from '@/lib/db';
 import { adminDb } from '@/lib/firebase/admin';
 
 /**
@@ -13,7 +14,7 @@ import { adminDb } from '@/lib/firebase/admin';
  */
 export async function studentCanAccessAssignment(
   classId: string | undefined,
-  assignment: FirebaseFirestore.DocumentData,
+  assignment: DocumentData,
 ): Promise<{ entitled: boolean; reads: number }> {
   if (!classId) return { entitled: false, reads: 0 };
   const classIds = (assignment.classIds as string[]) ?? [];

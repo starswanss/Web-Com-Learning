@@ -145,6 +145,18 @@ await t('snapshot.ref.update works', async () => {
   assert.equal((await snap.ref.get()).data()!.w, 1);
 });
 
+await t('subcollection paths', async () => {
+  await db.doc('readStats/2026-01-02/students/u1').set({ reads: FieldValue.increment(3) }, { merge: true });
+  await db.doc('readStats/2026-01-02/students/u1').set({ reads: FieldValue.increment(2) }, { merge: true });
+  await db.collection('readStats').doc('2026-01-02').collection('students').doc('u2').set({ reads: 1 });
+  const snap = await db.collection('readStats/2026-01-02/students').get();
+  assert.deepEqual(snap.docs.map((d) => [d.id, d.data().reads]), [['u1', 5], ['u2', 1]]);
+  assert.equal((await db.collection('readStats').get()).size, 0); // parent doc never created
+  assert.ok(!(await db.listCollections()).some((c) => c.id.includes('/')));
+  assert.throws(() => db.collection('a/b'));
+  assert.throws(() => db.doc('a'));
+});
+
 await t('Timestamp compare and JSON', async () => {
   const a = Timestamp.fromMillis(1000), b = Timestamp.fromMillis(2000);
   assert.ok(a < b);

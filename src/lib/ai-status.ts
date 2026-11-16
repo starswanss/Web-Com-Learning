@@ -8,7 +8,7 @@
  * no meaningful Firestore cost. State is otherwise derived from the timestamp.
  */
 import { adminDb } from '@/lib/firebase/admin';
-import { FieldValue } from 'firebase-admin/firestore';
+import { FieldValue } from '@/lib/db';
 
 const DOC = 'system/aiStatus';
 const RESET_WINDOW_MS = 36 * 60 * 60 * 1000; // stop showing "reset" after ~1.5 days
