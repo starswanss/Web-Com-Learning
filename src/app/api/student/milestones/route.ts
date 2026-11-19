@@ -1,7 +1,7 @@
-import type { Query } from '@/lib/db';
 import { NextRequest, NextResponse } from 'next/server';
 import { adminAuth, adminDb } from '@/lib/db/admin';
 import { cookies } from 'next/headers';
+import { getLiveSubjectIds, studentSubjectId } from '@/lib/assignment-access';
 
 async function getStudentProfile(): Promise<{ uid: string; classId: string; subjectId?: string } | null> {
   try {
@@ -21,12 +21,15 @@ export async function GET(req: NextRequest) {
   const profile = await getStudentProfile();
   if (!profile) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
 
-  const subjectId = req.nextUrl.searchParams.get('subject');
+  // Only the subject the student enrolled in.
+  const subjectId = studentSubjectId(
+    { subjectId: profile.subjectId },
+    req.nextUrl.searchParams.get('subject'),
+    await getLiveSubjectIds(),
+  );
+  if (!subjectId) return NextResponse.json([]);
 
-  // Fetch milestones for this subject
-  let q = adminDb.collection('milestones') as Query;
-  if (subjectId) q = q.where('subjectId', '==', subjectId);
-  const milestonesSnap = await q.get();
+  const milestonesSnap = await adminDb.collection('milestones').where('subjectId', '==', subjectId).get();
   const milestones = milestonesSnap.docs
     .map(d => ({ id: d.id, ...d.data() }))
     .sort((a: any, b: any) => (a.order ?? 0) - (b.order ?? 0));

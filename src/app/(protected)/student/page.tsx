@@ -33,6 +33,8 @@ interface AssignmentWithSubmission {
 
 interface DashboardPayload {
   xp: number;
+  /** The subject the student enrolled in at onboarding — the only one shown. */
+  subject: { id: string; name: string } | null;
   assignments: AssignmentWithSubmission[];
   medals: Array<{ id: string; medal: string; icon?: string; points: number; reason: string }>;
   levelSettings: Partial<LevelSettings>;
@@ -123,6 +125,10 @@ export default function StudentPage() {
     if (sub) qs.set('subject', sub.id);
     cachedFetch<DashboardPayload>(`/api/student/dashboard?${qs}`)
       .then(d => {
+        if (d.subject) {
+          setSubject(d.subject);
+          try { localStorage.setItem('lms_subject', JSON.stringify(d.subject)); } catch {}
+        }
         setAssignments(Array.isArray(d.assignments) ? d.assignments : []);
         setMedals(Array.isArray(d.medals) ? d.medals : []);
         if (d.levelSettings) setLevelSettings(s => ({ ...s, ...d.levelSettings }));

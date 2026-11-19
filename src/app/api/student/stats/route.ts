@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { adminAuth, adminDb } from '@/lib/db/admin';
-import { getLiveSubjectIds, inLiveSubject } from '@/lib/assignment-access';
+import { getLiveSubjectIds, inLiveSubject, studentSubjectId } from '@/lib/assignment-access';
 import { cookies } from 'next/headers';
 
 export async function GET(req: NextRequest) {
@@ -16,21 +16,20 @@ export async function GET(req: NextRequest) {
     }
 
     const student = userSnap.data()!;
-    const subjectParam = req.nextUrl.searchParams.get('subject');
+    // Only the subject the student enrolled in — the same list as the dashboard.
+    const liveSubjects = await getLiveSubjectIds();
+    const subjectId = studentSubjectId(student, req.nextUrl.searchParams.get('subject'), liveSubjects);
 
-    const [assignmentsSnap, submissionsSnap, liveSubjects] = await Promise.all([
-      adminDb.collection('assignments').where('classIds', 'array-contains', student.classId).get(),
+    const [assignmentsSnap, submissionsSnap] = await Promise.all([
+      subjectId ? adminDb.collection('assignments').where('subjectId', '==', subjectId).get() : null,
       adminDb.collection('submissions').where('studentId', '==', decoded.uid).get(),
-      getLiveSubjectIds(),
     ]);
 
     const submissions = submissionsSnap.docs.map((d) => ({ id: d.id, ...d.data() })) as Record<string, unknown>[];
     const submissionMap = new Map(submissions.map((s) => [s.assignmentId as string, s]));
 
-    // filter by subject in JS to avoid composite index
-    const allDocs = assignmentsSnap.docs
+    const allDocs = (assignmentsSnap?.docs ?? [])
       .filter((d) => inLiveSubject(d.data(), liveSubjects))
-      .filter((d) => !subjectParam || d.data().subjectId === subjectParam)
       .map((d) => {
         const a = { id: d.id, ...d.data() } as Record<string, unknown>;
         const sub = submissionMap.get(d.id);

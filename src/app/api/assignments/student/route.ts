@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { adminAuth, adminDb } from '@/lib/db/admin';
 import { cookies } from 'next/headers';
-import { getLiveSubjectIds, inLiveSubject } from '@/lib/assignment-access';
+import { getLiveSubjectIds, inLiveSubject, studentSubjectId } from '@/lib/assignment-access';
 
 async function getStudentUid(): Promise<string | null> {
   try {
@@ -19,29 +19,19 @@ export async function GET(req: NextRequest) {
   const uid = await getStudentUid();
   if (!uid) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
 
-  const params = new URL(req.url).searchParams;
-  const subjectId = params.get('subject');
-  // classId passed from the client profile to avoid a redundant Firestore user doc read
-  const classIdParam = params.get('classId');
-
-  // Resolve classId: trust client param if provided (session already verified above),
-  // otherwise fall back to reading the user doc
-  let classId = classIdParam;
-  if (!classId) {
-    const snap = await adminDb.collection('users').doc(uid).get();
-    if (!snap.exists || snap.data()?.role !== 'student' || !snap.data()?.classId) {
-      return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
-    }
-    classId = snap.data()!.classId as string;
+  const userSnap = await adminDb.collection('users').doc(uid).get();
+  if (!userSnap.exists || userSnap.data()?.role !== 'student') {
+    return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
   }
 
-  const base = adminDb.collection('assignments').where('classIds', 'array-contains', classId);
-  const filtered = subjectId ? base.where('subjectId', '==', subjectId) : base;
+  // Only the subject the student enrolled in — the same list as the dashboard.
+  const liveSubjects = await getLiveSubjectIds();
+  const subjectId = studentSubjectId(userSnap.data()!, new URL(req.url).searchParams.get('subject'), liveSubjects);
+  if (!subjectId) return NextResponse.json([]);
 
-  const [assignmentsSnap, submissionsSnap, liveSubjects] = await Promise.all([
-    filtered.get(),
+  const [assignmentsSnap, submissionsSnap] = await Promise.all([
+    adminDb.collection('assignments').where('subjectId', '==', subjectId).get(),
     adminDb.collection('submissions').where('studentId', '==', uid).get(),
-    getLiveSubjectIds(),
   ]);
 
   const submissionMap = new Map(
@@ -51,6 +41,8 @@ export async function GET(req: NextRequest) {
   const assignments = assignmentsSnap.docs
     .filter((d) => inLiveSubject(d.data(), liveSubjects))
     .map((d) => ({ id: d.id, ...d.data(), submission: submissionMap.get(d.id) ?? null }))
+    // Locked work stays hidden until unlocked, as on the dashboard.
+    .filter((a) => (a as { isOpen?: boolean | null }).isOpen !== false || a.submission)
     .sort((a, b) => {
       const ta = (a as Record<string, unknown> & { dueDate?: { _seconds?: number } }).dueDate?._seconds ?? 0;
       const tb = (b as Record<string, unknown> & { dueDate?: { _seconds?: number } }).dueDate?._seconds ?? 0;

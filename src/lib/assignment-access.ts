@@ -32,6 +32,25 @@ export function inLiveSubject(assignment: DocumentData, live: Set<string>): bool
 }
 
 /**
+ * The one subject a student's views show: the subject they enrolled in at
+ * onboarding (`users.subjectId`). Both subjects are open to every ม.3 room, so
+ * listing by class alone mixes their work together. The subject the client asks
+ * for (from localStorage) is used only for an account that never stored one.
+ * Returns null when there is no usable subject; callers then show nothing
+ * rather than every subject at once.
+ */
+export function studentSubjectId(
+  user: DocumentData,
+  requested: string | null,
+  live: Set<string>,
+): string | null {
+  const own = user.subjectId;
+  if (typeof own === 'string' && live.has(own)) return own;
+  if (requested && live.has(requested)) return requested;
+  return null;
+}
+
+/**
  * A student may access an assignment when it belongs to a subject that still
  * exists AND their class is in the assignment's own `classIds`, or — since
  * visibility is subject-wide — in the `classIds` of the assignment's subject.

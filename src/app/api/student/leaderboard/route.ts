@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { adminAuth, adminDb } from '@/lib/db/admin';
-import { getLiveSubjectIds, inLiveSubject } from '@/lib/assignment-access';
+import { getLiveSubjectIds, inLiveSubject, studentSubjectId } from '@/lib/assignment-access';
 import { cookies } from 'next/headers';
 import { calcLevel, DEFAULT_SETTINGS, LevelSettings } from '@/lib/xp';
 import { cachedGlobal } from '@/lib/server-cache';
@@ -26,7 +26,7 @@ interface LbRow {
   levelTitle: string;
 }
 
-async function getStudentInfo(): Promise<{ uid: string; classId: string } | null> {
+async function getStudentInfo(): Promise<{ uid: string; classId: string; subjectId?: string } | null> {
   try {
     const cookieStore = await cookies();
     const session = cookieStore.get('__session')?.value;
@@ -34,7 +34,7 @@ async function getStudentInfo(): Promise<{ uid: string; classId: string } | null
     const decoded = await adminAuth.verifySessionCookie(session, false);
     const snap = await adminDb.collection('users').doc(decoded.uid).get();
     if (!snap.exists || snap.data()?.role !== 'student') return null;
-    return { uid: decoded.uid, classId: snap.data()?.classId as string };
+    return { uid: decoded.uid, classId: snap.data()?.classId as string, subjectId: snap.data()?.subjectId as string | undefined };
   } catch { return null; }
 }
 
@@ -50,7 +50,8 @@ export async function GET(req: NextRequest) {
   if (!student) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
 
   const { searchParams } = new URL(req.url);
-  const subjectId = searchParams.get('subject');
+  const subjectId = studentSubjectId({ subjectId: student.subjectId }, searchParams.get('subject'), await getLiveSubjectIds());
+  if (!subjectId) return NextResponse.json([]);
 
   // Heavy computation is shared by everyone in this class+subject — cache it.
   const cacheKey = `leaderboard:${student.classId}:${subjectId ?? 'all'}`;
