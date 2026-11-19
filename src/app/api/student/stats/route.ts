@@ -34,6 +34,9 @@ export async function GET(req: NextRequest) {
       // term's worksheets) is left out unless this student submitted it, so it
       // doesn't count as missing work or drag down the submission rate.
       .filter((d) => d.data().isOpen !== false || submissionMap.has(d.id))
+      // ใบความรู้ is read-only — there is nothing to submit, so it isn't work in
+      // the Portfolio and must not show as "ยังไม่ส่ง" or lower the submit rate.
+      .filter((d) => d.data().contentType !== 'knowledge')
       .map((d) => {
         const a = { id: d.id, ...d.data() } as Record<string, unknown>;
         const sub = submissionMap.get(d.id);

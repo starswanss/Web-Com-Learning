@@ -140,7 +140,8 @@ export default function StudentPage() {
   if (loading || !profile) return <Spinner />;
 
   /* ── Derived ── */
-  const pending   = assignments.filter(a => !a.submission);
+  // ใบความรู้ is read-only — nothing to submit, so it never counts as pending.
+  const pending   = assignments.filter(a => !a.submission && a.contentType !== 'knowledge');
   const submitted = assignments.filter(a => a.submission?.status === 'submitted');
   const graded    = assignments.filter(a => a.submission && ['graded','reviewed'].includes(a.submission.status));
   const scores    = graded.map(a => a.submission!.score).filter((s): s is number => typeof s === 'number');
