@@ -2,7 +2,7 @@ import { NextResponse } from 'next/server';
 import { adminAuth, adminDb } from '@/lib/db/admin';
 import { cookies } from 'next/headers';
 import { getLiveSubjectIds, studentSubjectId } from '@/lib/assignment-access';
-import { submittedThisTerm } from '@/lib/quest-requirement';
+import { studentSubmissions } from '@/lib/quest-requirement';
 
 async function getStudent() {
   try {
@@ -66,10 +66,11 @@ export async function GET() {
   // own subject, and hide a worksheet quest until the teacher opens that work.
   const mySubject = studentSubjectId({ subjectId: student.subjectId }, null, await getLiveSubjectIds());
   const requiredIds = [...new Set(visibleDocs.map((d) => d.data().requiredAssignmentId as string | undefined).filter(Boolean))] as string[];
-  const [requiredSnaps, doneThisTerm] = await Promise.all([
+  const [requiredSnaps, mine] = await Promise.all([
     Promise.all(requiredIds.map((id) => adminDb.collection('assignments').doc(id).get())),
-    requiredIds.length ? submittedThisTerm(student.uid) : Promise.resolve(new Set<string>()),
+    requiredIds.length ? studentSubmissions(student.uid) : Promise.resolve({ thisTerm: new Set<string>(), ever: new Set<string>() }),
   ]);
+  const doneThisTerm = mine.thisTerm;
   const required = new Map(requiredSnaps.filter((s) => s.exists).map((s) => [s.id, s.data()!]));
   const shownDocs = visibleDocs.filter((d) => {
     const q = d.data();
@@ -78,6 +79,9 @@ export async function GET() {
     if (!reqId) return true;
     const a = required.get(reqId);
     if (!a || a.subjectId !== mySubject) return false;
+    // Submitted in an earlier term: it can't be submitted again, so the quest
+    // could never be met — leave it out rather than show a dead "go submit".
+    if (mine.ever.has(reqId) && !doneThisTerm.has(reqId)) return false;
     return a.isOpen !== false || doneThisTerm.has(reqId);
   });
   if (shownDocs.length === 0) return NextResponse.json([]);
