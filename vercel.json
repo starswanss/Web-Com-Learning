@@ -1,0 +1,11 @@
+{
+  "$schema": "https://openapi.vercel.sh/vercel.json",
+  "framework": null,
+  "installCommand": "echo 'redirect-only: nothing to install'",
+  "buildCommand": "echo 'redirect-only: nothing to build'",
+  "outputDirectory": "public",
+  "redirects": [
+    { "source": "/", "destination": "https://lms.rajsima.ac.th/", "permanent": true },
+    { "source": "/:path*", "destination": "https://lms.rajsima.ac.th/:path*", "permanent": true }
+  ]
+}
