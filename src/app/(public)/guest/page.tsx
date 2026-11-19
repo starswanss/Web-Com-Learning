@@ -59,15 +59,22 @@ export default function GuestHome() {
         (!typeFilter || a.contentType === typeFilter) &&
         (!q || a.title.toLowerCase().includes(q) || (a.unit ?? '').toLowerCase().includes(q)),
     );
-    const groups = new Map<string, GuestAssignment[]>();
+    // Group by unit NUMBER: the same unit is sometimes typed with different
+    // wording ("หน่วยการเรียนรู้ที่ 1: …" vs "หน่วยที่ 1 …"), which would split it.
+    const groups = new Map<string, { title: string; num: number; items: GuestAssignment[] }>();
     for (const a of list) {
-      const key = a.unit?.trim() || NO_UNIT;
-      if (!groups.has(key)) groups.set(key, []);
-      groups.get(key)!.push(a);
+      const unit = a.unit?.trim() || '';
+      const m = unit.match(/หน่วย(?:การเรียนรู้)?\s*ที่\s*(\d+)/);
+      const key = m ? `#${m[1]}` : unit || NO_UNIT;
+      const g = groups.get(key) ?? { title: unit || NO_UNIT, num: m ? Number(m[1]) : Infinity, items: [] };
+      // Prefer the longest wording as the section title.
+      if (unit.length > g.title.length && unit) g.title = unit;
+      g.items.push(a);
+      groups.set(key, g);
     }
-    return Array.from(groups.entries()).sort(([x], [y]) =>
-      x === NO_UNIT ? 1 : y === NO_UNIT ? -1 : x.localeCompare(y, 'th', { numeric: true }),
-    );
+    return Array.from(groups.values())
+      .sort((x, y) => x.num - y.num || x.title.localeCompare(y.title, 'th', { numeric: true }))
+      .map((g) => [g.title, g.items] as const);
   }, [data, subjectId, typeFilter, query]);
 
   const shownCount = units.reduce((n, [, items]) => n + items.length, 0);
