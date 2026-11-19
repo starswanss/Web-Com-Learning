@@ -16,6 +16,8 @@ interface Quest {
   isActive: boolean;
   claimedCount: number;
   totalStudents: number;
+  /** Worksheet students must submit this term before they can claim. */
+  requiredAssignmentTitle?: string | null;
 }
 
 interface Subject {
@@ -415,9 +417,14 @@ function QuestCard({
           </div>
         </div>
 
+        {quest.requiredAssignmentTitle && (
+          <p className="mt-2 text-[10px] text-violet-400/80 line-clamp-1">
+            📝 รับได้เมื่อส่ง: {quest.requiredAssignmentTitle}
+          </p>
+        )}
         {quest.classIds?.length > 0 && (
           <p className="mt-2 text-[10px] text-slate-600">
-            ห้อง: {quest.classIds.map((c) => `ม.3/${c}`).join(', ')}
+            ห้อง: {quest.classIds.map((c) => (c.startsWith('ม.') ? c : `ม.3/${c}`)).join(', ')}
           </p>
         )}
       </div>

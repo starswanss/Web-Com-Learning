@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { adminAuth, adminDb } from '@/lib/db/admin';
-import { getLiveSubjectIds, inLiveSubject, studentSubjectId } from '@/lib/assignment-access';
+import { getLiveSubjectIds, studentSubjectId } from '@/lib/assignment-access';
 import { cookies } from 'next/headers';
 import { calcLevel, DEFAULT_SETTINGS, LevelSettings } from '@/lib/xp';
 import { cachedGlobal } from '@/lib/server-cache';
@@ -38,14 +38,7 @@ async function getStudentInfo(): Promise<{ uid: string; classId: string; subject
   } catch { return null; }
 }
 
-// Temporarily disabled: the student-facing leaderboard is the single heaviest
-// read on the student side (whole class roster + class submissions). Return an
-// empty list without touching Firestore until it's re-enabled.
-const LEADERBOARD_ENABLED = false;
-
 export async function GET(req: NextRequest) {
-  if (!LEADERBOARD_ENABLED) return NextResponse.json([]);
-
   const student = await getStudentInfo();
   if (!student) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
 
@@ -54,7 +47,7 @@ export async function GET(req: NextRequest) {
   if (!subjectId) return NextResponse.json([]);
 
   // Heavy computation is shared by everyone in this class+subject — cache it.
-  const cacheKey = `leaderboard:${student.classId}:${subjectId ?? 'all'}`;
+  const cacheKey = `leaderboard:${student.classId}:${subjectId}`;
   const rows = await cachedGlobal<LbRow[]>(cacheKey, LB_TTL, () =>
     computeLeaderboard(student.classId, subjectId),
   );
@@ -63,53 +56,33 @@ export async function GET(req: NextRequest) {
   return NextResponse.json(rows.map((r) => ({ ...r, isMe: r.studentId === student.uid })));
 }
 
-async function computeLeaderboard(classId: string, subjectId: string | null): Promise<LbRow[]> {
-  const assignmentsSnap = await adminDb
-    .collection('assignments')
-    .where('classIds', 'array-contains', classId)
-    .get();
-
-  if (assignmentsSnap.empty) return [];
-
-  // filter by subject in JS
-  const liveSubjects = await getLiveSubjectIds();
-  const assignmentIds = assignmentsSnap.docs
-    .filter((d) => inLiveSubject(d.data(), liveSubjects))
-    .filter((d) => !subjectId || d.data().subjectId === subjectId)
-    .map((d) => d.id);
-
-  if (assignmentIds.length === 0) return [];
-
-  // Read class students once — gives us both the roster AND each student's xp,
-  // so no per-student user-doc read is needed later (avoids an N+1 scan).
-  const [submissionsSnap, classStudentsSnap] = await Promise.all([
-    adminDb
-      .collection('submissions')
-      .where('assignmentId', 'in', assignmentIds.slice(0, 30))
-      .where('classId', '==', classId)
-      .get(),
+async function computeLeaderboard(classId: string, subjectId: string): Promise<LbRow[]> {
+  // Rank the room's students in this subject by their work in this subject.
+  // Work is subject-wide (not targeted per room), and both subjects share the
+  // same rooms, so the roster is narrowed to students enrolled in the subject.
+  const [assignmentsSnap, classSubsSnap, classUsersSnap] = await Promise.all([
+    adminDb.collection('assignments').where('subjectId', '==', subjectId).get(),
+    adminDb.collection('submissions').where('classId', '==', classId).get(),
     adminDb.collection('users').where('classId', '==', classId).get(),
   ]);
+  const assignmentIds = new Set(assignmentsSnap.docs.map((d) => d.id));
 
   const studentMap = new Map<string, { scores: number[]; submittedCount: number }>();
+  const xpMap = new Map<string, number>();
+  classUsersSnap.docs.forEach((doc) => {
+    const u = doc.data();
+    if (u.role !== 'student' || u.subjectId !== subjectId) return;
+    xpMap.set(doc.id, (u.xp as number) ?? 0);
+    studentMap.set(doc.id, { scores: [], submittedCount: 0 });
+  });
+  if (studentMap.size === 0) return [];
 
-  submissionsSnap.docs.forEach((d) => {
+  classSubsSnap.docs.forEach((d) => {
     const data = d.data();
-    const sid = data.studentId as string;
-    if (!studentMap.has(sid)) studentMap.set(sid, { scores: [], submittedCount: 0 });
-    const entry = studentMap.get(sid)!;
+    const entry = studentMap.get(data.studentId as string);
+    if (!entry || !assignmentIds.has(data.assignmentId as string)) return;
     entry.submittedCount += 1;
     if (typeof data.score === 'number') entry.scores.push(data.score);
-  });
-
-  // Include all students in the class even if they have no submissions yet,
-  // and capture xp from the same snapshot.
-  const xpMap = new Map<string, number>();
-  classStudentsSnap.docs.forEach((doc) => {
-    if (doc.data().role !== 'student') return;
-    const sid = doc.id;
-    xpMap.set(sid, (doc.data()?.xp as number) ?? 0);
-    if (!studentMap.has(sid)) studentMap.set(sid, { scores: [], submittedCount: 0 });
   });
 
   /* ── Bonus points ── */

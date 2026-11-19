@@ -4,6 +4,7 @@ import { cookies } from 'next/headers';
 import { FieldValue } from '@/lib/db';
 import { invalidateLeaderboards } from '@/lib/leaderboard-cache';
 import { rateLimit } from '@/lib/rate-limit';
+import { submittedThisTerm } from '@/lib/quest-requirement';
 
 async function getStudent() {
   try {
@@ -15,7 +16,7 @@ async function getStudent() {
     if (!snap.exists) return null;
     const data = snap.data()!;
     if (data.role !== 'student') return null;
-    return { uid: decoded.uid, classId: data.classId as string };
+    return { uid: decoded.uid, classId: data.classId as string, subjectId: data.subjectId as string | undefined };
   } catch { return null; }
 }
 
@@ -41,6 +42,15 @@ export async function POST(
   // classIds empty = visible to all; otherwise must match
   if (questClassIds.length > 0 && !questClassIds.includes(student.classId)) {
     return NextResponse.json({ error: 'Forbidden' }, { status: 403 });
+  }
+
+  if (quest.subjectId && quest.subjectId !== student.subjectId) {
+    return NextResponse.json({ error: 'Forbidden' }, { status: 403 });
+  }
+  // A worksheet quest pays out only after that worksheet is submitted this term.
+  const reqId = quest.requiredAssignmentId as string | undefined;
+  if (reqId && !(await submittedThisTerm(student.uid)).has(reqId)) {
+    return NextResponse.json({ error: 'ต้องส่งงานนี้ก่อนจึงจะรับ XP ได้' }, { status: 403 });
   }
 
   const today = new Date().toISOString().split('T')[0];

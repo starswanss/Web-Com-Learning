@@ -150,8 +150,6 @@ function AnonPodiumCard({ entry, size, myName }: { entry: LeaderboardEntry; size
   );
 }
 
-// Temporarily closed to students (performance). Flip to true to bring it back.
-const LEADERBOARD_OPEN = false;
 
 export default function StudentLeaderboardPage() {
   const { user, profile, loading } = useAuth();
@@ -160,7 +158,6 @@ export default function StudentLeaderboardPage() {
   const [subject, setSubject] = useState<{ id: string; name: string } | null>(null);
 
   useEffect(() => {
-    if (!LEADERBOARD_OPEN) { setFetching(false); return; }
     if (profile?.role !== 'student') return;
     const saved = localStorage.getItem('lms_subject');
     const sub = saved ? JSON.parse(saved) : null;
@@ -173,21 +170,6 @@ export default function StudentLeaderboardPage() {
   }, [profile]);
 
   if (loading || !profile) return <Spinner />;
-
-  if (!LEADERBOARD_OPEN) {
-    return (
-      <div className="flex min-h-screen flex-col items-center justify-center gap-4 bg-slate-950 px-6 text-center">
-        <span className="text-5xl">🏆</span>
-        <div>
-          <h1 className="text-lg font-bold text-slate-200">อันดับปิดปรับปรุงชั่วคราว</h1>
-          <p className="mt-1.5 text-sm text-slate-500">ขณะนี้ยังไม่เปิดให้ดูอันดับ ไว้กลับมาใหม่เร็ว ๆ นี้</p>
-        </div>
-        <Link href="/student" className="rounded-xl border border-slate-700 bg-slate-800 px-5 py-2.5 text-sm font-semibold text-slate-200 transition-all hover:border-slate-500">
-          ← กลับหน้าหลัก
-        </Link>
-      </div>
-    );
-  }
 
   const myName = user?.displayName ?? 'คุณ';
   const myEntry = entries.find((e) => e.isMe);

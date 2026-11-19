@@ -17,6 +17,8 @@ interface Quest {
   isClaimed: boolean;
   subjectId?: string | null;
   subjectName?: string | null;
+  /** Worksheet to submit this term before the XP can be claimed. */
+  requirement?: { assignmentId: string; title: string; done: boolean } | null;
 }
 
 function Spinner() {
@@ -84,7 +86,7 @@ export default function StudentQuestsPage() {
   }, [profile, loadQuests]);
 
   async function handleClaim(quest: Quest) {
-    if (quest.isClaimed || claiming) return;
+    if (quest.isClaimed || claiming || (quest.requirement && !quest.requirement.done)) return;
     setClaiming(quest.id);
     try {
       const res = await fetch(`/api/student/quests/${quest.id}/claim`, { method: 'POST' });
@@ -306,6 +308,11 @@ function QuestCard({
           {quest.description && (
             <p className="mt-0.5 text-xs text-slate-500 line-clamp-1">{quest.description}</p>
           )}
+          {quest.requirement && !claimed && (
+            <p className={`mt-0.5 text-[11px] line-clamp-1 ${quest.requirement.done ? 'text-emerald-400' : 'text-slate-400'}`}>
+              {quest.requirement.done ? '✓ ส่งแล้ว: ' : '📝 ต้องส่ง: '}{quest.requirement.title}
+            </p>
+          )}
           <span className={`mt-1 inline-flex items-center gap-1 text-xs font-bold ${
             claimed ? 'text-emerald-600' : 'text-yellow-400'
           }`}>
@@ -318,6 +325,13 @@ function QuestCard({
           <div className="shrink-0 flex h-9 w-9 items-center justify-center rounded-xl border border-emerald-800/40 bg-emerald-950/30 text-emerald-500">
             ✓
           </div>
+        ) : quest.requirement && !quest.requirement.done ? (
+          <Link
+            href={`/student/assignments/${quest.requirement.assignmentId}`}
+            className="shrink-0 rounded-xl border border-slate-600 bg-slate-800 px-3 py-2 text-xs font-bold text-slate-200 transition-all hover:border-violet-500 active:scale-95"
+          >
+            ไปส่งงาน →
+          </Link>
         ) : (
           <button
             onClick={onClaim}

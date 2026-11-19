@@ -36,6 +36,8 @@ export async function GET() {
     classIds: string[];
     isActive: boolean;
     createdAt: Date;
+    subjectId: string | null;
+    requiredAssignmentId: string | null;
   }
 
   const quests: QuestRaw[] = snap.docs.map(d => ({
@@ -48,6 +50,8 @@ export async function GET() {
     classIds: (d.data().classIds as string[]) ?? [],
     isActive: (d.data().isActive as boolean) ?? true,
     createdAt: d.data().createdAt?.toDate?.() ?? new Date(0),
+    subjectId: (d.data().subjectId as string) ?? null,
+    requiredAssignmentId: (d.data().requiredAssignmentId as string) ?? null,
   }));
 
   // Sort newest first
@@ -97,6 +101,22 @@ export async function GET() {
     }
   }
 
+  // Titles of the worksheets quests are tied to, and enrolment per subject (a
+  // subject quest with no room list is open to every student in the subject).
+  const reqIds = [...new Set(quests.map(q => q.requiredAssignmentId).filter(Boolean))] as string[];
+  const reqTitles = new Map(
+    (await Promise.all(reqIds.map(id => adminDb.collection('assignments').doc(id).get())))
+      .filter(s => s.exists).map(s => [s.id, s.data()!.title as string]),
+  );
+  const studentsBySubject = new Map<string, number>();
+  if (quests.some(q => q.subjectId && q.classIds.length === 0)) {
+    const all = await adminDb.collection('users').where('role', '==', 'student').get();
+    all.docs.forEach(d => {
+      const sid = d.data().subjectId as string | undefined;
+      if (sid) studentsBySubject.set(sid, (studentsBySubject.get(sid) ?? 0) + 1);
+    });
+  }
+
   const result = quests.map(q => ({
     id: q.id,
     title: q.title,
@@ -108,7 +128,10 @@ export async function GET() {
     isActive: q.isActive,
     createdAt: q.createdAt.toISOString(),
     claimedCount: claimedByQuest.get(q.id)?.size ?? 0,
-    totalStudents: q.classIds.reduce((acc, cid) => acc + (studentsByClass.get(cid) ?? 0), 0),
+    totalStudents: q.classIds.length > 0
+      ? q.classIds.reduce((acc, cid) => acc + (studentsByClass.get(cid) ?? 0), 0)
+      : (q.subjectId ? studentsBySubject.get(q.subjectId) ?? 0 : 0),
+    requiredAssignmentTitle: q.requiredAssignmentId ? reqTitles.get(q.requiredAssignmentId) ?? '(งานถูกลบแล้ว)' : null,
   }));
 
   return NextResponse.json(result);

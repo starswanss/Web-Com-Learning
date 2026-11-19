@@ -1,6 +1,8 @@
 import { NextResponse } from 'next/server';
 import { adminAuth, adminDb } from '@/lib/db/admin';
 import { cookies } from 'next/headers';
+import { getLiveSubjectIds, studentSubjectId } from '@/lib/assignment-access';
+import { submittedThisTerm } from '@/lib/quest-requirement';
 
 async function getStudent() {
   try {
@@ -12,7 +14,7 @@ async function getStudent() {
     if (!snap.exists) return null;
     const data = snap.data()!;
     if (data.role !== 'student') return null;
-    return { uid: decoded.uid, classId: data.classId as string };
+    return { uid: decoded.uid, classId: data.classId as string, subjectId: data.subjectId as string | undefined };
   } catch { return null; }
 }
 
@@ -60,6 +62,26 @@ export async function GET() {
 
   if (visibleDocs.length === 0) return NextResponse.json([]);
 
+  // Quests tied to a subject or a worksheet: show only those for the student's
+  // own subject, and hide a worksheet quest until the teacher opens that work.
+  const mySubject = studentSubjectId({ subjectId: student.subjectId }, null, await getLiveSubjectIds());
+  const requiredIds = [...new Set(visibleDocs.map((d) => d.data().requiredAssignmentId as string | undefined).filter(Boolean))] as string[];
+  const [requiredSnaps, doneThisTerm] = await Promise.all([
+    Promise.all(requiredIds.map((id) => adminDb.collection('assignments').doc(id).get())),
+    requiredIds.length ? submittedThisTerm(student.uid) : Promise.resolve(new Set<string>()),
+  ]);
+  const required = new Map(requiredSnaps.filter((s) => s.exists).map((s) => [s.id, s.data()!]));
+  const shownDocs = visibleDocs.filter((d) => {
+    const q = d.data();
+    if (q.subjectId && q.subjectId !== mySubject) return false;
+    const reqId = q.requiredAssignmentId as string | undefined;
+    if (!reqId) return true;
+    const a = required.get(reqId);
+    if (!a || a.subjectId !== mySubject) return false;
+    return a.isOpen !== false || doneThisTerm.has(reqId);
+  });
+  if (shownDocs.length === 0) return NextResponse.json([]);
+
   const today = new Date().toISOString().split('T')[0];
 
   // Fetch all claims for this student
@@ -75,11 +97,14 @@ export async function GET() {
     if (data.claimDate === today) claimedToday.add(data.questId as string);
   });
 
-  const quests = visibleDocs.map((d) => {
+  const quests = shownDocs.map((d) => {
     const data = d.data();
     const id = d.id;
     const isClaimed = data.resetType === 'daily' ? claimedToday.has(id) : claimedEver.has(id);
-    const subjectInfo = teacherSubjectMap.get(data.teacherId as string);
+    const subjectInfo = data.subjectId
+      ? { subjectId: data.subjectId as string, subjectName: (subjectsSnap.docs.find((s) => s.id === data.subjectId)?.data().name as string) ?? '' }
+      : teacherSubjectMap.get(data.teacherId as string);
+    const reqId = data.requiredAssignmentId as string | undefined;
     return {
       id,
       title: data.title as string,
@@ -90,6 +115,10 @@ export async function GET() {
       isClaimed,
       subjectId: subjectInfo?.subjectId ?? null,
       subjectName: subjectInfo?.subjectName ?? null,
+      // Worksheet the student must submit this term before claiming.
+      requirement: reqId
+        ? { assignmentId: reqId, title: (required.get(reqId)?.title as string) ?? '', done: doneThisTerm.has(reqId) }
+        : null,
     };
   });
 
