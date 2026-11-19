@@ -20,8 +20,9 @@ interface AssignmentOverview {
   gradedCount: number;
   reviewedCount: number;
   totalSubmissions: number;
-  /** Students enrolled in the subject — only for the active term. */
+  /** Students enrolled in the subject, and how many of them submitted — active term only. */
   enrolled: number | null;
+  enrolledSubmitted: number | null;
 }
 
 const TYPE_FILTERS: { key: ContentType | 'all'; label: string }[] = [
@@ -223,8 +224,12 @@ function OverviewCard({ assignment: a }: { assignment: AssignmentOverview }) {
               <span className="text-slate-500">ใบความรู้ — ไม่ต้องส่ง</span>
             ) : (
               <span className="text-slate-400">
-                ส่งแล้ว <span className="font-semibold text-slate-200">{total}</span>
-                {a.enrolled != null && <> / {a.enrolled} คน</>}
+                ส่งแล้ว{' '}
+                {a.enrolled != null ? (
+                  <><span className="font-semibold text-slate-200">{a.enrolledSubmitted}</span> / {a.enrolled} คน</>
+                ) : (
+                  <span className="font-semibold text-slate-200">{total}</span>
+                )}
               </span>
             )}
             {a.submittedCount > 0 && (

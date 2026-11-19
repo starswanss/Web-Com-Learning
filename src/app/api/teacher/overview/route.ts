@@ -3,6 +3,7 @@ import { adminAuth, adminDb } from '@/lib/db/admin';
 import { cookies } from 'next/headers';
 import { cachedGlobal } from '@/lib/server-cache';
 import { getActiveTerm } from '@/lib/current-term';
+import { getAllStudents } from '@/lib/students-cache';
 import { submissionInTerm, type TermItem } from '@/lib/term';
 
 const STATS_TTL = 120_000; // 2 min; invalidated on submit/grade
@@ -61,9 +62,13 @@ async function computeOverview(uid: string, subjectId: string | null, term: stri
   const subSnaps = await Promise.all(
     chunks.map((c) => adminDb.collection('submissions').where('assignmentId', 'in', c).get()),
   );
+  const submittersBy = new Map<string, Set<string>>();
   subSnaps.flatMap((snap) => snap.docs).forEach((d) => {
     const s = d.data();
     if (!submissionInTerm(s as TermItem, term)) return;
+    const aid = s.assignmentId as string;
+    if (!submittersBy.has(aid)) submittersBy.set(aid, new Set());
+    submittersBy.get(aid)!.add(s.studentId as string);
     const c = countMap.get(s.assignmentId as string);
     const st = s.status as 'submitted' | 'graded' | 'reviewed';
     if (c && st in c) c[st] += 1;
@@ -73,13 +78,14 @@ async function computeOverview(uid: string, subjectId: string | null, term: stri
   // only describes the active term — earlier terms show X alone.
   const active = await getActiveTerm();
   const activeKey = `${active.academicYear}/${active.term}`;
-  const enrolledBySubject = new Map<string, number>();
+  // X counts enrolled students who submitted, matching the submission-stats page.
+  const enrolledBySubject = new Map<string, Set<string>>();
   if (term === activeKey) {
-    const students = await adminDb.collection('users').where('role', '==', 'student').get();
-    students.docs.forEach((d) => {
-      const sid = d.data().subjectId as string | undefined;
-      if (sid) enrolledBySubject.set(sid, (enrolledBySubject.get(sid) ?? 0) + 1);
-    });
+    for (const st of await getAllStudents()) {
+      if (!st.subjectId) continue;
+      if (!enrolledBySubject.has(st.subjectId)) enrolledBySubject.set(st.subjectId, new Set());
+      enrolledBySubject.get(st.subjectId)!.add(st.uid);
+    }
   }
 
   const assignments = assignmentsSnap.docs.map((d) => {
@@ -100,7 +106,12 @@ async function computeOverview(uid: string, subjectId: string | null, term: stri
       gradedCount: counts.graded,
       reviewedCount: counts.reviewed,
       totalSubmissions: counts.submitted + counts.graded + counts.reviewed,
-      enrolled: isKnowledge ? null : enrolledBySubject.get(data.subjectId as string) ?? null,
+      ...(() => {
+        const roster = isKnowledge ? undefined : enrolledBySubject.get(data.subjectId as string);
+        if (!roster) return { enrolled: null, enrolledSubmitted: null };
+        const subs = submittersBy.get(d.id) ?? new Set<string>();
+        return { enrolled: roster.size, enrolledSubmitted: [...subs].filter((u) => roster.has(u)).length };
+      })(),
     };
   });
   assignments.sort((a, b) => b.createdAt - a.createdAt);

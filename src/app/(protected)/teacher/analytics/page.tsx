@@ -51,7 +51,14 @@ export default function AnalyticsPage() {
   useEffect(() => {
     if (profile?.role !== 'teacher' || term === undefined) return;
     setFetching(true);
-    fetch(`/api/analytics${term ? `?term=${term}` : ''}`)
+    // Same scope as the overview: the teacher's selected subject, and only the
+    // submissions made in the chosen term.
+    const saved = localStorage.getItem('lms_subject');
+    const sub = saved ? (JSON.parse(saved) as { id: string }) : null;
+    const qs = new URLSearchParams();
+    if (term) qs.set('term', term);
+    if (sub) qs.set('subject', sub.id);
+    fetch(`/api/analytics?${qs}`)
       .then((r) => r.json())
       .then((d: AnalyticsData) => setData(d))
       .finally(() => setFetching(false));

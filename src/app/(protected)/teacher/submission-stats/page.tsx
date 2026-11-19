@@ -19,6 +19,8 @@ interface AssignmentStat {
   submitted: number;
   notSubmitted: number;
   notSubmittedNames: NotSubmittedStudent[];
+  /** Earlier term: only the submitted count is known (no roster for then). */
+  pastTerm?: boolean;
 }
 
 interface Subject {
@@ -102,7 +104,7 @@ export default function SubmissionStatsPage() {
   const totalMissing = filtered.reduce((acc, s) => acc + s.notSubmitted, 0);
 
   function badgeColor(stat: AssignmentStat) {
-    if (stat.totalStudents === 0) return 'bg-slate-800 text-slate-400';
+    if (stat.pastTerm || stat.totalStudents === 0) return 'bg-slate-800 text-slate-400';
     const ratio = stat.submitted / stat.totalStudents;
     if (ratio >= 1) return 'bg-emerald-900/50 text-emerald-400 border border-emerald-800/50';
     if (ratio >= 0.5) return 'bg-amber-900/50 text-amber-400 border border-amber-800/50';
@@ -209,6 +211,9 @@ export default function SubmissionStatsPage() {
                       <p className="truncate text-sm font-semibold text-slate-100">{stat.title}</p>
 
                       {/* Progress bar */}
+                      {stat.pastTerm ? (
+                        <p className="mt-1 text-[11px] text-slate-500">เทอมที่เลือกเป็นเทอมก่อน — แสดงเฉพาะจำนวนที่ส่ง</p>
+                      ) : (
                       <div className="mt-2 flex items-center gap-2">
                         <div className="h-1.5 flex-1 overflow-hidden rounded-full bg-slate-800">
                           <div
@@ -218,6 +223,7 @@ export default function SubmissionStatsPage() {
                         </div>
                         <span className="shrink-0 text-[11px] text-slate-500">{pct}%</span>
                       </div>
+                      )}
                     </div>
 
                     {/* Badge */}
@@ -226,10 +232,10 @@ export default function SubmissionStatsPage() {
                       className={`shrink-0 cursor-pointer rounded-xl px-3 py-1.5 text-center transition-all active:scale-95 ${badgeColor(stat)}`}
                     >
                       <p className="text-xs font-bold leading-none">
-                        {stat.submitted}/{stat.totalStudents}
+                        {stat.pastTerm ? stat.submitted : `${stat.submitted}/${stat.totalStudents}`}
                       </p>
                       <p className="mt-0.5 text-[9px] leading-none opacity-75">
-                        {stat.notSubmitted > 0 ? `ค้าง ${stat.notSubmitted}` : 'ครบแล้ว'}
+                        {stat.pastTerm ? 'ส่งแล้ว' : stat.notSubmitted > 0 ? `ค้าง ${stat.notSubmitted}` : 'ครบแล้ว'}
                       </p>
                     </div>
                   </div>

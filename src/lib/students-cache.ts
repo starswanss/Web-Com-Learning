@@ -1,7 +1,7 @@
 import { adminDb } from '@/lib/db/admin';
 import { cachedGlobal } from '@/lib/server-cache';
 
-export interface StudentLite { uid: string; displayName: string; email: string; classId: string }
+export interface StudentLite { uid: string; displayName: string; email: string; classId: string; subjectId: string | null }
 
 /**
  * All students, read ONCE and shared (cached 2 min) across every teacher view
@@ -20,6 +20,7 @@ export async function getAllStudents(): Promise<StudentLite[]> {
         displayName: (data.displayName as string) ?? '',
         email: (data.email as string) ?? '',
         classId: (data.classId as string) ?? '',
+        subjectId: (data.subjectId as string) ?? null,
       };
     });
   });

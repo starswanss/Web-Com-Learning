@@ -2,8 +2,9 @@ import { NextRequest, NextResponse } from 'next/server';
 import { adminAuth, adminDb } from '@/lib/db/admin';
 import { cookies } from 'next/headers';
 import { cachedGlobal } from '@/lib/server-cache';
-import { getStudentsInClasses } from '@/lib/students-cache';
-import { getSubmitterSets } from '@/lib/assignment-stats';
+import { getAllStudents } from '@/lib/students-cache';
+import { getActiveTerm } from '@/lib/current-term';
+import { submissionInTerm, type TermItem } from '@/lib/term';
 
 const STATS_TTL = 120_000; // 2 min; invalidated on submit/grade
 
@@ -26,6 +27,9 @@ export interface AssignmentStat {
   submitted: number;
   notSubmitted: number;
   notSubmittedNames: Array<{ uid: string; name: string; classId: string }>;
+  /** A past term: today's roster says nothing about who should have submitted
+   *  then, so only the submitted count is meaningful. */
+  pastTerm: boolean;
 }
 
 export async function GET(req: NextRequest) {
@@ -45,84 +49,82 @@ export async function GET(req: NextRequest) {
   return NextResponse.json(stats);
 }
 
-async function computeStats(uid: string, subjectId: string | null, assignmentId: string | null, _term: string | null): Promise<AssignmentStat[]> {
-  // Fetch active subjects for this teacher to filter out orphaned assignments
+async function computeStats(uid: string, subjectId: string | null, assignmentId: string | null, term: string | null): Promise<AssignmentStat[]> {
   const subjectsSnap = await adminDb.collection('subjects').where('teacherId', '==', uid).get();
   const activeSubjectIds = new Set(subjectsSnap.docs.map(d => d.id));
-  // subjectId → its rooms. Assignments are subject-wide, so "who should submit"
-  // is every student in the assignment's SUBJECT — not the rooms frozen on the
-  // assignment doc (often an old odd/even split that misses current students).
-  const subjectClassIds = new Map<string, string[]>();
-  subjectsSnap.docs.forEach(d => subjectClassIds.set(d.id, (d.data().classIds as string[]) ?? []));
 
-  // Fetch assignments by teacher
   let assignmentsQuery = adminDb.collection('assignments').where('teacherId', '==', uid);
   if (subjectId) {
     assignmentsQuery = assignmentsQuery.where('subjectId', '==', subjectId) as typeof assignmentsQuery;
   }
-
   const assignmentsSnap = await assignmentsQuery.get();
-  // Worksheets are a permanent library (reused each term) and the "who hasn't
-  // submitted" check is always against the CURRENT roster (getStudentsInClasses
-  // below), so we don't hide assignments by term here — wiped past-term students
-  // are already off the roster.
+
+  // Only work in a subject that still exists, and never ใบความรู้ (nothing to submit).
   const allAssignments = assignmentsSnap.docs
     .filter(d => {
       const data = d.data();
       const sid = data.subjectId as string | null;
-      // Only include assignments whose subjectId exists in active subjects,
-      // and skip ใบความรู้ (knowledge) — students never submit those.
       const ct = (data.contentType as string) ?? 'worksheet';
-      if (!(sid && activeSubjectIds.has(sid) && ct !== 'knowledge')) return false;
-      return true;
+      return !!sid && activeSubjectIds.has(sid) && ct !== 'knowledge';
     })
     .map(d => ({
       id: d.id,
       title: (d.data().title as string) ?? '',
-      subjectId: (d.data().subjectId as string | null) ?? null,
+      subjectId: d.data().subjectId as string,
+      isOpen: d.data().isOpen !== false,
     }));
-
   const targetAssignments = assignmentId
     ? allAssignments.filter(a => a.id === assignmentId)
     : allAssignments;
-
   if (targetAssignments.length === 0) return [];
 
-  // Roster = every student across the teacher's subjects' rooms (loaded once).
-  const rosterClassIds = Array.from(new Set(Array.from(subjectClassIds.values()).flat()));
-  const students = (await getStudentsInClasses(rosterClassIds)).map(s => ({
-    uid: s.uid,
-    name: s.displayName,
-    classId: s.classId,
-  }));
+  // Worksheets are reused every term and carry no term; the term lives on each
+  // submission. Who submitted = submissions made in the selected term.
+  const termKey = term ?? '';
+  const submittedMap = new Map<string, Set<string>>();
+  const ids = targetAssignments.map(a => a.id);
+  for (let i = 0; i < ids.length; i += 30) {
+    const snap = await adminDb.collection('submissions').where('assignmentId', 'in', ids.slice(i, i + 30)).get();
+    snap.docs.forEach(d => {
+      const sub = d.data();
+      if (!submissionInTerm(sub as TermItem, termKey)) return;
+      const aid = sub.assignmentId as string;
+      if (!submittedMap.has(aid)) submittedMap.set(aid, new Set());
+      submittedMap.get(aid)!.add(sub.studentId as string);
+    });
+  }
 
-  // Who submitted each assignment — from the precomputed stats docs (a few
-  // small reads + one count() per assignment) instead of scanning every
-  // submission. The set self-heals when it drifts from the real count.
-  const assignmentIds = targetAssignments.map(a => a.id);
-  const { sets: submittedMap } = await getSubmitterSets(assignmentIds);
+  // Expected submitters = students enrolled in the assignment's subject now.
+  // Both subjects share every room, so the roster goes by enrolment, not room.
+  // That roster only describes the active term (and ทุกเทอม); for an earlier
+  // term report the submitted count alone.
+  const active = await getActiveTerm();
+  const pastTerm = termKey !== '' && termKey !== `${active.academicYear}/${active.term}`;
+  const students = await getAllStudents();
 
-  // (students come from the shared cache → not counted here)
-
-  const stats: AssignmentStat[] = targetAssignments.map(a => {
-    // Students expected to submit = everyone in the assignment's SUBJECT.
-    const rooms = new Set(subjectClassIds.get(a.subjectId ?? '') ?? []);
-    const classStudents = students.filter(s => rooms.has(s.classId));
-    const submittedSet = submittedMap.get(a.id) ?? new Set<string>();
-    // Count only students currently in the subject — a submitter who has since
-    // left shouldn't inflate the count. Guarantees submitted + notSubmitted ===
-    // totalStudents.
-    const submittedInClass = classStudents.filter(s => submittedSet.has(s.uid));
-    const notSubmitted = classStudents.filter(s => !submittedSet.has(s.uid));
-    return {
-      assignmentId: a.id,
-      title: a.title,
-      totalStudents: classStudents.length,
-      submitted: submittedInClass.length,
-      notSubmitted: notSubmitted.length,
-      notSubmittedNames: notSubmitted.map(s => ({ uid: s.uid, name: s.name, classId: s.classId })),
-    };
-  });
-
-  return stats;
+  return targetAssignments
+    .map(a => {
+      const submittedSet = submittedMap.get(a.id) ?? new Set<string>();
+      if (pastTerm) {
+        return {
+          assignmentId: a.id, title: a.title, isOpen: a.isOpen,
+          totalStudents: submittedSet.size, submitted: submittedSet.size,
+          notSubmitted: 0, notSubmittedNames: [], pastTerm: true,
+        };
+      }
+      const enrolled = students.filter(s => s.subjectId === a.subjectId);
+      const notSubmitted = enrolled.filter(s => !submittedSet.has(s.uid));
+      return {
+        assignmentId: a.id, title: a.title, isOpen: a.isOpen,
+        totalStudents: enrolled.length,
+        submitted: enrolled.length - notSubmitted.length,
+        notSubmitted: notSubmitted.length,
+        notSubmittedNames: notSubmitted.map(s => ({ uid: s.uid, name: s.displayName, classId: s.classId })),
+        pastTerm: false,
+      };
+    })
+    // Locked work nobody submitted in this term can't be submitted yet (or was
+    // last term's) — listing it as "ค้าง" everyone would be noise.
+    .filter(st => st.isOpen || st.submitted > 0)
+    .map(({ isOpen: _open, ...st }) => { void _open; return st; });
 }
