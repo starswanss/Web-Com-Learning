@@ -10,8 +10,8 @@ interface AssignmentOverview {
   id: string;
   title: string;
   contentType: ContentType;
-  academicYear: number | null;
-  term: number | null;
+  /** false = locked by the teacher (students can't see it). */
+  isOpen: boolean;
   unit: string | null;
   dueDate: { _seconds: number } | null;
   classIds: string[];
@@ -20,6 +20,8 @@ interface AssignmentOverview {
   gradedCount: number;
   reviewedCount: number;
   totalSubmissions: number;
+  /** Students enrolled in the subject — only for the active term. */
+  enrolled: number | null;
 }
 
 const TYPE_FILTERS: { key: ContentType | 'all'; label: string }[] = [
@@ -37,23 +39,31 @@ export default function TeacherOverviewPage() {
   const [typeFilter, setTypeFilter] = useState<ContentType | 'all'>('all');
   const [pendingOnly, setPendingOnly] = useState(false);
   const [term, setTerm] = useState<string | undefined>(undefined); // '' = ทุกเทอม
+  const [showLocked, setShowLocked] = useState(false);
 
+  // Worksheets are reused every term and carry no term of their own; the API
+  // lists them all and counts only the submissions made in the selected term.
   useEffect(() => {
-    if (profile?.role !== 'teacher') return;
+    if (profile?.role !== 'teacher' || term === undefined) return;
     const saved = localStorage.getItem('lms_subject');
     const sub = saved ? JSON.parse(saved) : null;
     setSubject(sub);
-    const url = sub ? `/api/teacher/overview?subject=${sub.id}` : '/api/teacher/overview';
-    fetch(url)
+    const qs = new URLSearchParams({ term });
+    if (sub) qs.set('subject', sub.id);
+    setFetching(true);
+    fetch(`/api/teacher/overview?${qs}`)
       .then((r) => r.json())
-      .then((data) => setAssignments(Array.isArray(data) ? data : []))
+      .then((data) => setAssignments(Array.isArray(data?.assignments) ? data.assignments : []))
       .finally(() => setFetching(false));
-  }, [profile]);
+  }, [profile, term]);
 
   if (loading || !profile) return <Spinner />;
 
-  const termKey = (a: AssignmentOverview) => (a.academicYear && a.term ? `${a.academicYear}/${a.term}` : '');
-  const byTerm = term ? assignments.filter((a) => termKey(a) === term) : assignments;
+  // Locked work nobody submitted in this term is clutter (e.g. last term's
+  // units not yet reopened) — hidden unless asked for.
+  const isIdleLocked = (a: AssignmentOverview) => !a.isOpen && a.totalSubmissions === 0;
+  const hiddenLocked = assignments.filter(isIdleLocked).length;
+  const byTerm = showLocked ? assignments : assignments.filter((a) => !isIdleLocked(a));
   const byType = typeFilter === 'all' ? byTerm : byTerm.filter((a) => a.contentType === typeFilter);
   const filtered = pendingOnly ? byType.filter((a) => a.submittedCount + a.gradedCount > 0) : byType;
   const totalSubmissions = byType.reduce((a, b) => a + b.totalSubmissions, 0);
@@ -124,6 +134,16 @@ export default function TeacherOverviewPage() {
               </span>
             )}
           </button>
+          {hiddenLocked > 0 || showLocked ? (
+            <button
+              onClick={() => setShowLocked((v) => !v)}
+              className={`ml-auto rounded-xl border px-4 py-1.5 text-xs font-medium transition-all ${
+                showLocked ? 'border-slate-500 bg-slate-500/10 text-slate-300' : 'border-slate-700 text-slate-500 hover:border-slate-600'
+              }`}
+            >
+              🔒 {showLocked ? 'ซ่อนงานที่ล็อก' : `แสดงงานที่ล็อก (${hiddenLocked})`}
+            </button>
+          ) : null}
         </div>
 
         {/* Type filter */}
@@ -188,15 +208,25 @@ function OverviewCard({ assignment: a }: { assignment: AssignmentOverview }) {
                 {a.unit}
               </span>
             )}
+            {!a.isOpen && (
+              <span className="rounded-full border border-slate-700 bg-slate-800 px-2 py-0.5 text-xs text-slate-500">
+                🔒 ล็อก
+              </span>
+            )}
           </div>
 
           <h3 className="font-medium text-slate-100 truncate">{a.title}</h3>
 
           {/* Status breakdown */}
           <div className="mt-3 flex flex-wrap items-center gap-x-4 gap-y-1 text-xs">
-            <span className="text-slate-400">
-              <span className="font-semibold text-slate-200">{total}</span> ส่งแล้ว
-            </span>
+            {a.contentType === 'knowledge' ? (
+              <span className="text-slate-500">ใบความรู้ — ไม่ต้องส่ง</span>
+            ) : (
+              <span className="text-slate-400">
+                ส่งแล้ว <span className="font-semibold text-slate-200">{total}</span>
+                {a.enrolled != null && <> / {a.enrolled} คน</>}
+              </span>
+            )}
             {a.submittedCount > 0 && (
               <span className="flex items-center gap-1 text-amber-400">
                 <span className="h-1.5 w-1.5 rounded-full bg-amber-500" />

@@ -16,7 +16,7 @@ async function getTeacherUid(): Promise<string | null> {
   } catch { return null; }
 }
 
-/** The distinct terms present in this teacher's assignments + the active term. */
+/** The distinct terms in this teacher's assignments and their submissions, + the active term. */
 export async function GET() {
   const uid = await getTeacherUid();
   if (!uid) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
@@ -29,6 +29,16 @@ export async function GET() {
     const termSet = new Set(
       assignSnap.docs.map((d) => termKeyOf({ academicYear: d.data().academicYear, term: d.data().term })).filter(Boolean)
     );
+    // Worksheets are reused every term and usually carry no term; the term
+    // lives on each submission, so list every term work was submitted in.
+    const ids = assignSnap.docs.map((d) => d.id);
+    for (let i = 0; i < ids.length; i += 30) {
+      const snap = await adminDb.collection('submissions').where('assignmentId', 'in', ids.slice(i, i + 30)).get();
+      snap.docs.forEach((d) => {
+        const k = termKeyOf({ academicYear: d.data().academicYear, term: d.data().term });
+        if (k) termSet.add(k);
+      });
+    }
 
     const cfg = cfgSnap.exists ? cfgSnap.data() : null;
     const cy = (cfg?.currentTerm?.year as number) ?? (cfg?.academicYear as number) ?? null;
