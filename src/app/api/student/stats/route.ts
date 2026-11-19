@@ -30,6 +30,10 @@ export async function GET(req: NextRequest) {
 
     const allDocs = (assignmentsSnap?.docs ?? [])
       .filter((d) => inLiveSubject(d.data(), liveSubjects))
+      // Same list as the dashboard: work the teacher has locked (e.g. last
+      // term's worksheets) is left out unless this student submitted it, so it
+      // doesn't count as missing work or drag down the submission rate.
+      .filter((d) => d.data().isOpen !== false || submissionMap.has(d.id))
       .map((d) => {
         const a = { id: d.id, ...d.data() } as Record<string, unknown>;
         const sub = submissionMap.get(d.id);
