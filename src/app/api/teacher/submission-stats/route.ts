@@ -1,7 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { adminAuth, adminDb } from '@/lib/firebase/admin';
+import { adminAuth, adminDb } from '@/lib/db/admin';
 import { cookies } from 'next/headers';
-import { trackReads, flushReadsIfDue } from '@/lib/read-tracker';
 import { cachedGlobal } from '@/lib/server-cache';
 import { getStudentsInClasses } from '@/lib/students-cache';
 import { getSubmitterSets } from '@/lib/assignment-stats';
@@ -101,12 +100,10 @@ async function computeStats(uid: string, subjectId: string | null, assignmentId:
   // small reads + one count() per assignment) instead of scanning every
   // submission. The set self-heals when it drifts from the real count.
   const assignmentIds = targetAssignments.map(a => a.id);
-  const { sets: submittedMap, reads: statReads } = await getSubmitterSets(assignmentIds);
+  const { sets: submittedMap } = await getSubmitterSets(assignmentIds);
 
   // 1 user doc + subjects + assignments + precomputed stats
   // (students come from the shared cache → not counted here)
-  trackReads(uid, 1 + subjectsSnap.size + assignmentsSnap.size + statReads);
-  await flushReadsIfDue();
 
   const stats: AssignmentStat[] = targetAssignments.map(a => {
     // Students expected to submit = everyone in the assignment's SUBJECT.

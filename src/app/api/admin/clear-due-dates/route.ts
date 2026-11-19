@@ -1,5 +1,5 @@
 import { NextResponse } from 'next/server';
-import { adminAuth, adminDb } from '@/lib/firebase/admin';
+import { adminAuth, adminDb } from '@/lib/db/admin';
 import { cookies } from 'next/headers';
 import { invalidateLeaderboards } from '@/lib/leaderboard-cache';
 

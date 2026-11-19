@@ -1,5 +1,5 @@
 import type { DocumentData } from '@/lib/db';
-import { adminDb } from '@/lib/firebase/admin';
+import { adminDb } from '@/lib/db/admin';
 
 /**
  * A student may access an assignment when their class is in the assignment's
@@ -8,7 +8,7 @@ import { adminDb } from '@/lib/firebase/admin';
  * student can always open and submit any assignment listed for their subject,
  * even one originally targeted at a subset of rooms.
  *
- * Returns the entitlement plus how many extra Firestore reads it cost (0 when
+ * Returns the entitlement plus how many extra database reads it cost (0 when
  * the fast `classIds` path matched, 1 when the subject doc had to be fetched)
  * so callers can keep their read-tracking accurate.
  */

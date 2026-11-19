@@ -1,4 +1,4 @@
-import { adminDb } from '@/lib/firebase/admin';
+import { adminDb } from '@/lib/db/admin';
 
 /**
  * The active term that the admin set (system/config.currentTerm). New student

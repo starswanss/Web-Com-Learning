@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { adminAuth, adminDb } from '@/lib/firebase/admin';
+import { adminAuth, adminDb } from '@/lib/db/admin';
 import { cookies } from 'next/headers';
 import { FieldValue } from '@/lib/db';
 import { calcXpGain } from '@/lib/xp';

@@ -1,10 +1,9 @@
 import type { Query } from '@/lib/db';
 import { NextRequest, NextResponse } from 'next/server';
-import { adminAuth, adminDb } from '@/lib/firebase/admin';
+import { adminAuth, adminDb } from '@/lib/db/admin';
 import { cookies } from 'next/headers';
 import { DEFAULT_SETTINGS, LevelSettings } from '@/lib/xp';
 import { cachedGlobal } from '@/lib/server-cache';
-import { trackReads, flushReadsIfDue } from '@/lib/read-tracker';
 
 /**
  * Combined student dashboard payload in ONE round-trip: profile xp, the
@@ -90,8 +89,6 @@ export async function GET(req: NextRequest) {
     });
 
   // 1 user doc + assignments + submissions + medals (level settings cached).
-  trackReads(student.uid, 1 + assignmentsSnap.size + submissionsSnap.size + medalsSnap.size);
-  await flushReadsIfDue();
 
   return NextResponse.json({ xp: student.xp, assignments, medals, levelSettings });
 }

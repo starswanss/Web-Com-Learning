@@ -1,7 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { adminAuth, adminDb } from '@/lib/firebase/admin';
+import { adminAuth, adminDb } from '@/lib/db/admin';
 import { cookies } from 'next/headers';
-import { trackReads, flushReadsIfDue } from '@/lib/read-tracker';
 
 async function getStudentUid(): Promise<string | null> {
   try {
@@ -45,8 +44,6 @@ export async function GET(req: NextRequest) {
 
   // Attribute the docs this request read to the student (1 per returned doc;
   // +1 if we had to read the user doc above).
-  trackReads(uid, assignmentsSnap.size + submissionsSnap.size + (classIdParam ? 0 : 1));
-  await flushReadsIfDue();
 
   const submissionMap = new Map(
     submissionsSnap.docs.map((d) => [d.data().assignmentId as string, { id: d.id, ...d.data() }])

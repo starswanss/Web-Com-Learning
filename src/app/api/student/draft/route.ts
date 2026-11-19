@@ -1,8 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { adminAuth, adminDb } from '@/lib/firebase/admin';
+import { adminAuth, adminDb } from '@/lib/db/admin';
 import { cookies } from 'next/headers';
 import { FieldValue } from '@/lib/db';
-import { trackReads, flushReadsIfDue } from '@/lib/read-tracker';
 
 /**
  * Server-side backup of a student's in-progress (unsubmitted) answers, keyed by
@@ -34,8 +33,6 @@ export async function GET(req: NextRequest) {
   if (!assignmentId) return NextResponse.json({ error: 'Missing assignmentId' }, { status: 400 });
 
   const snap = await adminDb.collection('drafts').doc(draftId(uid, assignmentId)).get();
-  trackReads(uid, 1);
-  await flushReadsIfDue();
   if (!snap.exists) return NextResponse.json(null);
   const d = snap.data()!;
   return NextResponse.json({ answers: d.answers ?? null, content: (d.content as string) ?? '' });

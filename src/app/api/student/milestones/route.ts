@@ -1,8 +1,7 @@
 import type { Query } from '@/lib/db';
 import { NextRequest, NextResponse } from 'next/server';
-import { adminAuth, adminDb } from '@/lib/firebase/admin';
+import { adminAuth, adminDb } from '@/lib/db/admin';
 import { cookies } from 'next/headers';
-import { trackReads, flushReadsIfDue } from '@/lib/read-tracker';
 
 async function getStudentProfile(): Promise<{ uid: string; classId: string; subjectId?: string } | null> {
   try {
@@ -33,8 +32,6 @@ export async function GET(req: NextRequest) {
     .sort((a: any, b: any) => (a.order ?? 0) - (b.order ?? 0));
 
   if (milestones.length === 0) {
-    trackReads(profile.uid, 1 + milestonesSnap.size); // user + milestones
-    await flushReadsIfDue();
     return NextResponse.json([]);
   }
 
@@ -45,19 +42,15 @@ export async function GET(req: NextRequest) {
 
   // Fetch student submissions for those assignments
   let completedSet = new Set<string>();
-  let subReads = 0;
   if (allIds.length > 0) {
     const subsSnap = await adminDb
       .collection('submissions')
       .where('studentId', '==', profile.uid)
       .get();
     completedSet = new Set(subsSnap.docs.map(d => d.data().assignmentId as string));
-    subReads = subsSnap.size;
   }
 
   // 1 user doc + milestones + submissions
-  trackReads(profile.uid, 1 + milestonesSnap.size + subReads);
-  await flushReadsIfDue();
 
   // Attach progress to each milestone
   const result = milestones.map((m: any) => {

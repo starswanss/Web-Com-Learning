@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { adminAuth, adminDb } from '@/lib/firebase/admin';
+import { adminAuth, adminDb } from '@/lib/db/admin';
 import { cookies } from 'next/headers';
 import { uploadToStorage } from '@/lib/storage';
 
@@ -39,6 +39,6 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ url });
   } catch (err) {
     console.error('[upload-icon] Storage error:', err instanceof Error ? err.message : err);
-    return NextResponse.json({ error: 'อัปโหลดไม่สำเร็จ ตรวจสอบการตั้งค่า Firebase Storage' }, { status: 500 });
+    return NextResponse.json({ error: 'อัปโหลดไม่สำเร็จ ตรวจสอบการตั้งค่า Google Drive' }, { status: 500 });
   }
 }

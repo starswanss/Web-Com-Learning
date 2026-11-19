@@ -1,7 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { adminAuth, adminDb } from '@/lib/firebase/admin';
+import { adminAuth, adminDb } from '@/lib/db/admin';
 import { cookies } from 'next/headers';
-import { trackReads, flushReadsIfDue } from '@/lib/read-tracker';
 import { getStudentsInClasses } from '@/lib/students-cache';
 
 async function getTeacherUid(): Promise<string | null> {
@@ -56,11 +55,9 @@ export async function GET(
   );
   const liveInfo = new Map<string, { classId: string; displayName: string; email: string }>();
   const CHUNK = 30;
-  let userReads = 0;
   for (let i = 0; i < submitterIds.length; i += CHUNK) {
     const chunk = submitterIds.slice(i, i + CHUNK);
     const usersSnap = await adminDb.collection('users').where('__name__', 'in', chunk).get();
-    userReads += usersSnap.size;
     usersSnap.docs.forEach((d) => {
       const data = d.data();
       if (data.role !== 'student') return;
@@ -93,11 +90,9 @@ export async function GET(
   // room in its subject. (The old classIds often point at rooms no current
   // student is in, which showed empty "ส่ง 0 คน" chips and hid the real room.)
   let rosterClassIds = classIds;
-  let subjectRead = 0;
   const subjectId = assignmentData.subjectId as string | undefined;
   if (subjectId) {
     const subjSnap = await adminDb.collection('subjects').doc(subjectId).get();
-    subjectRead = 1;
     const sc = (subjSnap.exists ? (subjSnap.data()?.classIds as string[]) : []) ?? [];
     if (sc.length) rosterClassIds = sc;
   }
@@ -124,8 +119,6 @@ export async function GET(
 
   // assignment + submissions + submitter user docs + optional subject
   // (roster totals are cached).
-  trackReads(uid, 2 + submissionsSnap.size + userReads + subjectRead);
-  await flushReadsIfDue();
 
   return NextResponse.json({
     assignment: { id: assignmentId, ...assignmentData },

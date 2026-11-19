@@ -1,4 +1,4 @@
-import { adminDb } from '@/lib/firebase/admin';
+import { adminDb } from '@/lib/db/admin';
 
 /**
  * From a set of student uids, return only those who are CURRENTLY enrolled:

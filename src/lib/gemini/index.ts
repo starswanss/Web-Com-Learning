@@ -1,6 +1,6 @@
 import Groq from 'groq-sdk';
 import Anthropic from '@anthropic-ai/sdk';
-import { adminDb } from '@/lib/firebase/admin';
+import { adminDb } from '@/lib/db/admin';
 import { cachedGlobal, invalidateGlobal } from '@/lib/server-cache';
 import { autoGradeFraction, SUBJECTIVE_TYPES, type GradableBlock } from '@/lib/auto-grade';
 

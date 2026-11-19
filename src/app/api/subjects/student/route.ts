@@ -1,7 +1,6 @@
 import { NextResponse } from 'next/server';
-import { adminAuth, adminDb } from '@/lib/firebase/admin';
+import { adminAuth, adminDb } from '@/lib/db/admin';
 import { cookies } from 'next/headers';
-import { trackReads, flushReadsIfDue } from '@/lib/read-tracker';
 
 export async function GET() {
   try {
@@ -33,8 +32,6 @@ export async function GET() {
       classIds: (d.data().classIds ?? []) as string[],
     }));
 
-    trackReads(decoded.uid, 1 + snap.size); // user doc + subjects
-    await flushReadsIfDue();
 
     return NextResponse.json({ classId, subjects });
   } catch (err) {

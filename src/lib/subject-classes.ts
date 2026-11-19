@@ -1,4 +1,4 @@
-import { adminDb } from '@/lib/firebase/admin';
+import { adminDb } from '@/lib/db/admin';
 import { cachedGlobal } from '@/lib/server-cache';
 
 /**

@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { adminAuth, adminDb } from '@/lib/firebase/admin';
+import { adminAuth, adminDb } from '@/lib/db/admin';
 import { FieldValue } from '@/lib/db';
 import { cookies } from 'next/headers';
 import { cachedGlobal } from '@/lib/server-cache';
@@ -70,14 +70,7 @@ export async function DELETE(req: NextRequest) {
     return NextResponse.json({ error: 'Student not found' }, { status: 404 });
   }
 
-  // Delete Firebase Auth account (best-effort — may not exist for test data)
-  try {
-    await adminAuth.deleteUser(studentUid);
-  } catch (err) {
-    console.error('[members DELETE] auth delete failed:', err);
-  }
-
-  // Delete Firestore user document
+  // Delete the user document (sign-in is Google OAuth, so there is no separate login account)
   await adminDb.collection('users').doc(studentUid).delete();
 
   // Clean up related collections

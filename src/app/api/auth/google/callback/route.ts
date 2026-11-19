@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { adminDb } from '@/lib/firebase/admin';
+import { adminDb } from '@/lib/db/admin';
 import { FieldValue } from '@/lib/db';
 import { oauthClient, appUrl, OAUTH_STATE_COOKIE } from '@/lib/auth/google';
 import { createSessionToken, sessionCookieOptions, SESSION_COOKIE } from '@/lib/auth/session';

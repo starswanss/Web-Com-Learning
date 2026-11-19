@@ -1,6 +1,6 @@
 import { NextResponse } from 'next/server';
 import { cookies } from 'next/headers';
-import { adminDb } from '@/lib/firebase/admin';
+import { adminDb } from '@/lib/db/admin';
 import { verifySessionToken, SESSION_COOKIE } from '@/lib/auth/session';
 
 /** Current user's profile, or null when signed out / session invalid. */

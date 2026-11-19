@@ -1,4 +1,4 @@
-import { adminDb } from '@/lib/firebase/admin';
+import { adminDb } from '@/lib/db/admin';
 import { FieldValue } from '@/lib/db';
 
 /**
@@ -49,7 +49,7 @@ export function deleteAssignmentStats(assignmentId: string) {
  * Submitter studentId sets for many assignments. Reads the small stats docs and
  * verifies each against a count() of the real submissions; mismatched or missing
  * ones are rebuilt by a one-time scan and rewritten. Returns the sets plus the
- * number of Firestore reads performed (for read tracking).
+ * number of database reads performed.
  */
 export async function getSubmitterSets(
   assignmentIds: string[],

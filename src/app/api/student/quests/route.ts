@@ -1,7 +1,6 @@
 import { NextResponse } from 'next/server';
-import { adminAuth, adminDb } from '@/lib/firebase/admin';
+import { adminAuth, adminDb } from '@/lib/db/admin';
 import { cookies } from 'next/headers';
-import { trackReads, flushReadsIfDue } from '@/lib/read-tracker';
 
 async function getStudent() {
   try {
@@ -97,8 +96,6 @@ export async function GET() {
   quests.sort((a, b) => Number(a.isClaimed) - Number(b.isClaimed));
 
   // 1 user doc + subjects + quests + claims read on this request
-  trackReads(student.uid, 1 + subjectsSnap.size + questDocs.length + claimsSnap.size);
-  await flushReadsIfDue();
 
   return NextResponse.json(quests);
 }

@@ -1,10 +1,9 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { adminAuth, adminDb } from '@/lib/firebase/admin';
+import { adminAuth, adminDb } from '@/lib/db/admin';
 import { uploadAssignmentAttachment } from '@/lib/storage';
 import { cookies } from 'next/headers';
 import { FieldValue } from '@/lib/db';
 import { sendLineNotify, getLineNotifyToken } from '@/lib/line-notify';
-import { trackReads, flushReadsIfDue } from '@/lib/read-tracker';
 import { invalidateLeaderboards } from '@/lib/leaderboard-cache';
 import { deleteAssignmentStats } from '@/lib/assignment-stats';
 
@@ -34,8 +33,6 @@ export async function GET(req: NextRequest) {
     .map((d) => ({ id: d.id, ...d.data() }))
     .sort((a: any, b: any) => (b.createdAt?._seconds ?? 0) - (a.createdAt?._seconds ?? 0));
 
-  trackReads(uid, 1 + snap.size); // user doc + assignments
-  await flushReadsIfDue();
 
   return NextResponse.json(assignments);
 }

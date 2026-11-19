@@ -321,11 +321,8 @@ export default function TeacherPage() {
               </div>
 
               {/* ── RIGHT: Sidebar — ordered by how often it's used day to day:
-                     ตารางสอน (now) → ปฏิทิน (due dates) → Firestore (monitoring) ── */}
+                     ตารางสอน (now) → ปฏิทิน (due dates) ── */}
               <div className="flex flex-col gap-4">
-
-                {/* Firestore usage — monitoring, so it sits last */}
-                <div className="order-3"><FirestoreUsageCard /></div>
 
                 {/* Calendar */}
                 <div className="order-2 overflow-hidden rounded-2xl border border-slate-800/80 bg-slate-900">
@@ -636,18 +633,6 @@ function AssignmentRow({
   );
 }
 
-/* Firestore daily read usage — ESTIMATED from our own per-student read-tracker
-   (readStats/{date}/students). Works on the free plan with no billing/Cloud
-   Monitoring. Students are the bulk of reads, so the self-counted total tracks
-   the real figure closely; the exact number lives in the Firebase Console. */
-interface ReadStatsData {
-  date: string;
-  total: number;
-  students: Array<{ uid: string; reads: number; displayName: string; classId: string }>;
-}
-
-const READ_LIMIT = 50000; // Spark free-tier daily reads
-
 interface AiStatusData { state: 'ok' | 'exhausted' | 'reset'; provider?: string; resetAt?: string }
 
 /**
@@ -702,115 +687,6 @@ function AiStatusBanner() {
         <p className="text-xs text-amber-400/70">
           {resetText ? `กลับมาใช้ได้อีกครั้งประมาณ ${resetText} น.` : 'กลับมาใช้ได้อีกครั้งในวันถัดไป'} · ที่ตรวจไปแล้วยังอยู่ครบ
         </p>
-      </div>
-    </div>
-  );
-}
-
-function FirestoreUsageCard() {
-  const [stats, setStats] = useState<ReadStatsData | null>(null);
-  const [loading, setLoading] = useState(true);
-  const [failed, setFailed] = useState(false);
-  const [showPerStudent, setShowPerStudent] = useState(false);
-
-  const load = useCallback(() => {
-    setLoading(true);
-    fetch('/api/teacher/read-stats')
-      .then((r) => r.json())
-      .then((j) => { if (j?.students) { setStats(j); setFailed(false); } else setFailed(true); })
-      .catch(() => setFailed(true))
-      .finally(() => setLoading(false));
-  }, []);
-
-  useEffect(() => { load(); }, [load]);
-
-  const reads = stats?.total ?? 0;
-  const pct = Math.min(100, Math.round((reads / READ_LIMIT) * 100));
-  const barColor = pct >= 90 ? 'bg-red-500' : pct >= 70 ? 'bg-amber-400' : 'bg-emerald-500';
-  const txtColor = pct >= 90 ? 'text-red-400' : pct >= 70 ? 'text-amber-400' : 'text-emerald-400';
-  const students = stats?.students ?? [];
-
-  return (
-    <div className="overflow-hidden rounded-2xl border border-slate-800/80 bg-slate-900">
-      <div className="flex items-center justify-between border-b border-slate-800/80 px-5 py-3.5">
-        <div>
-          <p className="text-[9px] font-bold uppercase tracking-widest text-slate-600">Firestore วันนี้ (ประมาณ)</p>
-          <h2 className="text-xs font-semibold text-slate-300">📊 การอ่าน</h2>
-        </div>
-        <button onClick={load} disabled={loading}
-          className="rounded-lg border border-slate-800 px-2 py-1 text-[10px] text-slate-500 transition-all hover:border-slate-700 hover:text-slate-300 disabled:opacity-50">
-          {loading ? '…' : '↻'}
-        </button>
-      </div>
-
-      <div className="p-4">
-        {failed ? (
-          <p className="py-2 text-[10px] leading-relaxed text-slate-600">
-            ยังไม่มีข้อมูลการนับวันนี้ — ตัวเลขจะขึ้นเมื่อนักเรียนเริ่มใช้งาน
-          </p>
-        ) : (
-          <>
-            <div className="mb-1.5 flex items-baseline justify-between">
-              <span className={`text-lg font-black tabular-nums ${txtColor}`}>
-                ~{reads.toLocaleString()}
-              </span>
-              <span className="text-[10px] text-slate-500">/ {READ_LIMIT.toLocaleString()} อ่าน</span>
-            </div>
-            <div className="h-2 w-full overflow-hidden rounded-full bg-slate-800">
-              <div className={`h-full rounded-full transition-all duration-700 ${barColor}`} style={{ width: `${pct}%` }} />
-            </div>
-            <div className="mt-1.5 flex items-center justify-between">
-              <span className={`text-[10px] font-bold ${txtColor}`}>~{pct}% ใช้แล้ว</span>
-              <span className="text-[9px] text-slate-600">{students.length} คน</span>
-            </div>
-            {pct >= 80 && (
-              <p className="mt-2 rounded-lg border border-red-900/50 bg-red-950/30 px-2 py-1.5 text-[10px] font-medium text-red-400">
-                ใกล้เต็มโควต้า! เว็บจะล่มเมื่อชน 100% — แนะนำอัปเกรด Blaze
-              </p>
-            )}
-            <p className="mt-2 text-[9px] leading-relaxed text-slate-700">
-              ค่าประมาณจากการนับฝั่งนักเรียน · ตัวเลขจริงดูใน Firebase Console · reset เที่ยงคืน Pacific (~บ่าย 2 ไทย)
-            </p>
-
-            {students.length > 0 && (
-              <>
-                <button onClick={() => setShowPerStudent((v) => !v)}
-                  className="mt-3 w-full rounded-lg border border-slate-800 py-1.5 text-[10px] font-semibold text-slate-400 transition-all hover:border-slate-700 hover:text-slate-200">
-                  {showPerStudent ? '▲ ซ่อนรายคน' : '▼ ดู read รายคน'}
-                </button>
-
-                {showPerStudent && (
-                  <div className="mt-2 space-y-1">
-                    {students.slice(0, 15).map((s, i) => {
-                      const max = students[0]?.reads || 1;
-                      const w = Math.max(4, Math.round((s.reads / max) * 100));
-                      return (
-                        <div key={s.uid} className="flex items-center gap-2">
-                          <span className="w-4 shrink-0 text-right text-[9px] text-slate-600">{i + 1}</span>
-                          <div className="min-w-0 flex-1">
-                            <div className="flex items-center justify-between gap-2">
-                              <span className="truncate text-[10px] text-slate-300">
-                                {s.displayName || s.uid.slice(0, 6)}
-                                {s.classId && <span className="ml-1 text-slate-600">{s.classId}</span>}
-                              </span>
-                              <span className="shrink-0 text-[10px] font-bold tabular-nums text-slate-400">{s.reads.toLocaleString()}</span>
-                            </div>
-                            <div className="mt-0.5 h-1 overflow-hidden rounded-full bg-slate-800">
-                              <div className="h-full rounded-full bg-blue-500/70" style={{ width: `${w}%` }} />
-                            </div>
-                          </div>
-                        </div>
-                      );
-                    })}
-                    {students.length > 15 && (
-                      <p className="pt-1 text-center text-[9px] text-slate-600">+ อีก {students.length - 15} คน</p>
-                    )}
-                  </div>
-                )}
-              </>
-            )}
-          </>
-        )}
       </div>
     </div>
   );

@@ -7,7 +7,7 @@
  * We only WRITE on the rare daily-limit event — never per grade — so this adds
  * no meaningful Firestore cost. State is otherwise derived from the timestamp.
  */
-import { adminDb } from '@/lib/firebase/admin';
+import { adminDb } from '@/lib/db/admin';
 import { FieldValue } from '@/lib/db';
 
 const DOC = 'system/aiStatus';
