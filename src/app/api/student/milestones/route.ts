@@ -29,41 +29,41 @@ export async function GET(req: NextRequest) {
   );
   if (!subjectId) return NextResponse.json([]);
 
-  const milestonesSnap = await adminDb.collection('milestones').where('subjectId', '==', subjectId).get();
-  const milestones = milestonesSnap.docs
-    .map(d => ({ id: d.id, ...d.data() }))
-    .sort((a: any, b: any) => (a.order ?? 0) - (b.order ?? 0));
+  // Milestones are judged only against work that is in the system now: the
+  // subject's live assignments. Requirements pointing at deleted work are
+  // dropped, so a milestone can't get stuck at "1/2" forever.
+  const [milestonesSnap, assignmentsSnap, subsSnap] = await Promise.all([
+    adminDb.collection('milestones').where('subjectId', '==', subjectId).get(),
+    adminDb.collection('assignments').where('subjectId', '==', subjectId).get(),
+    adminDb.collection('submissions').where('studentId', '==', profile.uid).get(),
+  ]);
+  const isOpen = new Map(assignmentsSnap.docs.map((d) => [d.id, d.data().isOpen !== false]));
+  const submitted = new Set(subsSnap.docs.map((d) => d.data().assignmentId as string));
 
-  if (milestones.length === 0) {
-    return NextResponse.json([]);
-  }
-
-  // Collect all required assignment ids across all milestones
-  const allIds = [...new Set(
-    milestones.flatMap((m: any) => m.requiredAssignmentIds ?? [])
-  )];
-
-  // Fetch student submissions for those assignments
-  let completedSet = new Set<string>();
-  if (allIds.length > 0) {
-    const subsSnap = await adminDb
-      .collection('submissions')
-      .where('studentId', '==', profile.uid)
-      .get();
-    completedSet = new Set(subsSnap.docs.map(d => d.data().assignmentId as string));
-  }
-
-  // Attach progress to each milestone
-  const result = milestones.map((m: any) => {
-    const required: string[] = m.requiredAssignmentIds ?? [];
-    const completedCount = required.filter(id => completedSet.has(id)).length;
-    return {
-      ...m,
-      completedCount,
-      totalRequired: required.length,
-      isComplete: required.length === 0 || completedCount >= required.length,
-    };
-  });
+  const result = milestonesSnap.docs
+    .map((d) => {
+      const m = d.data();
+      const required = ((m.requiredAssignmentIds as string[]) ?? []).filter((id) => isOpen.has(id));
+      const completedCount = required.filter((id) => submitted.has(id)).length;
+      return {
+        id: d.id,
+        title: m.title as string,
+        description: (m.description as string) ?? '',
+        icon: (m.icon as string) ?? '🎯',
+        order: (m.order as number) ?? 0,
+        requiredAssignmentIds: required,
+        completedCount,
+        totalRequired: required.length,
+        isComplete: required.length > 0 && completedCount >= required.length,
+        // Every required piece is still locked and untouched → not started yet.
+        notOpenYet: required.every((id) => !isOpen.get(id) && !submitted.has(id)),
+      };
+    })
+    // A milestone with no work left in the system, or whose work the teacher
+    // hasn't opened yet, isn't shown.
+    .filter((m) => m.totalRequired > 0 && !m.notOpenYet)
+    .map(({ notOpenYet: _hidden, ...m }) => { void _hidden; return m; })
+    .sort((a, b) => a.order - b.order);
 
   return NextResponse.json(result);
 }
