@@ -1,12 +1,13 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { adminDb } from '@/lib/db/admin';
 import { cachedGlobal } from '@/lib/server-cache';
+import { getLiveSubjectIds, inLiveSubject } from '@/lib/assignment-access';
 
 /**
  * GUEST (no login) — an assignment plus its submissions, read-only and with
  * student identities removed. Names/ids are replaced by a stable "นักเรียนคนที่ N"
  * label so visitors can view the work without seeing who submitted it.
- * Cached to protect the Firestore read quota against anonymous traffic.
+ * Cached so anonymous traffic can't hammer the database.
  */
 export async function GET(
   _req: NextRequest,
@@ -22,8 +23,10 @@ export async function GET(
       ]);
 
       if (!assignmentSnap.exists) return null;
-
       const a = assignmentSnap.data()!;
+      // Work left behind by a deleted subject isn't part of the showcase.
+      if (!inLiveSubject(a, await getLiveSubjectIds())) return null;
+      const subjectSnap = await adminDb.collection('subjects').doc(a.subjectId as string).get();
       const assignment = {
         id: assignmentId,
         title: a.title ?? '',
@@ -31,6 +34,8 @@ export async function GET(
         contentType: a.contentType ?? 'worksheet',
         blocks: a.blocks ?? [],
         isGroupWork: a.isGroupWork ?? false,
+        unit: (a.unit as string) ?? null,
+        subjectName: (subjectSnap.data()?.name as string) ?? '',
       };
 
       // Stable anonymisation: order by studentId, then label 1..N.
