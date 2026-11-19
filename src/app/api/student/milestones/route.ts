@@ -50,8 +50,6 @@ export async function GET(req: NextRequest) {
     completedSet = new Set(subsSnap.docs.map(d => d.data().assignmentId as string));
   }
 
-  // 1 user doc + milestones + submissions
-
   // Attach progress to each milestone
   const result = milestones.map((m: any) => {
     const required: string[] = m.requiredAssignmentIds ?? [];

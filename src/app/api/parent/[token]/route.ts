@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { adminDb } from '@/lib/db/admin';
+import { getLiveSubjectIds, inLiveSubject } from '@/lib/assignment-access';
 
 export async function GET(
   _req: NextRequest,
@@ -21,16 +22,17 @@ export async function GET(
 
     const { studentId, studentName, classId } = tokenData;
 
-    const [assignmentsSnap, submissionsSnap] = await Promise.all([
+    const [assignmentsSnap, submissionsSnap, liveSubjects] = await Promise.all([
       adminDb.collection('assignments').where('classIds', 'array-contains', classId).get(),
       adminDb.collection('submissions').where('studentId', '==', studentId).get(),
+      getLiveSubjectIds(),
     ]);
 
     const submissionMap = new Map(
       submissionsSnap.docs.map((d) => [d.data().assignmentId as string, { id: d.id, ...d.data() }])
     );
 
-    const assignments = assignmentsSnap.docs.map((d) => {
+    const assignments = assignmentsSnap.docs.filter((d) => inLiveSubject(d.data(), liveSubjects)).map((d) => {
       const a = d.data();
       const sub = submissionMap.get(d.id) as Record<string, unknown> | undefined;
       return {

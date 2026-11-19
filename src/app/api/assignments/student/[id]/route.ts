@@ -35,8 +35,6 @@ export async function GET(
     // with no blocks — "no questions".)
     const { entitled } = await studentCanAccessAssignment(classId, assignment);
 
-    // 2 doc reads (user + assignment) + an optional subject read.
-
     if (!entitled) {
       return NextResponse.json({ error: 'Forbidden' }, { status: 403 });
     }

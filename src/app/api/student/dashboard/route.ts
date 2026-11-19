@@ -4,6 +4,7 @@ import { adminAuth, adminDb } from '@/lib/db/admin';
 import { cookies } from 'next/headers';
 import { DEFAULT_SETTINGS, LevelSettings } from '@/lib/xp';
 import { cachedGlobal } from '@/lib/server-cache';
+import { getLiveSubjectIds, inLiveSubject } from '@/lib/assignment-access';
 
 /**
  * Combined student dashboard payload in ONE round-trip: profile xp, the
@@ -49,7 +50,7 @@ export async function GET(req: NextRequest) {
   // All independent reads in parallel; level settings comes from the shared
   // cache (usually 0 reads). Assignments belong to the subject and stay visible
   // across terms/years — they are NOT filtered by term for students.
-  const [assignmentsSnap, submissionsSnap, medalsSnap, levelSettings] = await Promise.all([
+  const [assignmentsSnap, submissionsSnap, medalsSnap, levelSettings, liveSubjects] = await Promise.all([
     assignmentsQuery.get(),
     adminDb.collection('submissions').where('studentId', '==', student.uid).get(),
     adminDb.collection('bonusPoints').where('studentId', '==', student.uid).limit(20).get(),
@@ -57,6 +58,7 @@ export async function GET(req: NextRequest) {
       const s = await adminDb.doc('levelSettings/global').get();
       return s.exists ? { ...DEFAULT_SETTINGS, ...(s.data() as Partial<LevelSettings>) } : DEFAULT_SETTINGS;
     }),
+    getLiveSubjectIds(),
   ]);
 
   const submissionMap = new Map(
@@ -64,6 +66,8 @@ export async function GET(req: NextRequest) {
   );
 
   const assignments = assignmentsSnap.docs
+    // Work left behind by a deleted subject is gone for students.
+    .filter((d) => inLiveSubject(d.data(), liveSubjects))
     .map((d) => ({ id: d.id, ...d.data(), submission: submissionMap.get(d.id) ?? null }))
     // Work the teacher has locked (isOpen === false) stays hidden until it is
     // unlocked. Work the student already submitted stays, so scores don't vanish.
@@ -87,8 +91,6 @@ export async function GET(req: NextRequest) {
         createdAt: data.createdAt?._seconds ?? null,
       };
     });
-
-  // 1 user doc + assignments + submissions + medals (level settings cached).
 
   return NextResponse.json({ xp: student.xp, assignments, medals, levelSettings });
 }

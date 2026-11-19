@@ -95,7 +95,5 @@ export async function GET() {
 
   quests.sort((a, b) => Number(a.isClaimed) - Number(b.isClaimed));
 
-  // 1 user doc + subjects + quests + claims read on this request
-
   return NextResponse.json(quests);
 }

@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { adminAuth, adminDb } from '@/lib/db/admin';
+import { getLiveSubjectIds, inLiveSubject } from '@/lib/assignment-access';
 import { cookies } from 'next/headers';
 import { calcLevel, DEFAULT_SETTINGS, LevelSettings } from '@/lib/xp';
 import { cachedGlobal } from '@/lib/server-cache';
@@ -70,7 +71,9 @@ async function computeLeaderboard(classId: string, subjectId: string | null): Pr
   if (assignmentsSnap.empty) return [];
 
   // filter by subject in JS
+  const liveSubjects = await getLiveSubjectIds();
   const assignmentIds = assignmentsSnap.docs
+    .filter((d) => inLiveSubject(d.data(), liveSubjects))
     .filter((d) => !subjectId || d.data().subjectId === subjectId)
     .map((d) => d.id);
 

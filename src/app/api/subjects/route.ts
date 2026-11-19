@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { adminAuth, adminDb } from '@/lib/db/admin';
 import { cookies } from 'next/headers';
 import { FieldValue } from '@/lib/db';
+import { invalidateLiveSubjects } from '@/lib/assignment-access';
 
 async function getTeacherUid(): Promise<string | null> {
   try {
@@ -46,6 +47,7 @@ export async function POST(req: NextRequest) {
     classIds,
     createdAt: FieldValue.serverTimestamp(),
   });
+  invalidateLiveSubjects();
 
   return NextResponse.json({ id: ref.id }, { status: 201 });
 }
@@ -88,5 +90,6 @@ export async function DELETE(req: NextRequest) {
   }
 
   await adminDb.collection('subjects').doc(id).delete();
+  invalidateLiveSubjects();
   return NextResponse.json({ ok: true });
 }

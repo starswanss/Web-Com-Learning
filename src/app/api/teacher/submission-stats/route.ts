@@ -102,7 +102,6 @@ async function computeStats(uid: string, subjectId: string | null, assignmentId:
   const assignmentIds = targetAssignments.map(a => a.id);
   const { sets: submittedMap } = await getSubmitterSets(assignmentIds);
 
-  // 1 user doc + subjects + assignments + precomputed stats
   // (students come from the shared cache → not counted here)
 
   const stats: AssignmentStat[] = targetAssignments.map(a => {

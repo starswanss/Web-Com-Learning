@@ -59,7 +59,5 @@ export async function GET(req: NextRequest) {
 
   const submission = subSnap.empty ? null : { id: subSnap.docs[0].id, ...subSnap.docs[0].data() };
 
-  // user doc + groups + members + groupSubmission
-
   return NextResponse.json({ group: { ...group, members }, submission });
 }
