@@ -11,6 +11,7 @@ interface Member {
   displayName: string;
   email: string;
   classId: string;
+  subjectId: string | null;
   onboardingComplete: boolean;
   createdAt: number | null;
   xp: number;
@@ -45,6 +46,10 @@ export default function MembersPage() {
   const [editClassId, setEditClassId] = useState('');
   const [saving, setSaving] = useState(false);
   const [saveError, setSaveError] = useState<string | null>(null);
+
+  // Subject change (saved as soon as a subject is picked)
+  const [subjectSavingUid, setSubjectSavingUid] = useState<string | null>(null);
+  const [subjectError, setSubjectError] = useState<{ uid: string; msg: string } | null>(null);
 
   // XP inline edit state
   const [xpEditingUid, setXpEditingUid] = useState<string | null>(null);
@@ -141,6 +146,31 @@ export default function MembersPage() {
       setSaveError('บันทึกไม่สำเร็จ');
     } finally {
       setSaving(false);
+    }
+  }
+
+  // ── Subject change ──
+  // Students choose a subject once at onboarding and can't change it later, so
+  // a wrong pick (e.g. the other subject, before the split) is fixed here.
+  async function changeSubject(m: Member, newSubjectId: string) {
+    if (!newSubjectId || newSubjectId === m.subjectId) return;
+    setSubjectSavingUid(m.uid);
+    setSubjectError(null);
+    try {
+      const res = await fetch('/api/teacher/members', {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ studentUid: m.uid, subjectId: newSubjectId }),
+      });
+      const d = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(d.error ?? 'บันทึกไม่สำเร็จ');
+      setMembers(prev => prev.map(x => x.uid === m.uid
+        ? { ...x, subjectId: newSubjectId, onboardingComplete: x.onboardingComplete || !!x.classId }
+        : x));
+    } catch (e) {
+      setSubjectError({ uid: m.uid, msg: e instanceof Error ? e.message : 'บันทึกไม่สำเร็จ' });
+    } finally {
+      setSubjectSavingUid(null);
     }
   }
 
@@ -323,8 +353,8 @@ export default function MembersPage() {
               ) : (
                 <div className="divide-y divide-slate-800/50">
                   {/* Column header */}
-                  <div className="grid grid-cols-[2.5rem_1fr_1fr_9rem_10rem_6rem_5rem_3rem] gap-3 px-5 py-2">
-                    {['', 'ชื่อ', 'อีเมล', 'ห้อง', 'เลเวล / XP', 'วันที่เข้าร่วม', 'สถานะ', ''].map((h, i) => (
+                  <div className="grid grid-cols-[2.5rem_1fr_1fr_9rem_11rem_10rem_6rem_5rem_3rem] gap-3 px-5 py-2">
+                    {['', 'ชื่อ', 'อีเมล', 'ห้อง', 'วิชา', 'เลเวล / XP', 'วันที่เข้าร่วม', 'สถานะ', ''].map((h, i) => (
                       <p key={i} className="text-[9px] font-bold uppercase tracking-widest text-slate-600">{h}</p>
                     ))}
                   </div>
@@ -335,7 +365,7 @@ export default function MembersPage() {
                     const lvInfo = calcLevel(m.xp, levelSettings);
                     return (
                       <div key={m.uid} className="group">
-                        <div className="grid grid-cols-[2.5rem_1fr_1fr_9rem_10rem_6rem_5rem_3rem] items-center gap-3 px-5 py-3 transition-colors hover:bg-slate-800/20">
+                        <div className="grid grid-cols-[2.5rem_1fr_1fr_9rem_11rem_10rem_6rem_5rem_3rem] items-center gap-3 px-5 py-3 transition-colors hover:bg-slate-800/20">
                           {/* Avatar */}
                           <div className="flex h-9 w-9 items-center justify-center rounded-full bg-slate-800 text-[11px] font-bold text-slate-300">
                             {initials(m.displayName)}
@@ -391,6 +421,27 @@ export default function MembersPage() {
                                 </button>
                               </>
                             )}
+                          </div>
+
+                          {/* Subject — pick to change */}
+                          <div className="min-w-0">
+                            <select
+                              value={m.subjectId ?? ''}
+                              onChange={e => changeSubject(m, e.target.value)}
+                              disabled={subjectSavingUid === m.uid}
+                              title="เปลี่ยนวิชาที่นักเรียนเรียน"
+                              className={`w-full truncate rounded-lg border bg-slate-800/60 px-2 py-1 text-[11px] focus:border-blue-500 focus:outline-none disabled:opacity-50 ${
+                                m.subjectId ? 'border-slate-700 text-slate-300' : 'border-amber-800/60 text-amber-400'
+                              }`}
+                            >
+                              {!m.subjectId && <option value="">— ยังไม่เลือกวิชา —</option>}
+                              {m.subjectId && !subjects.some(s => s.id === m.subjectId) && (
+                                <option value={m.subjectId}>(วิชาอื่น)</option>
+                              )}
+                              {subjects.map(s => <option key={s.id} value={s.id}>{s.name}</option>)}
+                            </select>
+                            {subjectSavingUid === m.uid && <p className="mt-0.5 text-[9px] text-slate-500">กำลังบันทึก…</p>}
+                            {subjectError?.uid === m.uid && <p className="mt-0.5 text-[9px] text-red-400">{subjectError.msg}</p>}
                           </div>
 
                           {/* XP / Level — inline edit */}

@@ -35,6 +35,7 @@ export async function GET(req: NextRequest) {
         displayName: (data.displayName as string) ?? '',
         email: (data.email as string) ?? '',
         classId: (data.classId as string) ?? '',
+        subjectId: (data.subjectId as string) ?? null,
         onboardingComplete: !!(data.onboardingComplete),
         createdAt: data.createdAt?._seconds ?? null,
         xp: (data.xp as number) ?? 0,
@@ -46,15 +47,11 @@ export async function GET(req: NextRequest) {
     });
   });
 
-  // Filter to the chosen subject's classes (แยกตามรายวิชา).
+  // Filter to the students ENROLLED in the chosen subject. (Both subjects share
+  // every room, so filtering by the subject's rooms kept everyone.)
   if (subjectId) {
-    const subjectDoc = await adminDb.collection('subjects').doc(subjectId).get();
-    if (subjectDoc.exists && subjectDoc.data()?.teacherId === uid) {
-      const classIds = new Set((subjectDoc.data()?.classIds as string[]) ?? []);
-      return NextResponse.json(members.filter((m) => classIds.has(m.classId)));
-    }
+    return NextResponse.json(members.filter((m) => m.subjectId === subjectId));
   }
-
   return NextResponse.json(members);
 }
 
@@ -90,25 +87,53 @@ export async function DELETE(req: NextRequest) {
   return NextResponse.json({ ok: true });
 }
 
+/**
+ * Change a student's room and/or subject. Students pick their subject once at
+ * onboarding and can't change it themselves, so a teacher fixes a wrong pick
+ * here (e.g. a student who enrolled in the other subject before the split).
+ */
 export async function PATCH(req: NextRequest) {
   const uid = await getTeacherUid();
   if (!uid) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
 
-  const { studentUid, classId } = await req.json() as { studentUid: string; classId: string };
-  if (!studentUid || !classId) {
-    return NextResponse.json({ error: 'Missing studentUid or classId' }, { status: 400 });
+  const { studentUid, classId, subjectId } = await req.json() as {
+    studentUid: string; classId?: string; subjectId?: string | null;
+  };
+  if (!studentUid || (classId === undefined && subjectId === undefined)) {
+    return NextResponse.json({ error: 'Missing studentUid, classId or subjectId' }, { status: 400 });
   }
 
   const studentDoc = await adminDb.collection('users').doc(studentUid).get();
   if (!studentDoc.exists || studentDoc.data()?.role !== 'student') {
     return NextResponse.json({ error: 'Student not found' }, { status: 404 });
   }
+  const current = studentDoc.data()!;
+  const newClassId = classId ?? (current.classId as string | undefined);
 
-  await adminDb.collection('users').doc(studentUid).update({
-    classId,
-    updatedAt: FieldValue.serverTimestamp(),
-  });
+  const updates: Record<string, unknown> = { updatedAt: FieldValue.serverTimestamp() };
+  if (classId !== undefined) {
+    if (!/^ม\.3\/([1-9]|1[0-8])$/.test(classId)) {
+      return NextResponse.json({ error: 'ห้องไม่ถูกต้อง' }, { status: 400 });
+    }
+    updates.classId = classId;
+  }
+  if (subjectId !== undefined) {
+    if (subjectId === null) {
+      updates.subjectId = FieldValue.delete();
+    } else {
+      const subj = await adminDb.collection('subjects').doc(subjectId).get();
+      if (!subj.exists) return NextResponse.json({ error: 'ไม่พบวิชานี้' }, { status: 404 });
+      const rooms = (subj.data()?.classIds as string[]) ?? [];
+      if (newClassId && !rooms.includes(newClassId)) {
+        return NextResponse.json({ error: `วิชานี้ไม่ได้เปิดให้ห้อง ${newClassId}` }, { status: 400 });
+      }
+      updates.subjectId = subjectId;
+      // Room + subject set by the teacher = enrolment done; skip onboarding.
+      if (newClassId) updates.onboardingComplete = true;
+    }
+  }
 
-  invalidateLeaderboards(); // student's class changed
+  await adminDb.collection('users').doc(studentUid).update(updates);
+  invalidateLeaderboards(); // roster, rankings and every per-subject view changed
   return NextResponse.json({ ok: true });
 }
